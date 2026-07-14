@@ -1,6 +1,7 @@
 {
   "name": "slopstack",
   "private": true,
+  "type": "module",
   "packageManager": "pnpm@11.8.0",
   "scripts": {
     "dev": "pnpm --parallel --filter @slopstack/server --filter @slopstack/web dev",

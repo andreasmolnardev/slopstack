@@ -2,7 +2,7 @@ FROM node:24-alpine AS web-build
 WORKDIR /src
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/package.json
-RUN corepack enable && pnpm install --frozen-lockfile
+RUN corepack enable && pnpm install --frozen-lockfile --ignore-scripts && pnpm rebuild esbuild
 COPY apps/web apps/web
 RUN pnpm --filter @slopstack/web build
 

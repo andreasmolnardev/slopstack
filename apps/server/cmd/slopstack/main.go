@@ -24,7 +24,7 @@ func main() {
 	app.Register(pb, config, api)
 	registerExportCommand(pb, api)
 
-	if err := pb.Execute(); err != nil {
+	if err := pb.Start(); err != nil {
 		slog.Error("server stopped", "error", err)
 		os.Exit(1)
 	}

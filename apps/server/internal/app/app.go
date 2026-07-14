@@ -2,10 +2,7 @@ package app
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
-	"sync"
-	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/pocketbase/pocketbase"
@@ -28,22 +25,6 @@ func Register(pb *pocketbase.PocketBase, config Config, api huma.API) {
 }
 
 func registerRoutes(e *core.ServeEvent, config Config, api huma.API) {
-	var limiter = newIPRateLimiter()
-	withRequest := func(next func(*core.RequestEvent) error) func(*core.RequestEvent) error {
-		return func(event *core.RequestEvent) error {
-			if !limiter.Allow(event.RealIP()) {
-				return event.TooManyRequestsError("rate limit exceeded", nil)
-			}
-			event.Response.Header().Set("X-Request-ID", requestID())
-			started := time.Now()
-			err := next(event)
-			slog.Info("request", "method", event.Request.Method, "path", event.Request.URL.Path, "status", event.Status(), "duration", time.Since(started))
-			return err
-		}
-	}
-	e.Router.GET("/api/health", withRequest(func(event *core.RequestEvent) error {
-		return event.JSON(http.StatusOK, map[string]string{"status": "ok"})
-	}))
 	e.Router.GET("/openapi.json", func(event *core.RequestEvent) error { return event.JSON(http.StatusOK, api.OpenAPI()) })
 	e.Router.GET("/openapi.yaml", func(event *core.RequestEvent) error {
 		data, err := api.OpenAPI().YAML()
@@ -57,31 +38,6 @@ func registerRoutes(e *core.ServeEvent, config Config, api huma.API) {
 	})
 	registerTodoAPI(api)
 	registerTodoRoutes(e, config)
-}
-
-func requestID() string { return time.Now().UTC().Format("20060102150405.000000000") }
-
-type ipRateLimiter struct {
-	mu      sync.Mutex
-	clients map[string]*rateEntry
-}
-type rateEntry struct {
-	count int
-	reset time.Time
-}
-
-func newIPRateLimiter() *ipRateLimiter { return &ipRateLimiter{clients: map[string]*rateEntry{}} }
-func (l *ipRateLimiter) Allow(ip string) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	now := time.Now()
-	entry := l.clients[ip]
-	if entry == nil || now.After(entry.reset) {
-		l.clients[ip] = &rateEntry{count: 1, reset: now.Add(time.Minute)}
-		return true
-	}
-	entry.count++
-	return entry.count <= 120
 }
 
 func registerTodoAPI(api huma.API) {
