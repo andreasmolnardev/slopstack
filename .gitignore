@@ -10,3 +10,4 @@ pb_data/
 apps/server/slopstack
 openapi/openapi.json
 apps/web/src/api/generated/
+*.tsbuildinfo
