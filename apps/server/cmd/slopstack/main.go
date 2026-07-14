@@ -19,6 +19,10 @@ func main() {
 	pb := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: config.StoragePath, DefaultDev: config.Development})
 	pb.RootCmd.Use = "slopstack"
 	pb.RootCmd.Short = "Slopstack application server"
+	if flag := pb.RootCmd.PersistentFlags().Lookup("http"); flag != nil {
+		flag.DefValue = config.HTTPAddress
+		_ = pb.RootCmd.PersistentFlags().Set("http", config.HTTPAddress)
+	}
 
 	api := newOpenAPI(config)
 	app.Register(pb, config, api)

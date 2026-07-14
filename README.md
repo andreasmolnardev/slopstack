@@ -9,15 +9,16 @@ pnpm install
 cp .env.example .env
 pnpm generate:api
 pnpm generate:client
-make dev
+pnpm dev
 ```
 
-Run the server separately with `go run ./apps/server/cmd/slopstack serve --http=0.0.0.0:8090`.
+`pnpm dev` starts the backend and frontend together. The backend uses `air` for hot reload and serves on `0.0.0.0:8090`; the Vite app proxies `/api` there.
+If `8090` is busy, set `SLOPSTACK_HTTP_ADDRESS=127.0.0.1:18090` before running `pnpm dev`.
 
 ## Development
 
 - `make build`, `make test`, `make lint`, and `make docker` run the standard checks.
-- `pnpm dev` starts the frontend. `pnpm generate:api` writes `openapi/openapi.json`.
+- `pnpm dev` runs both apps. `pnpm generate:api` writes `openapi/openapi.json`.
 - `pnpm generate:client` writes the ignored Hey API output under `apps/web/src/api/generated`.
 
 ## Authentication And Permissions

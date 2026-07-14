@@ -4,7 +4,9 @@
   "type": "module",
   "packageManager": "pnpm@11.8.0",
   "scripts": {
-    "dev": "pnpm --parallel --filter @slopstack/server --filter @slopstack/web dev",
+    "dev": "concurrently -k -n server,web -c green,cyan \"pnpm dev:server\" \"pnpm dev:web\"",
+    "dev:server": "sh -c 'cd apps/server && go run github.com/air-verse/air@latest -c .air.toml'",
+    "dev:web": "pnpm --filter @slopstack/web dev",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
@@ -16,6 +18,7 @@
     "@eslint/js": "^9.39.1",
     "eslint": "^9.39.1",
     "eslint-config-prettier": "^10.1.8",
+    "concurrently": "^9.2.1",
     "globals": "^16.5.0",
     "prettier": "^3.6.2",
     "typescript-eslint": "^8.47.0"
