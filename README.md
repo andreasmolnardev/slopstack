@@ -2,6 +2,8 @@
 
 Slopstack is an API-first full-stack template with an embedded PocketBase backend and a static React frontend.
 
+The task workspace is a reference module, not the product domain. Use it as a working example for replacing the React surface, adding protected API routes, evolving PocketBase schemas, and composing shadcn UI.
+
 ## Installation
 
 ```sh
@@ -36,3 +38,5 @@ The server serves `/openapi.json`, `/openapi.yaml`, and `/docs`. Export offline 
 ## Customization
 
 The Todo example is in `apps/web/src/app.tsx`. Replace it without changing backend infrastructure. Add modules through protected API routes, schemas, and generated client calls. Keep schema evolution in PocketBase migrations.
+
+See [`docs/README.md`](docs/README.md) for UI, navigation, API, auth, data model, development, and deployment guidance.

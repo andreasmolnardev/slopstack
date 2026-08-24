@@ -8,3 +8,4 @@ Read `README.md` and `PATCH.md` before making changes.
 - Run API and client generation after API changes.
 - Do not manually edit `apps/web/src/api/generated`.
 - Use Caveman communication: short words, direct facts, no needless ceremony.
+- Code should always be human readable and well-formatted and well-structured
