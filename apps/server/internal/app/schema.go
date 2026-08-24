@@ -6,15 +6,15 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-// EnsureCollections creates the small core schema on first boot. PocketBase
-// persists collection definitions, so subsequent starts leave it unchanged.
+// EnsureCollections creates the small core schema on first boot and repairs
+// required fields that may be missing from an older persisted database.
 func EnsureCollections(app core.App) error {
 	collections := []struct {
 		Name   string
 		Auth   bool
 		Fields []map[string]any
 	}{
-		{"users", true, []map[string]any{{"name": "display_name", "type": "text"}, {"name": "disabled", "type": "bool"}}},
+		{"users", true, []map[string]any{{"name": "display_name", "type": "text"}, {"name": "disabled", "type": "bool"}, {"name": "isAdmin", "type": "bool"}}},
 		{"groups", false, []map[string]any{{"name": "name", "type": "text", "required": true}, {"name": "description", "type": "text"}}},
 		{"permissions", false, []map[string]any{{"name": "name", "type": "text", "required": true}, {"name": "category", "type": "text"}}},
 		{"group_permissions", false, []map[string]any{{"name": "group", "type": "text", "required": true}, {"name": "permission", "type": "text", "required": true}}},
@@ -25,10 +25,17 @@ func EnsureCollections(app core.App) error {
 	}
 
 	for _, definition := range collections {
-		if _, err := app.FindCollectionByNameOrId(definition.Name); err == nil {
+		collection, err := app.FindCollectionByNameOrId(definition.Name)
+		if err == nil {
+			if definition.Name == "users" && collection.Fields.GetByName("isAdmin") == nil {
+				collection.Fields.Add(&core.BoolField{Name: "isAdmin"})
+				if err := app.Save(collection); err != nil {
+					return err
+				}
+			}
 			continue
 		}
-		collection := core.NewBaseCollection(definition.Name)
+		collection = core.NewBaseCollection(definition.Name)
 		if definition.Auth {
 			collection = core.NewAuthCollection(definition.Name)
 		}

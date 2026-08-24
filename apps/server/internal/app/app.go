@@ -15,11 +15,30 @@ func Register(pb *pocketbase.PocketBase, config Config, api huma.API) {
 		if err := e.Next(); err != nil {
 			return err
 		}
-		return EnsureCollections(e.App)
+		if err := EnsureCollections(e.App); err != nil {
+			return err
+		}
+		return e.App.RunAppMigrations()
 	})
+	protectUserAdminFlag(pb)
 
 	pb.OnServe().BindFunc(func(e *core.ServeEvent) error {
 		registerRoutes(e, config, api)
+		return e.Next()
+	})
+}
+
+func protectUserAdminFlag(pb *pocketbase.PocketBase) {
+	pb.OnRecordCreateRequest("users").BindFunc(func(e *core.RecordRequestEvent) error {
+		if !e.HasSuperuserAuth() {
+			e.Record.Set("isAdmin", false)
+		}
+		return e.Next()
+	})
+	pb.OnRecordUpdateRequest("users").BindFunc(func(e *core.RecordRequestEvent) error {
+		if !e.HasSuperuserAuth() {
+			e.Record.Set("isAdmin", e.Record.Original().GetBool("isAdmin"))
+		}
 		return e.Next()
 	})
 }

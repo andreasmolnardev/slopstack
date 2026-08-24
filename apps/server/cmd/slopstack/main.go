@@ -12,6 +12,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/pocketbase/pocketbase"
 	"github.com/slopstack/slopstack/apps/server/internal/app"
+	_ "github.com/slopstack/slopstack/apps/server/pb_migrations"
 )
 
 func main() {
