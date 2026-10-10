@@ -252,12 +252,12 @@ const componentNames = [
   'Tooltip',
 ] as const;
 
-function normalizePath(pathname: string) {
+export function normalizePath(pathname: string) {
   const normalized = pathname.replace(/\/+$/, '');
   return normalized || '/';
 }
 
-function routeForPath(pathname: string): Route {
+export function routeForPath(pathname: string): Route {
   switch (normalizePath(pathname)) {
     case '/app':
     case '/app/overview':
@@ -338,26 +338,26 @@ type AuthIdentity = {
   isAdmin?: boolean;
 };
 
-function getUserName(user: unknown) {
+export function getUserName(user: unknown) {
   const identity = user && typeof user === 'object' ? (user as AuthIdentity) : undefined;
   const name = identity?.display_name?.trim() || identity?.name?.trim();
   if (name) return name;
   return identity?.email?.split('@')[0] || '';
 }
 
-function getUserInitials(name: string) {
+export function getUserInitials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length > 1) return `${parts[0][0]}${parts.at(-1)?.[0]}`.toUpperCase();
   return name.slice(0, 2).toUpperCase();
 }
 
-function formatDate(value: string) {
+export function formatDate(value: string) {
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(
     new Date(`${value}T12:00:00`),
   );
 }
 
-function priorityClass(priority: Priority) {
+export function priorityClass(priority: Priority) {
   return priority === 'High'
     ? 'bg-rose-100 text-rose-700'
     : priority === 'Medium'
