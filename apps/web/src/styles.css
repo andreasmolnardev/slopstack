@@ -67,6 +67,12 @@
 }
 
 @layer base {
+  html,
+  body,
+  #root {
+    overscroll-behavior: none;
+  }
+
   * {
     @apply border-border;
   }

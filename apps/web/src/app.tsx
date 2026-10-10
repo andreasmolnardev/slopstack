@@ -525,7 +525,9 @@ export function App() {
       return <ComponentsView userInitials={userInitials} userName={userName} />;
     }
     if (view === 'icons') return <IconsView />;
-    if (view === 'profile') return <SettingsView />;
+    if (view === 'profile') {
+      return <SettingsDialog onClose={() => navigate('/app/overview')} />;
+    }
     return (
       <>
         <div className="mb-8 flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
@@ -676,7 +678,7 @@ export function App() {
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              <Tabs value={taskFilter} onValueChange={setTaskFilter} className="border-b px-6 pt-4">
+              <Tabs value={taskFilter} onValueChange={setTaskFilter} className="border-b px-3 pt-2">
                 <TabsList>
                   <TabsTrigger value="all">
                     All <span className="ml-1 text-muted-foreground">{tasks.length}</span>
@@ -702,7 +704,7 @@ export function App() {
                   />
                 ))}
                 {visibleTasks.length === 0 && (
-                  <div className="p-10 text-center text-sm text-muted-foreground">
+                  <div className="p-5 text-center text-sm text-muted-foreground">
                     No tasks match current filter.
                   </div>
                 )}
@@ -762,9 +764,9 @@ export function App() {
 
   return (
     <main className="h-screen overflow-hidden bg-background text-foreground">
-      <div className="mx-auto flex h-full max-w-[1600px]">
-        <aside className="hidden h-full w-64 shrink-0 flex-col border-r bg-card px-4 py-6 lg:flex">
-          <div className="flex items-center gap-3 px-3">
+      <div className="flex h-full w-full">
+        <aside className="hidden h-full w-64 shrink-0 flex-col border-r bg-card px-2 py-3 lg:flex">
+          <div className="flex items-center gap-3 px-2">
             <div className="flex size-9 items-center justify-center rounded-xl bg-slate-950 text-white">
               <Check className="size-5" />
             </div>
@@ -775,7 +777,7 @@ export function App() {
               </p>
             </div>
           </div>
-          <div className="mt-10 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          <div className="mt-6 px-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
             Workspace
           </div>
           <nav className="mt-3 grid gap-1" aria-label="Workspace navigation">
@@ -791,7 +793,7 @@ export function App() {
               </Button>
             ))}{' '}
           </nav>
-          <div className="mt-9 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          <div className="mt-6 px-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
             Manage
           </div>
           <nav className="mt-3 grid gap-1">
@@ -833,10 +835,10 @@ export function App() {
               </Button>
             )}
           </nav>
-          <SidebarTools />
-          <div className="mt-auto pt-24">
+          <div className="mt-auto pt-8">
+            <SidebarTools />
             <Separator className="mb-5" />
-            <div className="flex items-center gap-3 px-2">
+            <div className="flex items-center gap-3 px-1">
               <Avatar>
                 <AvatarFallback className="bg-orange-100 text-orange-700">
                   {userInitials}
@@ -853,46 +855,21 @@ export function App() {
           </div>
         </aside>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card/90 px-5 backdrop-blur sm:px-8">
-            <div className="flex items-center gap-3 lg:hidden">
-              <div className="flex size-8 items-center justify-center rounded-lg bg-slate-950 text-white">
-                <Check className="size-4" />
-              </div>
-              <span className="font-semibold">Slopstack</span>
-            </div>
-            <div className="hidden items-center gap-2 text-sm text-muted-foreground lg:flex">
-              {view === 'profile' ? (
-                <>
-                  <span>Manage</span>
-                  <span>/</span>
-                  <span className="font-medium text-foreground">Settings</span>
-                </>
-              ) : (
-                <>
-                  <span>Workspace</span>
-                  <span>/</span>
-                  <span className="font-medium text-foreground">
-                    {view === 'overview' ? 'Overview' : view[0].toUpperCase() + view.slice(1)}
-                  </span>
-                </>
-              )}
-            </div>
-          </header>
           <div
             className={`min-h-0 flex-1 overflow-y-auto ${
               view === 'profile'
-                ? 'px-4 py-5 sm:px-6 lg:px-7 lg:py-6'
-                : 'px-5 py-8 sm:px-8 lg:px-10 lg:py-10'
+                ? 'px-2 py-3 sm:px-3 lg:px-4 lg:py-3'
+                : 'px-3 py-4 sm:px-5 lg:px-5 lg:py-5'
             }`}
           >
-            <div className="mx-auto max-w-7xl">{renderView()}</div>
+            <div className="w-full">{renderView()}</div>
           </div>
-          <nav className="flex shrink-0 border-t bg-card px-3 py-2 lg:hidden">
+          <nav className="flex shrink-0 border-t bg-card px-2 py-1 lg:hidden">
             {navItems.map(({ id, label, icon: Icon }) => (
               <Button
                 key={id}
                 variant={view === id ? 'secondary' : 'ghost'}
-                className="flex-1 flex-col gap-1 py-2 text-[10px]"
+                className="flex-1 flex-col gap-1 py-1 text-[10px]"
                 onClick={() => navigate(`/app/${id}`)}
               >
                 <Icon className="size-4" />
@@ -977,7 +954,7 @@ function AuthPage({
   }
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center bg-background px-5 py-10 text-foreground">
+    <main className="relative flex min-h-screen items-center justify-center bg-background px-3 py-5 text-foreground">
       <div className="absolute top-5 right-5">
         <ThemeToggle />
       </div>
@@ -1208,7 +1185,7 @@ function AdminAccessDenied({
   onSignOut: () => void;
 }) {
   return (
-    <main className="relative flex min-h-screen items-center justify-center bg-background px-5 text-center text-foreground">
+    <main className="relative flex min-h-screen items-center justify-center bg-background px-3 text-center text-foreground">
       <div className="absolute top-5 right-5">
         <ThemeToggle />
       </div>
@@ -1247,9 +1224,9 @@ function AdminDashboard({
 }) {
   return (
     <main className="h-screen overflow-hidden bg-background text-foreground">
-      <div className="mx-auto flex h-full max-w-[1600px]">
-        <aside className="hidden h-full w-64 shrink-0 flex-col border-r bg-card px-4 py-6 lg:flex">
-          <div className="flex items-center gap-3 px-3">
+      <div className="flex h-full w-full">
+        <aside className="hidden h-full w-64 shrink-0 flex-col border-r bg-card px-2 py-3 lg:flex">
+          <div className="flex items-center gap-3 px-2">
             <div className="flex size-9 items-center justify-center rounded-xl bg-slate-950 text-white">
               <UserCog className="size-5" />
             </div>
@@ -1260,7 +1237,7 @@ function AdminDashboard({
               </p>
             </div>
           </div>
-          <p className="mt-10 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          <p className="mt-6 px-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
             Administration
           </p>
           <nav className="mt-3 grid gap-1" aria-label="Admin navigation">
@@ -1281,7 +1258,7 @@ function AdminDashboard({
               SSO & security
             </Button>
           </nav>
-          <div className="mt-auto pt-24">
+          <div className="mt-auto pt-8">
             <Separator className="mb-5" />
             <Button
               variant="ghost"
@@ -1298,7 +1275,7 @@ function AdminDashboard({
           </div>
         </aside>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card/90 px-5 backdrop-blur sm:px-8">
+          <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card/90 px-3 backdrop-blur sm:px-5">
             <div className="flex items-center gap-3 lg:hidden">
               <UserCog className="size-5" />
               <span className="font-semibold">Admin console</span>
@@ -1317,12 +1294,12 @@ function AdminDashboard({
             </Button>
             <ThemeToggle />
           </header>
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-8 sm:px-8 lg:px-10 lg:py-10">
-            <div className="mx-auto max-w-7xl">
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5 lg:px-5 lg:py-5">
+            <div className="w-full">
               {section === 'users' ? <AdminUsersView /> : <AdminSsoView />}
             </div>
           </div>
-          <nav className="flex shrink-0 border-t bg-card px-3 py-2 lg:hidden">
+          <nav className="flex shrink-0 border-t bg-card px-2 py-1 lg:hidden">
             <Button
               variant={section === 'users' ? 'secondary' : 'ghost'}
               className="flex-1 gap-2"
@@ -1479,16 +1456,16 @@ function AdminUsersView() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {error && <p className="border-b px-6 py-3 text-sm text-destructive">{error}</p>}
+          {error && <p className="border-b px-3 py-2 text-sm text-destructive">{error}</p>}
           {loading ? (
-            <div className="p-10 text-center text-sm text-muted-foreground">Loading users...</div>
+            <div className="p-5 text-center text-sm text-muted-foreground">Loading users...</div>
           ) : visibleUsers.length === 0 ? (
-            <div className="p-10 text-center text-sm text-muted-foreground">No users found.</div>
+            <div className="p-5 text-center text-sm text-muted-foreground">No users found.</div>
           ) : (
             <div className="divide-y">
               {visibleUsers.map((user) => (
                 <div
-                  className="flex flex-col gap-4 px-6 py-4 sm:flex-row sm:items-center"
+                  className="flex flex-col gap-4 px-3 py-2 sm:flex-row sm:items-center"
                   key={user.id}
                 >
                   <Avatar>
@@ -1693,7 +1670,7 @@ function AdminSsoView() {
             Allow users to authenticate with a configured OAuth2 provider.
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex items-center justify-between gap-4 border-t pt-5">
+        <CardContent className="flex items-center justify-between gap-4 border-t pt-3">
           <div>
             <p className="font-medium">Enable SSO</p>
             <p className="text-sm text-muted-foreground">
@@ -1797,7 +1774,7 @@ function AdminSsoView() {
           <CardDescription>Register this URL with each identity provider.</CardDescription>
         </CardHeader>
         <CardContent>
-          <code className="block rounded-lg bg-muted p-3 text-sm">
+          <code className="block rounded-lg bg-muted p-2 text-sm">
             {window.location.origin}/api/oauth2-redirect
           </code>
         </CardContent>
@@ -1808,7 +1785,7 @@ function AdminSsoView() {
 
 function NotFoundPage({ navigate }: { navigate: (path: string, replace?: boolean) => void }) {
   return (
-    <main className="relative flex min-h-screen items-center justify-center bg-background px-5 text-center text-foreground">
+    <main className="relative flex min-h-screen items-center justify-center bg-background px-3 text-center text-foreground">
       <div className="absolute top-5 right-5">
         <ThemeToggle />
       </div>
@@ -1846,7 +1823,7 @@ function StatCard({
   };
   return (
     <Card>
-      <CardContent className="flex items-center gap-4 p-5">
+      <CardContent className="flex items-center gap-4 p-3">
         <div className={`flex size-11 items-center justify-center rounded-xl ${tones[tone]}`}>
           <Icon className="size-5" />
         </div>
@@ -1915,7 +1892,7 @@ function TasksView({
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          <Tabs value={filter} onValueChange={onFilter} className="border-b px-6 pt-4">
+          <Tabs value={filter} onValueChange={onFilter} className="border-b px-3 pt-2">
             <TabsList>
               <TabsTrigger value="all">All</TabsTrigger>
               <TabsTrigger value="active">Active</TabsTrigger>
@@ -1927,7 +1904,7 @@ function TasksView({
               <TaskRow key={task.id} task={task} onToggle={onToggle} onDelete={onDelete} />
             ))}
             {tasks.length === 0 && (
-              <div className="p-12 text-center text-sm text-muted-foreground">
+              <div className="p-6 text-center text-sm text-muted-foreground">
                 No tasks match current filter.
               </div>
             )}
@@ -1948,7 +1925,7 @@ function TaskRow({
   onDelete: (id: string) => void;
 }) {
   return (
-    <div className="group flex items-start gap-4 px-6 py-4 transition-colors hover:bg-muted/20">
+    <div className="group flex items-start gap-4 px-3 py-2 transition-colors hover:bg-muted/20">
       <Checkbox
         id={task.id}
         checked={task.completed}
@@ -2017,10 +1994,10 @@ function ScheduleView({
         }
       />
       <Card className="mb-6">
-        <CardContent className="grid gap-4 p-5 sm:grid-cols-7">
+        <CardContent className="grid gap-4 p-3 sm:grid-cols-7">
           {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, index) => (
             <div
-              className={`rounded-xl p-3 text-center ${index === 3 ? 'bg-slate-950 text-white' : 'bg-muted/40'}`}
+              className={`rounded-xl p-2 text-center ${index === 3 ? 'bg-slate-950 text-white' : 'bg-muted/40'}`}
               key={day}
             >
               <p className="text-xs opacity-70">{day}</p>
@@ -2035,7 +2012,7 @@ function ScheduleView({
       <div className="grid gap-3">
         {tasks.slice(0, 4).map((task, index) => (
           <Card key={task.id}>
-            <CardContent className="flex items-center gap-4 p-5">
+            <CardContent className="flex items-center gap-4 p-3">
               <div className="w-20 text-xs font-medium text-muted-foreground">
                 {['09:00 AM', '10:30 AM', '01:00 PM', '03:30 PM'][index]}
               </div>
@@ -2187,197 +2164,88 @@ const iconEntries: IconEntry[] = [
   { name: 'Zap', icon: Zap, category: 'Interface', keywords: 'bolt energy fast' },
 ];
 
-const iconCategories = ['All', 'Interface', 'Arrows', 'Communication', 'Files', 'People', 'Media'] as const;
-
 function IconsView() {
   const [query, setQuery] = useState('');
-  const [category, setCategory] = useState<(typeof iconCategories)[number]>('All');
-  const [selectedName, setSelectedName] = useState('Sparkles');
-  const [copied, setCopied] = useState('');
 
   const visibleIcons = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    return iconEntries.filter((entry) => {
-      const matchesCategory = category === 'All' || entry.category === category;
-      const matchesQuery =
+    return iconEntries.filter(
+      (entry) =>
         !normalizedQuery ||
-        `${entry.name} ${entry.category} ${entry.keywords}`.toLowerCase().includes(normalizedQuery);
-      return matchesCategory && matchesQuery;
-    });
-  }, [category, query]);
-
-  const selectedEntry = iconEntries.find((entry) => entry.name === selectedName) ?? iconEntries[0];
-  const SelectedIcon = selectedEntry.icon;
-
-  async function copyValue(value: string, key: string) {
-    if (!navigator.clipboard) return;
-    await navigator.clipboard.writeText(value);
-    setCopied(key);
-    window.setTimeout(() => setCopied(''), 1600);
-  }
+        `${entry.name} ${entry.category} ${entry.keywords}`.toLowerCase().includes(normalizedQuery),
+    );
+  }, [query]);
 
   return (
-    <>
-      <PageHeading
-        eyebrow="Design system"
-        title="Icons"
-        description="Browse a curated Lucide set, preview icons in context, and copy imports into your module."
-        action={
-          <Badge variant="outline" className="w-fit gap-1.5">
-            <Shapes className="size-3.5" />
-            {iconEntries.length} curated
-          </Badge>
-        }
-      />
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
-        <Card className="overflow-hidden">
-          <CardHeader className="border-b bg-muted/20 pb-4">
-            <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-              <div>
-                <CardTitle>Lucide icons</CardTitle>
-                <CardDescription>Open-source SVG icons with consistent 24px geometry.</CardDescription>
-              </div>
-              <div className="relative w-full sm:w-64">
-                <Search className="pointer-events-none absolute top-2.5 left-2.5 size-4 text-muted-foreground" />
-                <Input
-                  id="icon-search"
-                  className="pl-9"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search icons"
-                  aria-label="Search Lucide icons"
-                />
-              </div>
-            </div>
-            <Tabs value={category} onValueChange={(value) => setCategory(value as (typeof iconCategories)[number])}>
-              <TabsList className="mt-3 max-w-full overflow-x-auto">
-                {iconCategories.map((item) => (
-                  <TabsTrigger key={item} value={item}>
-                    {item}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
-          </CardHeader>
-          <CardContent className="p-4 sm:p-6">
-            <div className="mb-4 flex items-center justify-between text-xs text-muted-foreground">
-              <span>{visibleIcons.length} icons shown</span>
-              {query && <span>Matching “{query}”</span>}
-            </div>
-            {visibleIcons.length > 0 ? (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                {visibleIcons.map((entry) => {
-                  const Icon = entry.icon;
-                  const isSelected = selectedEntry.name === entry.name;
-                  return (
-                    <div
-                      key={entry.name}
-                      role="button"
-                      tabIndex={0}
-                      className={`group rounded-xl border p-3 text-left transition-colors hover:border-primary/50 hover:bg-accent/40 ${
-                        isSelected ? 'border-primary bg-accent/40' : 'bg-card'
-                      }`}
-                      onClick={() => setSelectedName(entry.name)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
-                          setSelectedName(entry.name);
-                        }
-                      }}
-                    >
-                      <div className="flex h-20 items-center justify-center rounded-lg bg-muted/45 text-foreground">
-                        <Icon className="size-8 stroke-[1.5]" />
-                      </div>
-                      <div className="mt-3 flex items-center justify-between gap-2">
-                        <span className="truncate text-xs font-medium">{entry.name}</span>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-xs"
-                          className="shrink-0 opacity-60 group-hover:opacity-100"
-                          aria-label={`Copy ${entry.name} import`}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void copyValue(`import { ${entry.name} } from 'lucide-react';`, entry.name);
-                          }}
-                        >
-                          {copied === entry.name ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="rounded-xl border border-dashed p-10 text-center text-sm text-muted-foreground">
-                No Lucide icons match your search.
+    <div className="-mx-3 -mt-4 min-h-full bg-background px-3 pb-5 text-foreground sm:-mx-5 sm:px-5 lg:-mx-5 lg:-mt-5 lg:px-5">
+      <div className="w-full">
+        <div className="pt-6 sm:pt-8">
+          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Icons</h1>
+          <div className="mt-8 flex flex-wrap items-center gap-6">
+            {query && (
+              <div className="flex items-center gap-4 rounded-full bg-card px-3 py-2 text-base font-bold uppercase tracking-wide">
+                <span>“{query}”</span>
+                <button
+                  type="button"
+                  className="flex size-4 items-center justify-center"
+                  onClick={() => setQuery('')}
+                  aria-label="Clear active icon filter"
+                >
+                  <X className="size-4 stroke-[3]" />
+                </button>
               </div>
             )}
-          </CardContent>
-        </Card>
-        <div className="grid content-start gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <SelectedIcon className="size-4 text-primary" />
-                {selectedEntry.name}
-              </CardTitle>
-              <CardDescription>{selectedEntry.category} icon preview</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex min-h-36 items-center justify-center rounded-xl border bg-muted/30">
-                <SelectedIcon className="size-14 stroke-[1.25]" />
-              </div>
-              <code className="mt-4 block overflow-x-auto rounded-lg bg-slate-950 p-3 text-xs text-slate-100">
-                {`<${selectedEntry.name} className="size-5" />`}
-              </code>
-              <Button
-                variant="outline"
-                className="mt-3 w-full gap-2"
-                onClick={() =>
-                  void copyValue(`import { ${selectedEntry.name} } from 'lucide-react';`, `detail-${selectedEntry.name}`)
-                }
-              >
-                {copied === `detail-${selectedEntry.name}` ? <Check className="size-4" /> : <Copy className="size-4" />}
-                {copied === `detail-${selectedEntry.name}` ? 'Copied import' : 'Copy import'}
-              </Button>
-            </CardContent>
-          </Card>
-          <Card className="border-primary/20 bg-primary/[0.03]">
-            <CardHeader>
-              <CardTitle className="text-base">Next icon sets</CardTitle>
-              <CardDescription>Good additions for different product surfaces.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-4 text-sm">
-              <div>
-                <p className="font-medium">Phosphor Icons</p>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  Six weights make it strong for marketing pages and expressive product states.
-                </p>
-              </div>
-              <div>
-                <p className="font-medium">Tabler Icons</p>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  Broad UI coverage with a familiar outline style and generous customization.
-                </p>
-              </div>
-              <div>
-                <p className="font-medium">Heroicons</p>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  Tight Tailwind pairing with outline and solid variants for app navigation.
-                </p>
-              </div>
-              <div>
-                <p className="font-medium">Material Symbols</p>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  Variable optical weight and fill make it useful for dense admin tools.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
+          </div>
         </div>
+
+        <div className="relative pt-3 sm:pt-4">
+          <div className="flex h-12 items-center gap-2 rounded-full border-[3px] border-input bg-card text-card-foreground transition-colors focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 sm:h-16">
+            <Search className="ml-5 size-6 shrink-0 stroke-[2.5] text-card-foreground sm:ml-7 sm:size-7" />
+            <Input
+              id="icon-search"
+              className="h-full min-w-0 flex-1 rounded-full border-0 !bg-transparent px-0 pr-12 text-base font-semibold text-card-foreground shadow-none placeholder:text-card-foreground focus-visible:border-0 focus-visible:ring-0 sm:pr-14 sm:text-xl"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search icons"
+              aria-label="Search icons"
+            />
+          </div>
+          {query && (
+            <button
+              type="button"
+              className="absolute top-1/2 right-4 flex size-8 -translate-y-1/2 items-center justify-center rounded-full bg-primary text-2xl leading-none text-primary-foreground transition-colors hover:bg-primary/90 sm:right-6"
+              onClick={() => setQuery('')}
+              aria-label="Clear icon search"
+            >
+              <X className="size-4 stroke-[3]" />
+            </button>
+          )}
+        </div>
+
+        {visibleIcons.length > 0 ? (
+          <div className="mt-10 grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-6 sm:gap-8">
+            {visibleIcons.map((entry) => {
+              const Icon = entry.icon;
+              return (
+                <button
+                  key={entry.name}
+                  type="button"
+                  className="group flex min-h-44 flex-col items-center justify-center gap-6 rounded-2xl bg-card px-2 py-3 text-center transition-transform hover:-translate-y-1 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/30"
+                  aria-label={`Select ${entry.name} icon`}
+                >
+                  <Icon className="size-10 text-primary stroke-[1.8] transition-transform group-hover:scale-105" />
+                  <span className="text-base text-muted-foreground">{entry.name.toLowerCase()}</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="mt-6 rounded-2xl bg-card p-5 text-center text-sm text-muted-foreground">
+            No icons match your search.
+          </div>
+        )}
       </div>
-    </>
+    </div>
   );
 }
 
@@ -2406,7 +2274,7 @@ function ComponentsView({ userInitials, userName }: { userInitials: string; user
               </div>
               <CardDescription>Reusable {name.toLowerCase()} primitive.</CardDescription>
             </CardHeader>
-            <CardContent className="flex min-h-32 items-center p-5">
+            <CardContent className="flex min-h-32 items-center p-3">
               <ComponentPreview name={name} userInitials={userInitials} userName={userName} />
             </CardContent>
           </Card>
@@ -2444,7 +2312,7 @@ function ComponentPreview({
                 Side panel content rendered from the component library.
               </SheetDescription>
             </SheetHeader>
-            <div className="p-4 text-sm text-muted-foreground">
+            <div className="p-2 text-sm text-muted-foreground">
               Use this panel for contextual actions and details.
             </div>
           </SheetContent>
@@ -2456,7 +2324,7 @@ function ComponentPreview({
               <DialogTitle>{name} component</DialogTitle>
               <DialogDescription>Interactive preview from the component library.</DialogDescription>
             </DialogHeader>
-            <div className="rounded-lg border bg-muted/30 p-4">
+            <div className="rounded-lg border bg-muted/30 p-2">
               <ComponentVisual name={name} userInitials={userInitials} userName={userName} />
             </div>
             <DialogFooter>
@@ -2571,8 +2439,25 @@ function Metric({ label, value, progress }: { label: string; value: string; prog
   );
 }
 
+function SettingsDialog({ onClose }: { onClose: () => void }) {
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent
+        className="h-[720px] w-[1080px] max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] overflow-hidden p-0 sm:max-w-[1080px]"
+        aria-describedby={undefined}
+      >
+        <DialogHeader className="sr-only">
+          <DialogTitle>Settings</DialogTitle>
+        </DialogHeader>
+        <SettingsView />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function SettingsView() {
   const { setTheme, theme } = useTheme();
+  const [activeCategory, setActiveCategory] = useState('notifications');
   const [notifications, setNotifications] = useState({ daily: true, event: true, team: true });
   const [mobilePush, setMobilePush] = useState(true);
   const [desktop, setDesktop] = useState(true);
@@ -2585,94 +2470,178 @@ function SettingsView() {
   }
 
   return (
-    <div className="min-w-0">
-      <div className="mx-auto max-w-[1080px]">
-            <SettingsSectionTitle title="My Notifications" />
-        <div className="flex flex-col gap-5">
-          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:gap-6">
-                <div>
-                  <h2 className="text-[19px] font-medium tracking-tight">Notify me when...</h2>
-              <div className="mt-3 grid gap-2 text-[16px] text-muted-foreground">
-                    <NotificationCheckbox
-                      checked={notifications.daily}
-                      label="Daily productivity update"
-                      onCheckedChange={(checked) => setNotification('daily', checked)}
-                    />
-                    <NotificationCheckbox
-                      checked={notifications.event}
-                      label="New event created"
-                      onCheckedChange={(checked) => setNotification('event', checked)}
-                    />
-                    <NotificationCheckbox
-                      checked={notifications.team}
-                      label="When added on new team"
-                      onCheckedChange={(checked) => setNotification('team', checked)}
-                    />
-                  </div>
+    <div className="h-full overflow-y-auto p-3 sm:p-4">
+      <div className="mx-auto flex max-w-[1080px] flex-col gap-8 lg:flex-row lg:items-start">
+      <aside className="shrink-0 lg:sticky lg:top-6 lg:w-52" aria-label="Settings categories">
+        <p className="mb-3 px-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          Settings
+        </p>
+        <nav
+          className="flex justify-start gap-1 overflow-x-auto lg:grid"
+          aria-label="Settings navigation"
+          role="tablist"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeCategory === 'notifications'}
+            className={`whitespace-nowrap rounded-lg px-2 py-1 text-left text-sm ${
+              activeCategory === 'notifications'
+                ? 'bg-secondary font-medium text-secondary-foreground'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+            }`}
+            onClick={() => setActiveCategory('notifications')}
+          >
+            <Bell className="mr-2 inline-block size-4 align-text-bottom" />
+            Notifications
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeCategory === 'appearance'}
+            className={`whitespace-nowrap rounded-lg px-2 py-1 text-left text-sm ${
+              activeCategory === 'appearance'
+                ? 'bg-secondary font-medium text-secondary-foreground'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+            }`}
+            onClick={() => setActiveCategory('appearance')}
+          >
+            <Sun className="mr-2 inline-block size-4 align-text-bottom" />
+            Appearance
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeCategory === 'security'}
+            className={`whitespace-nowrap rounded-lg px-2 py-1 text-left text-sm ${
+              activeCategory === 'security'
+                ? 'bg-secondary font-medium text-secondary-foreground'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+            }`}
+            onClick={() => setActiveCategory('security')}
+          >
+            <ShieldCheck className="mr-2 inline-block size-4 align-text-bottom" />
+            Security
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeCategory === 'language'}
+            className={`whitespace-nowrap rounded-lg px-2 py-1 text-left text-sm ${
+              activeCategory === 'language'
+                ? 'bg-secondary font-medium text-secondary-foreground'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+            }`}
+            onClick={() => setActiveCategory('language')}
+          >
+            <Globe className="mr-2 inline-block size-4 align-text-bottom" />
+            Language
+          </button>
+        </nav>
+      </aside>
+      <div className="min-w-0 flex-1">
+        {activeCategory === 'notifications' && (
+          <section>
+          <SettingsSectionTitle title="My Notifications" />
+          <div className="flex flex-col gap-5">
+            <div className="flex flex-col justify-between gap-3 sm:flex-row sm:gap-6">
+              <div>
+                <h2 className="text-[19px] font-medium tracking-tight">Notify me when...</h2>
+                <div className="mt-3 grid gap-2 text-[16px] text-muted-foreground">
+                  <NotificationCheckbox
+                    checked={notifications.daily}
+                    label="Daily productivity update"
+                    onCheckedChange={(checked) => setNotification('daily', checked)}
+                  />
+                  <NotificationCheckbox
+                    checked={notifications.event}
+                    label="New event created"
+                    onCheckedChange={(checked) => setNotification('event', checked)}
+                  />
+                  <NotificationCheckbox
+                    checked={notifications.team}
+                    label="When added on new team"
+                    onCheckedChange={(checked) => setNotification('team', checked)}
+                  />
                 </div>
-                <a className="text-[16px] text-primary hover:underline" href="#notifications">
-                  About notifications?
-                </a>
               </div>
-              <SettingsSwitchRow
-                label="Mobile push notifications"
-                description="Receive push notification whenever your organisation requires your attentions"
-                checked={mobilePush}
-                onCheckedChange={setMobilePush}
-              />
-              <SettingsSwitchRow
-                label="Desktop Notification"
-                description="Receive desktop notification whenever your organisation requires your attentions"
-                checked={desktop}
-                onCheckedChange={setDesktop}
-              />
-              <SettingsSwitchRow
-                label="Email Notification"
-                description="Receive email whenever your organisation requires your attentions"
-                checked={email}
-                onCheckedChange={setEmail}
-              />
+              <a className="text-[16px] text-primary hover:underline" href="#notifications">
+                About notifications?
+              </a>
             </div>
+            <SettingsSwitchRow
+              label="Mobile push notifications"
+              description="Receive push notification whenever your organisation requires your attentions"
+              checked={mobilePush}
+              onCheckedChange={setMobilePush}
+            />
+            <SettingsSwitchRow
+              label="Desktop Notification"
+              description="Receive desktop notification whenever your organisation requires your attentions"
+              checked={desktop}
+              onCheckedChange={setDesktop}
+            />
+            <SettingsSwitchRow
+              label="Email Notification"
+              description="Receive email whenever your organisation requires your attentions"
+              checked={email}
+              onCheckedChange={setEmail}
+            />
+          </div>
+          </section>
+        )}
 
-        <div className="mt-10">
-          <SettingsSectionTitle title="My Settings" />
+        {activeCategory !== 'notifications' && (
+          <section>
+          <SettingsSectionTitle
+            title={activeCategory[0].toUpperCase() + activeCategory.slice(1)}
+          />
           <div className="grid gap-6">
-                <SettingsSelectRow
-                  label="Appearance"
-                  description="Customize how you theams looks on your device."
-                  value={theme === 'dark' ? 'Dark' : 'Light'}
-                  options={['Light', 'Dark']}
-                  onChange={(value) => setTheme(value.toLowerCase())}
-                />
-                <SettingsSwitchRow
-                  label="Two-factor authentication"
-                  description="Keep your account secure by enabling 2FA via SMS or using a temporary one-time passcode (TOTP)."
-                  checked={twoFactor}
-                  onCheckedChange={setTwoFactor}
-                />
-                <SettingsSelectRow
-                  label="Language"
-                  description="Customize how you theams looks on your device."
-                  value={language}
-                  options={['English', 'Spanish', 'French']}
-                  onChange={setLanguage}
-                />
-              </div>
-            </div>
+            {activeCategory === 'appearance' && (
+              <SettingsSelectRow
+                label="Appearance"
+                description="Customize how you theams looks on your device."
+                value={theme === 'dark' ? 'Dark' : 'Light'}
+                options={['Light', 'Dark']}
+                onChange={(value) => setTheme(value.toLowerCase())}
+              />
+            )}
+            {activeCategory === 'security' && (
+              <SettingsSwitchRow
+                label="Two-factor authentication"
+                description="Keep your account secure by enabling 2FA via SMS or using a temporary one-time passcode (TOTP)."
+                checked={twoFactor}
+                onCheckedChange={setTwoFactor}
+              />
+            )}
+            {activeCategory === 'language' && (
+              <SettingsSelectRow
+                label="Language"
+                description="Customize how you theams looks on your device."
+                value={language}
+                options={['English', 'Spanish', 'French']}
+                onChange={setLanguage}
+              />
+            )}
+          </div>
+          </section>
+        )}
       </div>
       </div>
+    </div>
   );
 }
 
 function SidebarTools() {
   return (
-    <div className="mt-8 flex items-center gap-2 px-2">
-      <div className="relative min-w-0 flex-1">
-        <Search className="pointer-events-none absolute top-2.5 left-2.5 size-4 text-muted-foreground" />
-        <Input className="h-9 w-full pl-8" placeholder="Search" aria-label="Search" />
-      </div>
-      <Button variant="outline" size="icon-sm" aria-label="Notifications">
+    <div className="mb-5 grid gap-2 px-2">
+      <Button variant="ghost" className="justify-start gap-3 px-3" aria-label="Search">
+        <Search className="size-4" />
+        Search
+      </Button>
+      <Button variant="ghost" className="justify-start gap-3 px-3" aria-label="Notifications">
         <Bell className="size-4" />
+        Notifications
       </Button>
     </div>
   );
@@ -2755,7 +2724,7 @@ function SettingsSelectRow({
       </div>
       <div className="relative w-fit shrink-0">
         <select
-          className="h-10 min-w-28 appearance-none rounded-xl border-0 bg-muted py-1.5 pr-9 pl-3 text-[16px] text-muted-foreground outline-none focus:ring-2 focus:ring-ring"
+          className="h-10 min-w-28 appearance-none rounded-xl border-0 bg-muted py-1 pr-7 pl-2 text-[16px] text-muted-foreground outline-none focus:ring-2 focus:ring-ring"
           value={value}
           onChange={(event) => onChange(event.target.value)}
           aria-label={label}
