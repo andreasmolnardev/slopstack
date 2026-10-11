@@ -93,6 +93,9 @@ try {
     path.join(repoRoot, 'packages/create-slopstack/bin/create.js'), projectName,
   ], { cwd: tempRoot });
 
+  const ciWorkflow = await fs.readFile(path.join(projectRoot, '.github/workflows/ci.yml'), 'utf8');
+  assert.match(ciWorkflow, /pnpm check/, 'generated app must include its standard CI workflow');
+
   const slopstackYaml = path.join(projectRoot, 'slopstack.yaml');
   const openapi = path.join(projectRoot, 'openapi/openapi.json');
   const appGo = path.join(projectRoot, 'apps/server/internal/app/app.go');
@@ -109,6 +112,19 @@ try {
   await replaceOnce(appGo,
     '[]string{"/api/todos", "/api/todos/{id}"}',
     '[]string{"/api/todos", "/api/todos/{id}", "/api/entries"}');
+  const baselinePath = path.join(projectRoot, 'docs/baseline.json');
+  const baseline = JSON.parse(await fs.readFile(baselinePath, 'utf8'));
+  baseline.routes.push({
+    method: 'GET',
+    path: '/api/entries',
+    product_caller: true,
+    auth: 'required',
+    unauthenticated_status: 401,
+    source: 'apps/server/internal/app/entries.go',
+    behavior: "lists the authenticated user's entries from the entries collection",
+    openapi_operation_id: 'listEntries',
+  });
+  await fs.writeFile(baselinePath, `${JSON.stringify(baseline, null, 2)}\n`);
   await fs.writeFile(path.join(projectRoot, 'apps/server/internal/app/entries.go'), `package app
 
 import (
@@ -154,6 +170,7 @@ func listEntries(ctx context.Context, _ *struct{}) (*EntryListOutput, error) {
 
   const webRoot = path.join(projectRoot, 'apps/web');
   const webBin = path.join(webRoot, 'node_modules/.bin');
+  const workspaceBin = path.join(projectRoot, 'node_modules/.bin');
   if (process.env.SLOPSTACK_ACCEPTANCE_REUSE_NODE_MODULES === '1') {
     const sourceNodeModules = path.join(repoRoot, 'apps/web/node_modules');
     const targetNodeModules = path.join(webRoot, 'node_modules');
@@ -189,8 +206,15 @@ func listEntries(ctx context.Context, _ *struct{}) (*EntryListOutput, error) {
     return (await fs.stat(target)).isFile() ? fs.readFile(target, 'utf8') : '';
   }))).join('\n');
   assert.match(generatedText, /listEntries/, 'generated TypeScript client must expose listEntries');
-  run('type-check the generated web client', path.join(webBin, 'tsc'), ['-b'], { cwd: webRoot });
-  run('build the generated web client', path.join(webBin, 'vite'), ['build'], { cwd: webRoot });
+  if (process.env.SLOPSTACK_ACCEPTANCE_REUSE_NODE_MODULES === '1') {
+    run('lint the generated app frontend', path.join(workspaceBin, 'eslint'), ['src'], { cwd: webRoot });
+    run('test the generated app frontend', path.join(webBin, 'vitest'), ['run', '--passWithNoTests'], { cwd: webRoot });
+    run('build the generated app frontend', path.join(webBin, 'tsc'), ['-b'], { cwd: webRoot });
+    run('bundle the generated app frontend', path.join(webBin, 'vite'), ['build'], { cwd: webRoot });
+  } else {
+    run('check the generated app frontend', 'pnpm', ['check']);
+  }
+  run('verify the generated app baseline and CI toolchain', 'python3', ['scripts/check-baseline.py']);
   run('build the generated Go API', 'go', ['build', '-o', path.join(tempRoot, `${projectName}-server`), './apps/server/cmd/slopstack']);
 
   const apiPort = await freePort();

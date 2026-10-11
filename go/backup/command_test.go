@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -163,6 +164,80 @@ func TestCommandKeyImportReadsStandardInput(t *testing.T) {
 	}
 	if _, err := LoadKey(dataDir); err != nil {
 		t.Fatalf("imported key is not readable: %v", err)
+	}
+}
+
+func TestCommandOptionsPreserveEncryptedDefaultAndPositionalKeyImport(t *testing.T) {
+	dataDir := t.TempDir()
+	if _, err := CreateKey(dataDir); err != nil {
+		t.Fatal(err)
+	}
+	store := &memoryStore{}
+	command := NewCommandWithOptions(CommandOptions{
+		DataDir:             dataDir,
+		Store:               store,
+		EncryptedCreateOnly: true,
+		KeyImportMode:       KeyImportArgument,
+		CreateTempPrefix:    "taskboard_backup_",
+	})
+	output, err := executeCommand(t, command, "create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(store.created) != 1 || !store.createLocal[0] || !strings.HasPrefix(store.created[0], "taskboard_backup_") {
+		t.Fatalf("temporary backup calls = %v, local = %v", store.created, store.createLocal)
+	}
+	if len(store.archives) != 1 || !strings.HasSuffix(strings.TrimSpace(output), ".zip.enc") {
+		t.Fatalf("expected one encrypted archive, output = %q, archives = %v", output, store.archives)
+	}
+
+	importDir := t.TempDir()
+	recoveryKey, err := CreateKey(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = executeCommand(t, NewCommandWithOptions(CommandOptions{
+		DataDir:        importDir,
+		Store:          &memoryStore{},
+		KeyImportMode:  KeyImportArgument,
+		KeyInitMessage: "app-specific key message",
+	}), "key-import", recoveryKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadKey(importDir); err != nil {
+		t.Fatalf("positional recovery key was not imported: %v", err)
+	}
+}
+
+func TestCommandRestoreRestartGuardChecksLegacyAndSetsPrimary(t *testing.T) {
+	t.Setenv("APP_BACKUP_RESTORE_RESTARTED", "")
+	t.Setenv("SLOPSTACK_BACKUP_RESTORE_RESTARTED", "1")
+	store := &memoryStore{}
+	command := NewCommandWithOptions(CommandOptions{
+		DataDir:               t.TempDir(),
+		Store:                 store,
+		RestartGuardEnv:       "APP_BACKUP_RESTORE_RESTARTED",
+		LegacyRestartGuardEnv: "SLOPSTACK_BACKUP_RESTORE_RESTARTED",
+	})
+	if _, err := executeCommand(t, command, "restore", "safe.zip", "--confirm"); err != nil {
+		t.Fatal(err)
+	}
+	if store.restored != "" {
+		t.Fatalf("restore ran after legacy restart guard: %q", store.restored)
+	}
+
+	t.Setenv("SLOPSTACK_BACKUP_RESTORE_RESTARTED", "")
+	command = NewCommandWithOptions(CommandOptions{
+		DataDir:         t.TempDir(),
+		Store:           store,
+		RestartGuardEnv: "APP_BACKUP_RESTORE_RESTARTED",
+	})
+	if _, err := executeCommand(t, command, "restore", "safe.zip", "--confirm"); err != nil {
+		t.Fatal(err)
+	}
+	if os.Getenv("APP_BACKUP_RESTORE_RESTARTED") != "" {
+		t.Fatal("primary restart guard was not cleared after restore returned")
 	}
 }
 

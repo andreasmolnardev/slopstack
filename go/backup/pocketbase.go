@@ -119,9 +119,13 @@ func (s PocketBaseStore) Restore(ctx context.Context, name string, local bool) e
 }
 
 // CleanupRestoreArchives removes plaintext archives left behind when an
-// encrypted restore restarts the PocketBase process.
-func CleanupRestoreArchives(dataDir string) error {
+// encrypted restore restarts the PocketBase process. Prefixes defaults to
+// Slopstack's transient prefix; applications can pass their legacy prefixes.
+func CleanupRestoreArchives(dataDir string, prefixes ...string) error {
 	backupDir := filepath.Join(dataDir, core.LocalBackupsDirName)
+	if len(prefixes) == 0 {
+		prefixes = []string{"slopstack_restore_"}
+	}
 	entries, err := os.ReadDir(backupDir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -130,7 +134,14 @@ func CleanupRestoreArchives(dataDir string) error {
 		return fmt.Errorf("read backup directory: %w", err)
 	}
 	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "slopstack_restore_") && strings.HasSuffix(entry.Name(), ".zip") {
+		matchesPrefix := false
+		for _, prefix := range prefixes {
+			if prefix != "" && strings.HasPrefix(entry.Name(), prefix) {
+				matchesPrefix = true
+				break
+			}
+		}
+		if !entry.IsDir() && matchesPrefix && strings.HasSuffix(entry.Name(), ".zip") {
 			if err := os.Remove(filepath.Join(backupDir, entry.Name())); err != nil {
 				return fmt.Errorf("remove transient restore archive %q: %w", entry.Name(), err)
 			}

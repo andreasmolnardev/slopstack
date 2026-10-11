@@ -23,17 +23,20 @@ explicit deny is present.
 `go/backup` provides the shared `backup` CLI for PocketBase ZIP archives:
 `backup create [--encrypt]`, `backup list`, and
 `backup restore <exact-name> --confirm`, plus `key-init` and `key-import`.
-Encrypted archives retain the `SLBK1` AES-GCM envelope used by the existing
-apps. The shared command handles local or configured PocketBase backup storage;
-apps keep domain-specific JSON export formats and backup scheduling they need.
-Restore replaces live data and restarts the process, so it requires the explicit
-`--confirm` flag. Save the one-time recovery key outside the app data directory.
+`NewCommandWithOptions` preserves existing app contracts such as encrypted-only
+creation, positional or stdin key import, one-time key guidance, restore restart
+guards, transient archive prefixes, and app-supplied subcommands. The apps keep
+domain-specific JSON export formats and scheduling. Encrypted archives retain
+the `SLBK1` AES-GCM envelope, and the PocketBase adapter supports local and
+configured remote stores. Restore replaces live data and restarts the process,
+so it requires the explicit `--confirm` flag. Save the one-time recovery key
+outside the app data directory.
 
-For local coordinated development, the two app modules use a Go `replace`
-directive pointing at the sibling Slopstack checkout. That is a workspace-only
-integration setting. Hosted app CI and release builds do not provision this
-sibling checkout, so they cannot run against the current local replacement.
-Before enabling standalone hosted builds, publish a Slopstack module version,
-pin both apps to that version, and remove the local replacements. Then run the
-independent build and restore matrix from `docs/COMPATIBILITY.md`. No release or
-registry publish is performed by local development.
+The first shared runtime release is
+[`github.com/andreasmolnardev/slopstack v0.1.0`](https://github.com/andreasmolnardev/slopstack/releases/tag/v0.1.0).
+The backup compatibility additions are being prepared for v0.2.0. During
+integration, each app uses a temporary sibling `replace`; it will be removed
+after v0.2.0 is published and both apps pin that immutable version. Updating
+Slopstack does not silently change either application. Follow
+`docs/COMPATIBILITY.md` for the cross-app test matrix and remaining historical
+database validation.

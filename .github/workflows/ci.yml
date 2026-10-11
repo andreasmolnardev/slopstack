@@ -41,3 +41,4 @@ jobs:
       - run: pnpm generate:client
       - run: git diff --exit-code
       - run: python3 scripts/check-baseline.py
+      - run: pnpm acceptance:fresh-template
