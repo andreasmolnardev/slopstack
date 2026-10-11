@@ -11,5 +11,4 @@ apps/server/slopstack
 apps/server/tmp/
 tmp/
 openapi/openapi.json
-apps/web/src/api/generated/
 *.tsbuildinfo

@@ -35,7 +35,6 @@ import {
   Heart,
   Home,
   Image,
-  Inbox,
   Info,
   KeyRound,
   Link,
@@ -90,7 +89,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -103,19 +101,14 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
-import { Avatar, AvatarFallback, AvatarGroup, AvatarGroupCount } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useTheme } from 'next-themes';
 import { pb } from './api/pocketbase';
+import type { Todo } from './api/generated';
+import { useCreateTodo, useDeleteTodo, useTodos, useUpdateTodo } from './hooks/useTodos';
 
 type Priority = 'High' | 'Medium' | 'Low';
 type View = 'overview' | 'tasks' | 'schedule' | 'analytics' | 'components' | 'icons' | 'profile';
@@ -129,56 +122,9 @@ type Route =
 type Task = {
   id: string;
   title: string;
-  description: string;
   dueDate: string;
-  priority: Priority;
   completed: boolean;
-  project: string;
-  assignees: number;
 };
-
-const starterTasks: Task[] = [
-  {
-    id: 'homepage',
-    title: 'Design homepage mockups',
-    description: 'Create high-fidelity mockups for the new homepage.',
-    dueDate: '2026-08-25',
-    priority: 'High',
-    completed: false,
-    project: 'Marketing site',
-    assignees: 4,
-  },
-  {
-    id: 'content',
-    title: 'Plan social media content',
-    description: 'Build next week content themes and posting schedule.',
-    dueDate: '2026-08-26',
-    priority: 'Medium',
-    completed: false,
-    project: 'Campaign launch',
-    assignees: 3,
-  },
-  {
-    id: 'review',
-    title: 'Review analytics dashboard',
-    description: 'Check performance trends and share the weekly summary.',
-    dueDate: '2026-08-27',
-    priority: 'Low',
-    completed: true,
-    project: 'Operations',
-    assignees: 2,
-  },
-  {
-    id: 'handoff',
-    title: 'Prepare design handoff',
-    description: 'Package assets and implementation notes for engineering.',
-    dueDate: '2026-08-29',
-    priority: 'High',
-    completed: false,
-    project: 'Marketing site',
-    assignees: 5,
-  },
-];
 
 const navItems: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -352,9 +298,19 @@ export function getUserInitials(name: string) {
 }
 
 export function formatDate(value: string) {
+  if (!value) return 'No due date';
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(
     new Date(`${value}T12:00:00`),
   );
+}
+
+function taskFromTodo(todo: Todo): Task {
+  return {
+    id: todo.id,
+    title: todo.title,
+    dueDate: todo.due_date?.slice(0, 10) ?? '',
+    completed: todo.completed,
+  };
 }
 
 export function priorityClass(priority: Priority) {
@@ -365,46 +321,18 @@ export function priorityClass(priority: Priority) {
       : 'bg-sky-100 text-sky-700';
 }
 
-function PersonStack({ count }: { count: number }) {
-  return (
-    <AvatarGroup>
-      <Avatar size="sm">
-        <AvatarFallback className="bg-violet-100 text-violet-700">AM</AvatarFallback>
-      </Avatar>
-      <Avatar size="sm">
-        <AvatarFallback className="bg-orange-100 text-orange-700">JD</AvatarFallback>
-      </Avatar>
-      {count > 2 && (
-        <Avatar size="sm">
-          <AvatarFallback className="bg-emerald-100 text-emerald-700">SK</AvatarFallback>
-        </Avatar>
-      )}
-      {count > 3 && <AvatarGroupCount>{count - 3}+</AvatarGroupCount>}
-    </AvatarGroup>
-  );
-}
-
 export function App() {
   const { pathname, navigate } = useNavigation();
   const route = routeForPath(pathname);
   const [, refreshAuth] = useState(0);
-  const [tasks, setTasks] = useState<Task[]>(() => {
-    try {
-      const stored = localStorage.getItem('slopstack-reference-tasks');
-      return stored ? (JSON.parse(stored) as Task[]) : starterTasks;
-    } catch {
-      return starterTasks;
-    }
-  });
+  const todosQuery = useTodos(pb.authStore.isValid);
+  const createTodoMutation = useCreateTodo();
+  const updateTodoMutation = useUpdateTodo();
+  const deleteTodoMutation = useDeleteTodo();
+  const tasks = useMemo(() => (todosQuery.data ?? []).map(taskFromTodo), [todosQuery.data]);
   const [taskFilter, setTaskFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [newTask, setNewTask] = useState({
-    title: '',
-    description: '',
-    dueDate: '2026-08-30',
-    priority: 'Medium' as Priority,
-  });
   const isAuthenticated = pb.authStore.isValid;
   const isSuperuser = pb.authStore.record?.collectionName === '_superusers';
   const isAdmin = isSuperuser || pb.authStore.record?.isAdmin === true;
@@ -412,10 +340,6 @@ export function App() {
   useEffect(() => {
     return pb.authStore.onChange(() => refreshAuth((value) => value + 1));
   }, []);
-
-  useEffect(() => {
-    localStorage.setItem('slopstack-reference-tasks', JSON.stringify(tasks));
-  }, [tasks]);
 
   const completed = tasks.filter((task) => task.completed).length;
   const visibleTasks = useMemo(
@@ -426,11 +350,7 @@ export function App() {
           (taskFilter === 'active' && !task.completed) ||
           (taskFilter === 'completed' && task.completed);
         const query = search.trim().toLowerCase();
-        return (
-          matchesFilter &&
-          (!query ||
-            `${task.title} ${task.description} ${task.project}`.toLowerCase().includes(query))
-        );
+        return matchesFilter && (!query || task.title.toLowerCase().includes(query));
       }),
     [search, taskFilter, tasks],
   );
@@ -454,7 +374,10 @@ export function App() {
       return;
     }
     if (route.kind === 'auth' && isAuthenticated) {
-      navigate(route.mode === 'admin-login' && isSuperuser ? '/admin/users' : '/app/overview', true);
+      navigate(
+        route.mode === 'admin-login' && isSuperuser ? '/admin/users' : '/app/overview',
+        true,
+      );
     }
   }, [isAdmin, isAuthenticated, isSuperuser, navigate, pathname, route]);
 
@@ -474,35 +397,41 @@ export function App() {
     return null;
   }
 
+  if (todosQuery.isPending) {
+    return <main className="p-8 text-sm text-muted-foreground">Loading your todos…</main>;
+  }
+
+  if (todosQuery.isError) {
+    return (
+      <main className="grid min-h-screen place-content-center gap-3 p-8 text-center">
+        <h1 className="text-lg font-semibold">Could not load your todos</h1>
+        <p role="alert" className="text-sm text-destructive">
+          {todosQuery.error instanceof Error ? todosQuery.error.message : 'Please try again.'}
+        </p>
+        <Button onClick={() => void todosQuery.refetch()}>Retry</Button>
+      </main>
+    );
+  }
+
   const view = route.view;
   const user = pb.authStore.record;
   const userName = getUserName(user);
   const userInitials = getUserInitials(userName);
 
-  function addTask(event: FormEvent) {
-    event.preventDefault();
-    const title = newTask.title.trim();
-    if (!title) return;
-    setTasks((current) => [
-      {
-        id: crypto.randomUUID(),
-        title,
-        description:
-          newTask.description.trim() || 'Example task created from the reference module.',
-        dueDate: newTask.dueDate,
-        priority: newTask.priority,
-        completed: false,
-        project: 'New project',
-        assignees: 1,
-      },
-      ...current,
-    ]);
-    setNewTask({ title: '', description: '', dueDate: '2026-08-30', priority: 'Medium' });
-    setDialogOpen(false);
+  async function createTask(title: string, dueDate: string) {
+    await createTodoMutation.mutateAsync({
+      title,
+      completed: false,
+      ...(dueDate ? { due_date: dueDate } : {}),
+    });
   }
 
   function toggleTask(id: string, completed: boolean) {
-    setTasks((current) => current.map((task) => (task.id === id ? { ...task, completed } : task)));
+    updateTodoMutation.mutate({ id, body: { completed } });
+  }
+
+  function removeTask(id: string) {
+    deleteTodoMutation.mutate(id);
   }
 
   function renderView() {
@@ -511,7 +440,7 @@ export function App() {
         <TasksView
           tasks={visibleTasks}
           onToggle={toggleTask}
-          onDelete={(id) => setTasks((current) => current.filter((item) => item.id !== id))}
+          onDelete={removeTask}
           search={search}
           onSearch={setSearch}
           filter={taskFilter}
@@ -548,84 +477,10 @@ export function App() {
               <BarChart3 className="size-4" />
               View analytics
             </Button>
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-              <DialogTrigger asChild>
-                <Button className="gap-2">
-                  <Plus className="size-4" />
-                  Add task
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Add new task</DialogTitle>
-                  <DialogDescription>
-                    This form demonstrates how a feature module can compose shadcn components.
-                  </DialogDescription>
-                </DialogHeader>
-                <form id="new-task-form" onSubmit={addTask} className="grid gap-4 py-2">
-                  <div className="grid gap-2">
-                    <Label htmlFor="task-title">Task name</Label>
-                    <Input
-                      id="task-title"
-                      autoFocus
-                      value={newTask.title}
-                      onChange={(event) => setNewTask({ ...newTask, title: event.target.value })}
-                      placeholder="Design homepage mockups"
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="task-description">Description</Label>
-                    <Textarea
-                      id="task-description"
-                      value={newTask.description}
-                      onChange={(event) =>
-                        setNewTask({ ...newTask, description: event.target.value })
-                      }
-                      placeholder="What needs to happen?"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="grid gap-2">
-                      <Label htmlFor="task-due">Due date</Label>
-                      <Input
-                        id="task-due"
-                        type="date"
-                        value={newTask.dueDate}
-                        onChange={(event) =>
-                          setNewTask({ ...newTask, dueDate: event.target.value })
-                        }
-                      />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label>Priority</Label>
-                      <Select
-                        value={newTask.priority}
-                        onValueChange={(value) =>
-                          setNewTask({ ...newTask, priority: value as Priority })
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="High">High</SelectItem>
-                          <SelectItem value="Medium">Medium</SelectItem>
-                          <SelectItem value="Low">Low</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                </form>
-                <DialogFooter>
-                  <Button variant="outline" type="button" onClick={() => setDialogOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button type="submit" form="new-task-form">
-                    Create task
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
+            <Button className="gap-2" onClick={() => setDialogOpen(true)}>
+              <Plus className="size-4" />
+              Add task
+            </Button>
           </div>
         </div>
         <div className="grid gap-4 md:grid-cols-3">
@@ -658,7 +513,7 @@ export function App() {
                 <div>
                   <CardTitle>Tasks in this example</CardTitle>
                   <CardDescription>
-                    Swap this local state for generated API calls in your module.
+                    This example reads and writes your PocketBase-backed todos.
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
@@ -694,18 +549,13 @@ export function App() {
               </Tabs>
               <div className="divide-y">
                 {visibleTasks.map((task) => (
-                  <TaskRow
-                    key={task.id}
-                    task={task}
-                    onToggle={toggleTask}
-                    onDelete={(id) =>
-                      setTasks((current) => current.filter((item) => item.id !== id))
-                    }
-                  />
+                  <TaskRow key={task.id} task={task} onToggle={toggleTask} onDelete={removeTask} />
                 ))}
                 {visibleTasks.length === 0 && (
                   <div className="p-5 text-center text-sm text-muted-foreground">
-                    No tasks match current filter.
+                    {tasks.length === 0
+                      ? 'No todos yet. Add one to get started.'
+                      : 'No todos match current filter.'}
                   </div>
                 )}
               </div>
@@ -764,6 +614,12 @@ export function App() {
 
   return (
     <main className="h-screen overflow-hidden bg-background text-foreground">
+      <CreateTodoDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        onCreate={createTask}
+        isPending={createTodoMutation.isPending}
+      />
       <div className="flex h-full w-full">
         <aside className="hidden h-full w-64 shrink-0 flex-col border-r bg-card px-2 py-3 lg:flex">
           <div className="flex items-center gap-3 px-2">
@@ -862,7 +718,23 @@ export function App() {
                 : 'px-3 py-4 sm:px-5 lg:px-5 lg:py-5'
             }`}
           >
-            <div className="w-full">{renderView()}</div>
+            <div className="w-full">
+              {(createTodoMutation.isError ||
+                updateTodoMutation.isError ||
+                deleteTodoMutation.isError) && (
+                <p
+                  role="alert"
+                  className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+                >
+                  {String(
+                    createTodoMutation.error ??
+                      updateTodoMutation.error ??
+                      deleteTodoMutation.error,
+                  )}
+                </p>
+              )}
+              {renderView()}
+            </div>
           </div>
           <nav className="flex shrink-0 border-t bg-card px-2 py-1 lg:hidden">
             {navItems.map(({ id, label, icon: Icon }) => (
@@ -880,6 +752,83 @@ export function App() {
         </div>
       </div>
     </main>
+  );
+}
+
+function CreateTodoDialog({
+  open,
+  onOpenChange,
+  onCreate,
+  isPending,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCreate: (title: string, dueDate: string) => Promise<void>;
+  isPending: boolean;
+}) {
+  const [title, setTitle] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [error, setError] = useState('');
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const normalizedTitle = title.trim();
+    if (!normalizedTitle) return;
+    setError('');
+    try {
+      await onCreate(normalizedTitle, dueDate);
+      setTitle('');
+      setDueDate('');
+      onOpenChange(false);
+    } catch {
+      setError('Could not create the todo. Please try again.');
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Add new todo</DialogTitle>
+          <DialogDescription>This todo will be saved to your account.</DialogDescription>
+        </DialogHeader>
+        <form id="new-task-form" onSubmit={submit} className="grid gap-4 py-2">
+          <div className="grid gap-2">
+            <Label htmlFor="task-title">Task name</Label>
+            <Input
+              id="task-title"
+              autoFocus
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder="Plan a release"
+              required
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="task-due">Due date</Label>
+            <Input
+              id="task-due"
+              type="date"
+              value={dueDate}
+              onChange={(event) => setDueDate(event.target.value)}
+            />
+          </div>
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
+        </form>
+        <DialogFooter>
+          <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button type="submit" form="new-task-form" disabled={isPending}>
+            {isPending ? 'Creating…' : 'Create task'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1863,7 +1812,7 @@ function TasksView({
       <PageHeading
         eyebrow="Example module"
         title="Tasks"
-        description="A replaceable feature screen with filters, ownership, priorities, and due dates."
+        description="Create and manage todos saved to your account."
         action={
           <Button className="gap-2" onClick={onAdd}>
             <Plus className="size-4" />
@@ -1876,9 +1825,7 @@ function TasksView({
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
             <div>
               <CardTitle>All tasks</CardTitle>
-              <CardDescription>
-                These records are local demo state until you connect your generated API client.
-              </CardDescription>
+              <CardDescription>Todos are loaded from the authenticated API.</CardDescription>
             </div>
             <div className="relative">
               <Search className="absolute top-2.5 left-2.5 size-4 text-muted-foreground" />
@@ -1905,7 +1852,9 @@ function TasksView({
             ))}
             {tasks.length === 0 && (
               <div className="p-6 text-center text-sm text-muted-foreground">
-                No tasks match current filter.
+                {tasks.length === 0
+                  ? 'No todos yet. Add one to get started.'
+                  : 'No todos match current filter.'}
               </div>
             )}
           </div>
@@ -1939,23 +1888,14 @@ function TaskRow({
         >
           {task.title}
         </label>
-        <p className="mt-1 truncate text-xs text-muted-foreground">{task.description}</p>
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <Badge variant="outline" className={priorityClass(task.priority)}>
-            {task.priority}
-          </Badge>
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
             <Clock3 className="size-3.5" />
             {formatDate(task.dueDate)}
           </span>
-          <span className="hidden items-center gap-1 text-xs text-muted-foreground sm:flex">
-            <Inbox className="size-3.5" />
-            {task.project}
-          </span>
         </div>
       </div>
       <div className="flex items-center gap-4">
-        <PersonStack count={task.assignees} />
         <Button
           variant="ghost"
           size="icon"
@@ -2019,9 +1959,7 @@ function ScheduleView({
               <div className="h-10 w-1 rounded-full bg-slate-950" />
               <div className="flex-1">
                 <p className="font-medium">{task.title}</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {task.project} · {task.description}
-                </p>
+                <p className="mt-1 text-sm text-muted-foreground">{formatDate(task.dueDate)}</p>
               </div>
               <Checkbox
                 checked={task.completed}
@@ -2116,12 +2054,22 @@ const iconEntries: IconEntry[] = [
   { name: 'Bookmark', icon: Bookmark, category: 'Interface', keywords: 'save favorite read later' },
   { name: 'Calendar', icon: Calendar, category: 'Interface', keywords: 'date schedule event' },
   { name: 'Camera', icon: Camera, category: 'Media', keywords: 'photo capture' },
-  { name: 'CheckCircle2', icon: CheckCircle2, category: 'Interface', keywords: 'done success complete' },
+  {
+    name: 'CheckCircle2',
+    icon: CheckCircle2,
+    category: 'Interface',
+    keywords: 'done success complete',
+  },
   { name: 'Clipboard', icon: Clipboard, category: 'Files', keywords: 'copy tasks notes' },
   { name: 'Cloud', icon: Cloud, category: 'Files', keywords: 'upload storage online' },
   { name: 'Code2', icon: Code2, category: 'Interface', keywords: 'developer brackets programming' },
   { name: 'Copy', icon: Copy, category: 'Interface', keywords: 'duplicate clone paste' },
-  { name: 'CreditCard', icon: CreditCard, category: 'Interface', keywords: 'payment billing finance' },
+  {
+    name: 'CreditCard',
+    icon: CreditCard,
+    category: 'Interface',
+    keywords: 'payment billing finance',
+  },
   { name: 'Database', icon: Database, category: 'Files', keywords: 'data server storage' },
   { name: 'Download', icon: Download, category: 'Arrows', keywords: 'save export' },
   { name: 'Eye', icon: Eye, category: 'Interface', keywords: 'view visible preview' },
@@ -2140,7 +2088,12 @@ const iconEntries: IconEntry[] = [
   { name: 'Lock', icon: Lock, category: 'Interface', keywords: 'private security protected' },
   { name: 'Mail', icon: Mail, category: 'Communication', keywords: 'email message inbox' },
   { name: 'MapPin', icon: MapPin, category: 'Interface', keywords: 'location address map' },
-  { name: 'MessageCircle', icon: MessageCircle, category: 'Communication', keywords: 'chat comment talk' },
+  {
+    name: 'MessageCircle',
+    icon: MessageCircle,
+    category: 'Communication',
+    keywords: 'chat comment talk',
+  },
   { name: 'Package', icon: Package, category: 'Files', keywords: 'delivery shipment box' },
   { name: 'Pencil', icon: Pencil, category: 'Interface', keywords: 'edit write compose' },
   { name: 'Phone', icon: Phone, category: 'Communication', keywords: 'call contact' },
@@ -2148,18 +2101,38 @@ const iconEntries: IconEntry[] = [
   { name: 'Search', icon: Search, category: 'Interface', keywords: 'find query' },
   { name: 'Send', icon: Send, category: 'Communication', keywords: 'share submit message' },
   { name: 'Settings2', icon: Settings2, category: 'Interface', keywords: 'preferences configure' },
-  { name: 'ShieldCheck', icon: ShieldCheck, category: 'Interface', keywords: 'security verified safe' },
-  { name: 'ShoppingCart', icon: ShoppingCart, category: 'Interface', keywords: 'store checkout buy' },
+  {
+    name: 'ShieldCheck',
+    icon: ShieldCheck,
+    category: 'Interface',
+    keywords: 'security verified safe',
+  },
+  {
+    name: 'ShoppingCart',
+    icon: ShoppingCart,
+    category: 'Interface',
+    keywords: 'store checkout buy',
+  },
   { name: 'Sparkles', icon: Sparkles, category: 'Interface', keywords: 'magic ai new' },
   { name: 'Star', icon: Star, category: 'Interface', keywords: 'favorite rating featured' },
   { name: 'Tag', icon: Tag, category: 'Interface', keywords: 'label category metadata' },
   { name: 'Trash2', icon: Trash2, category: 'Interface', keywords: 'delete remove discard' },
-  { name: 'TriangleAlert', icon: TriangleAlert, category: 'Interface', keywords: 'warning danger error' },
+  {
+    name: 'TriangleAlert',
+    icon: TriangleAlert,
+    category: 'Interface',
+    keywords: 'warning danger error',
+  },
   { name: 'Upload', icon: Upload, category: 'Arrows', keywords: 'import add file' },
   { name: 'User', icon: User, category: 'People', keywords: 'account profile person' },
   { name: 'Users', icon: Users, category: 'People', keywords: 'team group members' },
   { name: 'Video', icon: Video, category: 'Media', keywords: 'camera recording meeting' },
-  { name: 'WandSparkles', icon: WandSparkles, category: 'Interface', keywords: 'magic ai automate' },
+  {
+    name: 'WandSparkles',
+    icon: WandSparkles,
+    category: 'Interface',
+    keywords: 'magic ai automate',
+  },
   { name: 'X', icon: X, category: 'Interface', keywords: 'close cancel remove' },
   { name: 'Zap', icon: Zap, category: 'Interface', keywords: 'bolt energy fast' },
 ];
@@ -2234,7 +2207,9 @@ function IconsView() {
                   aria-label={`Select ${entry.name} icon`}
                 >
                   <Icon className="size-10 text-primary stroke-[1.8] transition-transform group-hover:scale-105" />
-                  <span className="text-base text-muted-foreground">{entry.name.toLowerCase()}</span>
+                  <span className="text-base text-muted-foreground">
+                    {entry.name.toLowerCase()}
+                  </span>
                 </button>
               );
             })}
@@ -2472,161 +2447,161 @@ function SettingsView() {
   return (
     <div className="h-full overflow-y-auto p-3 sm:p-4">
       <div className="mx-auto flex max-w-[1080px] flex-col gap-8 lg:flex-row lg:items-start">
-      <aside className="shrink-0 lg:sticky lg:top-6 lg:w-52" aria-label="Settings categories">
-        <p className="mb-3 px-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-          Settings
-        </p>
-        <nav
-          className="flex justify-start gap-1 overflow-x-auto lg:grid"
-          aria-label="Settings navigation"
-          role="tablist"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeCategory === 'notifications'}
-            className={`whitespace-nowrap rounded-lg px-2 py-1 text-left text-sm ${
-              activeCategory === 'notifications'
-                ? 'bg-secondary font-medium text-secondary-foreground'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-            }`}
-            onClick={() => setActiveCategory('notifications')}
+        <aside className="shrink-0 lg:sticky lg:top-6 lg:w-52" aria-label="Settings categories">
+          <p className="mb-3 px-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+            Settings
+          </p>
+          <nav
+            className="flex justify-start gap-1 overflow-x-auto lg:grid"
+            aria-label="Settings navigation"
+            role="tablist"
           >
-            <Bell className="mr-2 inline-block size-4 align-text-bottom" />
-            Notifications
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeCategory === 'appearance'}
-            className={`whitespace-nowrap rounded-lg px-2 py-1 text-left text-sm ${
-              activeCategory === 'appearance'
-                ? 'bg-secondary font-medium text-secondary-foreground'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-            }`}
-            onClick={() => setActiveCategory('appearance')}
-          >
-            <Sun className="mr-2 inline-block size-4 align-text-bottom" />
-            Appearance
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeCategory === 'security'}
-            className={`whitespace-nowrap rounded-lg px-2 py-1 text-left text-sm ${
-              activeCategory === 'security'
-                ? 'bg-secondary font-medium text-secondary-foreground'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-            }`}
-            onClick={() => setActiveCategory('security')}
-          >
-            <ShieldCheck className="mr-2 inline-block size-4 align-text-bottom" />
-            Security
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeCategory === 'language'}
-            className={`whitespace-nowrap rounded-lg px-2 py-1 text-left text-sm ${
-              activeCategory === 'language'
-                ? 'bg-secondary font-medium text-secondary-foreground'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-            }`}
-            onClick={() => setActiveCategory('language')}
-          >
-            <Globe className="mr-2 inline-block size-4 align-text-bottom" />
-            Language
-          </button>
-        </nav>
-      </aside>
-      <div className="min-w-0 flex-1">
-        {activeCategory === 'notifications' && (
-          <section>
-          <SettingsSectionTitle title="My Notifications" />
-          <div className="flex flex-col gap-5">
-            <div className="flex flex-col justify-between gap-3 sm:flex-row sm:gap-6">
-              <div>
-                <h2 className="text-[19px] font-medium tracking-tight">Notify me when...</h2>
-                <div className="mt-3 grid gap-2 text-[16px] text-muted-foreground">
-                  <NotificationCheckbox
-                    checked={notifications.daily}
-                    label="Daily productivity update"
-                    onCheckedChange={(checked) => setNotification('daily', checked)}
-                  />
-                  <NotificationCheckbox
-                    checked={notifications.event}
-                    label="New event created"
-                    onCheckedChange={(checked) => setNotification('event', checked)}
-                  />
-                  <NotificationCheckbox
-                    checked={notifications.team}
-                    label="When added on new team"
-                    onCheckedChange={(checked) => setNotification('team', checked)}
-                  />
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeCategory === 'notifications'}
+              className={`whitespace-nowrap rounded-lg px-2 py-1 text-left text-sm ${
+                activeCategory === 'notifications'
+                  ? 'bg-secondary font-medium text-secondary-foreground'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              }`}
+              onClick={() => setActiveCategory('notifications')}
+            >
+              <Bell className="mr-2 inline-block size-4 align-text-bottom" />
+              Notifications
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeCategory === 'appearance'}
+              className={`whitespace-nowrap rounded-lg px-2 py-1 text-left text-sm ${
+                activeCategory === 'appearance'
+                  ? 'bg-secondary font-medium text-secondary-foreground'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              }`}
+              onClick={() => setActiveCategory('appearance')}
+            >
+              <Sun className="mr-2 inline-block size-4 align-text-bottom" />
+              Appearance
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeCategory === 'security'}
+              className={`whitespace-nowrap rounded-lg px-2 py-1 text-left text-sm ${
+                activeCategory === 'security'
+                  ? 'bg-secondary font-medium text-secondary-foreground'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              }`}
+              onClick={() => setActiveCategory('security')}
+            >
+              <ShieldCheck className="mr-2 inline-block size-4 align-text-bottom" />
+              Security
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeCategory === 'language'}
+              className={`whitespace-nowrap rounded-lg px-2 py-1 text-left text-sm ${
+                activeCategory === 'language'
+                  ? 'bg-secondary font-medium text-secondary-foreground'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              }`}
+              onClick={() => setActiveCategory('language')}
+            >
+              <Globe className="mr-2 inline-block size-4 align-text-bottom" />
+              Language
+            </button>
+          </nav>
+        </aside>
+        <div className="min-w-0 flex-1">
+          {activeCategory === 'notifications' && (
+            <section>
+              <SettingsSectionTitle title="My Notifications" />
+              <div className="flex flex-col gap-5">
+                <div className="flex flex-col justify-between gap-3 sm:flex-row sm:gap-6">
+                  <div>
+                    <h2 className="text-[19px] font-medium tracking-tight">Notify me when...</h2>
+                    <div className="mt-3 grid gap-2 text-[16px] text-muted-foreground">
+                      <NotificationCheckbox
+                        checked={notifications.daily}
+                        label="Daily productivity update"
+                        onCheckedChange={(checked) => setNotification('daily', checked)}
+                      />
+                      <NotificationCheckbox
+                        checked={notifications.event}
+                        label="New event created"
+                        onCheckedChange={(checked) => setNotification('event', checked)}
+                      />
+                      <NotificationCheckbox
+                        checked={notifications.team}
+                        label="When added on new team"
+                        onCheckedChange={(checked) => setNotification('team', checked)}
+                      />
+                    </div>
+                  </div>
+                  <a className="text-[16px] text-primary hover:underline" href="#notifications">
+                    About notifications?
+                  </a>
                 </div>
+                <SettingsSwitchRow
+                  label="Mobile push notifications"
+                  description="Receive push notification whenever your organisation requires your attentions"
+                  checked={mobilePush}
+                  onCheckedChange={setMobilePush}
+                />
+                <SettingsSwitchRow
+                  label="Desktop Notification"
+                  description="Receive desktop notification whenever your organisation requires your attentions"
+                  checked={desktop}
+                  onCheckedChange={setDesktop}
+                />
+                <SettingsSwitchRow
+                  label="Email Notification"
+                  description="Receive email whenever your organisation requires your attentions"
+                  checked={email}
+                  onCheckedChange={setEmail}
+                />
               </div>
-              <a className="text-[16px] text-primary hover:underline" href="#notifications">
-                About notifications?
-              </a>
-            </div>
-            <SettingsSwitchRow
-              label="Mobile push notifications"
-              description="Receive push notification whenever your organisation requires your attentions"
-              checked={mobilePush}
-              onCheckedChange={setMobilePush}
-            />
-            <SettingsSwitchRow
-              label="Desktop Notification"
-              description="Receive desktop notification whenever your organisation requires your attentions"
-              checked={desktop}
-              onCheckedChange={setDesktop}
-            />
-            <SettingsSwitchRow
-              label="Email Notification"
-              description="Receive email whenever your organisation requires your attentions"
-              checked={email}
-              onCheckedChange={setEmail}
-            />
-          </div>
-          </section>
-        )}
+            </section>
+          )}
 
-        {activeCategory !== 'notifications' && (
-          <section>
-          <SettingsSectionTitle
-            title={activeCategory[0].toUpperCase() + activeCategory.slice(1)}
-          />
-          <div className="grid gap-6">
-            {activeCategory === 'appearance' && (
-              <SettingsSelectRow
-                label="Appearance"
-                description="Customize how you theams looks on your device."
-                value={theme === 'dark' ? 'Dark' : 'Light'}
-                options={['Light', 'Dark']}
-                onChange={(value) => setTheme(value.toLowerCase())}
+          {activeCategory !== 'notifications' && (
+            <section>
+              <SettingsSectionTitle
+                title={activeCategory[0].toUpperCase() + activeCategory.slice(1)}
               />
-            )}
-            {activeCategory === 'security' && (
-              <SettingsSwitchRow
-                label="Two-factor authentication"
-                description="Keep your account secure by enabling 2FA via SMS or using a temporary one-time passcode (TOTP)."
-                checked={twoFactor}
-                onCheckedChange={setTwoFactor}
-              />
-            )}
-            {activeCategory === 'language' && (
-              <SettingsSelectRow
-                label="Language"
-                description="Customize how you theams looks on your device."
-                value={language}
-                options={['English', 'Spanish', 'French']}
-                onChange={setLanguage}
-              />
-            )}
-          </div>
-          </section>
-        )}
-      </div>
+              <div className="grid gap-6">
+                {activeCategory === 'appearance' && (
+                  <SettingsSelectRow
+                    label="Appearance"
+                    description="Customize how you theams looks on your device."
+                    value={theme === 'dark' ? 'Dark' : 'Light'}
+                    options={['Light', 'Dark']}
+                    onChange={(value) => setTheme(value.toLowerCase())}
+                  />
+                )}
+                {activeCategory === 'security' && (
+                  <SettingsSwitchRow
+                    label="Two-factor authentication"
+                    description="Keep your account secure by enabling 2FA via SMS or using a temporary one-time passcode (TOTP)."
+                    checked={twoFactor}
+                    onCheckedChange={setTwoFactor}
+                  />
+                )}
+                {activeCategory === 'language' && (
+                  <SettingsSelectRow
+                    label="Language"
+                    description="Customize how you theams looks on your device."
+                    value={language}
+                    options={['English', 'Spanish', 'French']}
+                    onChange={setLanguage}
+                  />
+                )}
+              </div>
+            </section>
+          )}
+        </div>
       </div>
     </div>
   );

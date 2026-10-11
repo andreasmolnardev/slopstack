@@ -35,7 +35,7 @@
     "node_modules_state": "recorded by reading apps/web/node_modules/<pkg>/package.json, i.e. the resolved install, not the declared range"
   },
   "module_identity": {
-    "go_module_path": "github.com/slopstack/slopstack",
+    "go_module_path": "github.com/andreasmolnardev/slopstack",
     "web_package_name": "@slopstack/web",
     "root_package_name": "slopstack",
     "env_prefix": "SLOPSTACK_",
@@ -98,51 +98,147 @@
       "path": "/openapi.json",
       "product_caller": false,
       "auth": "none",
-      "source": "apps/server/internal/app/app.go:47"
+      "source": "apps/server/internal/app/app.go:54"
     },
     {
       "method": "GET",
       "path": "/openapi.yaml",
       "product_caller": false,
       "auth": "none",
-      "source": "apps/server/internal/app/app.go:48"
+      "source": "apps/server/internal/app/app.go:55"
     },
     {
       "method": "GET",
       "path": "/docs",
       "product_caller": true,
       "auth": "none",
-      "source": "apps/server/internal/app/app.go:55",
-      "note": "only product caller is a window.open('/docs') link in apps/web/src/app.tsx:811"
+      "source": "apps/server/internal/app/app.go:62",
+      "note": "only product caller is a window.open('/docs') link in apps/web/src/app.tsx"
     },
     {
       "method": "GET",
       "path": "/api/todos",
-      "product_caller": false,
+      "product_caller": true,
       "auth": "required",
       "unauthenticated_status": 401,
-      "source": "apps/server/internal/app/app.go:72",
-      "behavior": "returns a hard-coded empty JSON array and ignores its Config argument (_ = config)",
-      "openapi_operation_id": "listTodos",
-      "note": "documented separately by huma.Register in registerTodoAPI (app.go:68) and implemented separately by e.Router.GET in registerTodoRoutes (app.go:72). Nothing links the two."
+      "source": "apps/server/internal/app/todos.go:56",
+      "behavior": "lists the authenticated user's todos from the todos collection",
+      "openapi_operation_id": "listTodos"
+    },
+    {
+      "method": "POST",
+      "path": "/api/todos",
+      "product_caller": true,
+      "auth": "required",
+      "unauthenticated_status": 401,
+      "success_status": 201,
+      "source": "apps/server/internal/app/todos.go:60",
+      "behavior": "creates a todo owned by the authenticated user",
+      "openapi_operation_id": "createTodo"
+    },
+    {
+      "method": "GET",
+      "path": "/api/todos/{id}",
+      "product_caller": true,
+      "auth": "required",
+      "unauthenticated_status": 401,
+      "not_found_status": 404,
+      "source": "apps/server/internal/app/todos.go:64",
+      "behavior": "returns a todo only when owned by the authenticated user",
+      "openapi_operation_id": "getTodo"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/todos/{id}",
+      "product_caller": true,
+      "auth": "required",
+      "unauthenticated_status": 401,
+      "not_found_status": 404,
+      "source": "apps/server/internal/app/todos.go:68",
+      "behavior": "updates a todo only when owned by the authenticated user",
+      "openapi_operation_id": "updateTodo"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/todos/{id}",
+      "product_caller": true,
+      "auth": "required",
+      "unauthenticated_status": 401,
+      "not_found_status": 404,
+      "success_status": 204,
+      "source": "apps/server/internal/app/todos.go:72",
+      "behavior": "deletes a todo only when owned by the authenticated user",
+      "openapi_operation_id": "deleteTodo"
+    },
+    {
+      "method": "GET",
+      "path": "/{path...}",
+      "product_caller": false,
+      "auth": "none",
+      "source": "go/httpapi/static.go:25",
+      "behavior": "serves frontend assets and falls back to index.html when SLOPSTACK_PUBLIC_DIR exists; reserved backend paths are excluded"
     }
   ],
   "route_counts": {
-    "template_registered": 4,
-    "with_product_caller": 1,
-    "huma_declared_operations": 1
+    "template_registered": 9,
+    "with_product_caller": 5,
+    "huma_declared_operations": 5
   },
   "huma_operations": [
     {
       "operation_id": "listTodos",
       "method": "GET",
       "path": "/api/todos",
-      "schema": "Todo{id,title,completed}",
+      "schema": "Todo{id,title,completed,due_date,created,updated}",
       "security": [
         "pocketbaseAuth"
       ],
-      "source": "apps/server/internal/app/app.go:68",
-      "handler": "documentation-only stub returning nil, nil"
+      "source": "apps/server/internal/app/todos.go:56",
+      "handler": "lists records scoped to the authenticated user"
+    },
+    {
+      "operation_id": "createTodo",
+      "method": "POST",
+      "path": "/api/todos",
+      "schema": "TodoCreateInput → Todo",
+      "security": [
+        "pocketbaseAuth"
+      ],
+      "source": "apps/server/internal/app/todos.go:60",
+      "handler": "creates a todo owned by the authenticated user; returns 201"
+    },
+    {
+      "operation_id": "getTodo",
+      "method": "GET",
+      "path": "/api/todos/{id}",
+      "schema": "TodoIDInput → Todo",
+      "security": [
+        "pocketbaseAuth"
+      ],
+      "source": "apps/server/internal/app/todos.go:64",
+      "handler": "returns only a todo owned by the authenticated user"
+    },
+    {
+      "operation_id": "updateTodo",
+      "method": "PATCH",
+      "path": "/api/todos/{id}",
+      "schema": "TodoUpdateInput → Todo",
+      "security": [
+        "pocketbaseAuth"
+      ],
+      "source": "apps/server/internal/app/todos.go:68",
+      "handler": "updates only a todo owned by the authenticated user"
+    },
+    {
+      "operation_id": "deleteTodo",
+      "method": "DELETE",
+      "path": "/api/todos/{id}",
+      "schema": "TodoIDInput → empty",
+      "security": [
+        "pocketbaseAuth"
+      ],
+      "source": "apps/server/internal/app/todos.go:72",
+      "handler": "deletes only a todo owned by the authenticated user; returns 204"
     }
   ],
   "openapi": {
@@ -153,15 +249,15 @@
     "security_schemes": [
       "pocketbaseAuth"
     ],
-    "adapter": "humago.New(http.NewServeMux(), ...) in main.go; the mux is never served",
-    "purpose": "schema and documentation only; Huma owns no live route",
-    "known_inconsistency": "The Huma spec for /api/todos and the actual handler are registered separately, so the OpenAPI schema can drift from runtime behaviour. A huma.Register without a matching e.Router documents a 404 endpoint; an e.Router without a matching huma.Register is invisible to generate:api and generate:client. Phase 2 work item, recorded not fixed.",
+    "adapter": "humago.New(http.NewServeMux(), ...); PocketBase route bridges call api.Adapter().ServeHTTP for the Huma paths",
+    "purpose": "Huma operations define the OpenAPI schema and live request handlers; PocketBase mounts the adapter through route bridges",
+    "known_inconsistency": "Resolved: each Huma Todo operation is mounted by the PocketBase route bridge and is included in the generated client.",
     "export_command": "slopstack openapi export",
     "export_path": "openapi/openapi.json",
     "export_path_gitignored": true,
     "client_generator": "@hey-api/openapi-ts",
     "client_output": "apps/web/src/api/generated",
-    "client_output_gitignored": true
+    "client_output_gitignored": false
   },
   "collections": [
     {
@@ -169,7 +265,11 @@
       "auth": true,
       "id_in_local_pb_data": "_pb_users_auth_",
       "id_note": "PocketBase-minted at creation; not reproducible from source",
-      "fields": ["display_name", "disabled", "isAdmin"],
+      "fields": [
+        "display_name",
+        "disabled",
+        "isAdmin"
+      ],
       "field_types": {
         "display_name": "text",
         "disabled": "bool",
@@ -185,12 +285,17 @@
       "auth": false,
       "id_in_local_pb_data": "pbc_3346940990",
       "id_note": "PocketBase-minted at creation; not reproducible from source",
-      "fields": ["name", "description"],
+      "fields": [
+        "name",
+        "description"
+      ],
       "field_types": {
         "name": "text",
         "description": "text"
       },
-      "required_fields": ["name"],
+      "required_fields": [
+        "name"
+      ],
       "present_in_local_pb_data": true,
       "read_by_product_code": false,
       "source": "apps/server/internal/app/schema.go:29"
@@ -200,12 +305,17 @@
       "auth": false,
       "id_in_local_pb_data": "pbc_3709660955",
       "id_note": "PocketBase-minted at creation; not reproducible from source",
-      "fields": ["name", "category"],
+      "fields": [
+        "name",
+        "category"
+      ],
       "field_types": {
         "name": "text",
         "category": "text"
       },
-      "required_fields": ["name"],
+      "required_fields": [
+        "name"
+      ],
       "present_in_local_pb_data": true,
       "read_by_product_code": false,
       "source": "apps/server/internal/app/schema.go:33"
@@ -215,12 +325,18 @@
       "auth": false,
       "id_in_local_pb_data": "pbc_2509884351",
       "id_note": "PocketBase-minted at creation; not reproducible from source",
-      "fields": ["group", "permission"],
+      "fields": [
+        "group",
+        "permission"
+      ],
       "field_types": {
         "group": "text",
         "permission": "text"
       },
-      "required_fields": ["group", "permission"],
+      "required_fields": [
+        "group",
+        "permission"
+      ],
       "present_in_local_pb_data": true,
       "read_by_product_code": false,
       "source": "apps/server/internal/app/schema.go:37"
@@ -230,13 +346,20 @@
       "auth": false,
       "id_in_local_pb_data": "pbc_2593766271",
       "id_note": "PocketBase-minted at creation; not reproducible from source",
-      "fields": ["user", "permission", "denied"],
+      "fields": [
+        "user",
+        "permission",
+        "denied"
+      ],
       "field_types": {
         "user": "text",
         "permission": "text",
         "denied": "bool"
       },
-      "required_fields": ["user", "permission"],
+      "required_fields": [
+        "user",
+        "permission"
+      ],
       "present_in_local_pb_data": true,
       "read_by_product_code": false,
       "source": "apps/server/internal/app/schema.go:41"
@@ -246,12 +369,18 @@
       "auth": false,
       "id_in_local_pb_data": "pbc_714390402",
       "id_note": "PocketBase-minted at creation; not reproducible from source",
-      "fields": ["group", "user"],
+      "fields": [
+        "group",
+        "user"
+      ],
       "field_types": {
         "group": "text",
         "user": "text"
       },
-      "required_fields": ["group", "user"],
+      "required_fields": [
+        "group",
+        "user"
+      ],
       "present_in_local_pb_data": true,
       "read_by_product_code": false,
       "source": "apps/server/internal/app/schema.go:46"
@@ -261,17 +390,25 @@
       "auth": false,
       "id_in_local_pb_data": "pbc_113564862",
       "id_note": "PocketBase-minted at creation; not reproducible from source",
-      "fields": ["owner", "title", "completed", "due_date"],
+      "fields": [
+        "owner",
+        "title",
+        "completed",
+        "due_date"
+      ],
       "field_types": {
         "owner": "text",
         "title": "text",
         "completed": "bool",
         "due_date": "date"
       },
-      "required_fields": ["owner", "title"],
+      "required_fields": [
+        "owner",
+        "title"
+      ],
       "present_in_local_pb_data": true,
-      "read_by_product_code": false,
-      "note": "collection exists; GET /api/todos returns a hard-coded [] and never queries it",
+      "read_by_product_code": true,
+      "note": "queried by authenticated Todo handlers; reads and mutations are scoped to the owner",
       "source": "apps/server/internal/app/schema.go:50"
     },
     {
@@ -279,13 +416,19 @@
       "auth": false,
       "id_in_local_pb_data": "pbc_681515208",
       "id_note": "PocketBase-minted at creation; not reproducible from source",
-      "fields": ["actor", "action", "metadata"],
+      "fields": [
+        "actor",
+        "action",
+        "metadata"
+      ],
       "field_types": {
         "actor": "text",
         "action": "text",
         "metadata": "json"
       },
-      "required_fields": ["action"],
+      "required_fields": [
+        "action"
+      ],
       "present_in_local_pb_data": true,
       "read_by_product_code": false,
       "note": "declared but written by no code",
@@ -333,11 +476,13 @@
       "/api/backups",
       "/api/admins"
     ],
-    "static_file_serving": "none registered; / returns 404 including in the Docker image, which copies apps/web/dist to /app/public. Listed as an open bug in PATCH.md."
+    "static_file_serving": "Template registers a GET-only SPA fallback at /{path...} when SLOPSTACK_PUBLIC_DIR exists; API, admin, OpenAPI, and docs paths are excluded."
   },
   "migrations": {
     "directory": "apps/server/pb_migrations",
-    "on_disk": ["20260824000000_add_user_is_admin.go"],
+    "on_disk": [
+      "20260824000000_add_user_is_admin.go"
+    ],
     "applied_to_local_db": [
       "1640988000_aux_init.go",
       "1640988000_init.go",
@@ -376,7 +521,7 @@
       "result": "pass",
       "packages": [
         {
-          "package": "github.com/slopstack/slopstack/apps/server/internal/app",
+          "package": "github.com/andreasmolnardev/slopstack/apps/server/internal/app",
           "result": "ok",
           "tests": 5,
           "test_names": [
@@ -388,11 +533,11 @@
           ]
         },
         {
-          "package": "github.com/slopstack/slopstack/apps/server/cmd/slopstack",
+          "package": "github.com/andreasmolnardev/slopstack/apps/server/cmd/slopstack",
           "result": "no test files"
         },
         {
-          "package": "github.com/slopstack/slopstack/apps/server/pb_migrations",
+          "package": "github.com/andreasmolnardev/slopstack/apps/server/pb_migrations",
           "result": "no test files"
         }
       ]
@@ -411,14 +556,18 @@
       "working_directory": ".",
       "result": "pass",
       "tool": "eslint 9",
-      "packages": ["@slopstack/web"]
+      "packages": [
+        "@slopstack/web"
+      ]
     },
     "pnpm_test": {
       "command": "pnpm -r test",
       "working_directory": ".",
       "result": "pass",
       "runner": "vitest 4.1.10, vitest run --passWithNoTests",
-      "packages": ["@slopstack/web"],
+      "packages": [
+        "@slopstack/web"
+      ],
       "test_files": 3,
       "tests": 19,
       "test_file_paths": [
@@ -492,7 +641,7 @@
       "route table: docs/baseline.json routes vs e.Router.<METHOD>(\"<path>\" in apps/server/internal/app, both directions",
       "toolchain: pins in .github/workflows/ci.yml vs tool_versions recorded here"
     ],
-    "unverifiable_in_ci": "pnpm generate:client writes a gitignored directory, so the git diff --exit-code step after it cannot detect a missing or stale generated client.",
+    "unverifiable_in_ci": null,
     "golangci": false,
     "golangci_note": ".golangci.yml exists at the repo root but is not run in CI."
   },
@@ -518,11 +667,12 @@
     "generated_at_commit": "59feb68538083d757eb19abcd642932a3a0841d1",
     "tool_versions_source": "live toolchain (go version, node -v, pnpm -v) plus apps/web/node_modules/<pkg>/package.json for resolved JS versions",
     "test_results_source": "actually executed during the phase 0 audit on this commit, including a deliberate reproduction of the pre-fix stack overflow by restoring schema.go from 0b6ea41^ and restoring the tree afterwards",
-    "routes_source": "grep of e.Router.* in apps/server/internal/app/app.go, and the single huma.Register call in the same file",
+    "routes_source": "Source declarations: direct named-method PocketBase routes in apps/server/internal/app, Huma operations in the same package, and the GET-only static fallback in go/httpapi/static.go.",
     "collections_source": "apps/server/internal/app/schema.go coreCollections, cross-checked against a read-only SQLite query (sqlite3 'file:data.db?mode=ro&immutable=1') against apps/server/pb_data/data.db _collections",
     "collection_ids_source": "read from the local pb_data; PocketBase mints them at creation so they are NOT reproducible from source and differ per data directory",
     "collection_rules_source": "not verified. The table records what the code declares, which is that no template collection sets any API rule. The live database's rule values were not queried.",
-    "how_to_regenerate": "Update this file in the same commit as any deliberate change to routes, collections, env vars or the toolchain, then run 'python3 scripts/check-baseline.py' locally and confirm it exits 0 before pushing. The script fails CI on route-table or toolchain drift; it does not check collections, env vars or test counts.",
-    "checked_by": "scripts/check-baseline.py"
+    "how_to_regenerate": "Update this file in the same commit as any deliberate change to routes, collections, env vars or the toolchain, then run python3 scripts/check-baseline.py. The script checks effective routes and pinned toolchain versions; it does not check collections, env vars or test counts.",
+    "checked_by": "scripts/check-baseline.py",
+    "route_entries": "Current effective route inventory is read from source. The checker compares direct named-method PocketBase routes, Huma operation method/path pairs, and the GET-only shared SPA fallback."
   }
 }

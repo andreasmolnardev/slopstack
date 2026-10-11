@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  # Pinned so the run matches the baseline recorded in docs/baseline.json.
+  # scripts/check-baseline.py fails if these drift from that file.
+  GO_VERSION: "1.27.1"
+  NODE_VERSION: "22.23.2"
+  PNPM_VERSION: "11.8.0"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm build
+      # Single Go module rooted at go.mod, so ./... from the repo root covers
+      # all Go code. Set explicitly rather than left implicit; apps/server is
+      # the only Go directory today.
+      - run: go build ./...
+        working-directory: .
+      - run: go test ./...
+        working-directory: .
+      - run: pnpm generate:api
+      - run: pnpm generate:client
+      - run: git diff --exit-code
+      - run: python3 scripts/check-baseline.py

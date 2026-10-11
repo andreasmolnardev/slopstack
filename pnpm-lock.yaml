@@ -139,6 +139,8 @@ importers:
         specifier: ^4.0.16
         version: 4.1.10(jsdom@30.1.2)(vite@7.3.6(jiti@2.7.0)(lightningcss@1.32.0))
 
+  packages/create-slopstack: {}
+
 packages:
 
   '@asamuzakjp/css-color@7.1.4':

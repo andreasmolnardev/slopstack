@@ -109,6 +109,66 @@ func TestEnsureCollectionsRepairsUsersMissingAdminFlag(t *testing.T) {
 	}
 }
 
+func TestLegacySchemaUpgradePreservesUserAndCollectionIdentity(t *testing.T) {
+	testApp := newTestApp(t)
+
+	users, err := testApp.FindCollectionByNameOrId("users")
+	if err != nil {
+		t.Fatal(err)
+	}
+	collectionID := users.Id
+	users.Fields.RemoveByName("display_name")
+	users.Fields.RemoveByName("disabled")
+	users.Fields.RemoveByName("isAdmin")
+	if err := testApp.Save(users); err != nil {
+		t.Fatal(err)
+	}
+
+	legacyUser, err := testApp.FindAuthRecordByEmail("users", "test@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	userID := legacyUser.Id
+	userEmail := legacyUser.Email()
+	tokenKey := legacyUser.TokenKey()
+
+	// Match the app's bootstrap sequence against a database from before the
+	// declared user fields and migration were added. Both operations must be
+	// safe to repeat without replacing the collection or its records.
+	for range 2 {
+		if err := EnsureCollections(testApp); err != nil {
+			t.Fatal(err)
+		}
+		if err := testApp.RunAppMigrations(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	upgradedUsers, err := testApp.FindCollectionByNameOrId("users")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if upgradedUsers.Id != collectionID {
+		t.Fatalf("users collection ID changed: got %q, want %q", upgradedUsers.Id, collectionID)
+	}
+	for _, field := range []string{"display_name", "disabled", "isAdmin"} {
+		if upgradedUsers.Fields.GetByName(field) == nil {
+			t.Errorf("upgraded users collection is missing %q", field)
+		}
+	}
+
+	upgradedUser, err := testApp.FindRecordById("users", userID)
+	if err != nil {
+		t.Fatalf("legacy user %q was not preserved: %v", userID, err)
+	}
+	if upgradedUser.Email() != userEmail {
+		t.Errorf("legacy user email changed: got %q, want %q", upgradedUser.Email(), userEmail)
+	}
+	if upgradedUser.TokenKey() != tokenKey {
+		t.Error("legacy user token key changed during schema upgrade")
+	}
+}
+
 func TestEnsureCollectionsIsIdempotent(t *testing.T) {
 	testApp := newTestApp(t)
 

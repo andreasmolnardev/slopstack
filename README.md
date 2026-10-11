@@ -21,7 +21,7 @@ If `8090` is busy, set `SLOPSTACK_HTTP_ADDRESS=127.0.0.1:18090` before running `
 
 - `make build`, `make test`, `make lint`, and `make docker` run the standard checks.
 - `pnpm dev` runs both apps. `pnpm generate:api` writes `openapi/openapi.json`.
-- `pnpm generate:client` writes the ignored Hey API output under `apps/web/src/api/generated`.
+- `pnpm generate:client` updates the checked-in Hey API output under `apps/web/src/api/generated`.
 
 ## Authentication And Permissions
 
@@ -35,8 +35,22 @@ The server serves `/openapi.json`, `/openapi.yaml`, and `/docs`. Export offline 
 
 `docker compose up --build` runs the production image and persists PocketBase data in `slopstack-data`. Set `SLOPSTACK_PUBLIC_URL` and secure-cookie values for your deployment.
 
+## Backups
+
+Run `slopstack backup create` to create a PocketBase ZIP backup, or use
+`slopstack backup create --encrypt` after `slopstack backup key-init` to create
+an encrypted archive. The recovery key is shown once; store it outside the app
+data directory. Use `slopstack backup list` to find an archive and
+`slopstack backup restore <exact-name> --confirm` to replace app data and
+restart the process. See [Deployment](docs/DEPLOYMENT.md) for storage notes.
+
 ## Customization
 
 The Todo example is in `apps/web/src/app.tsx`. Replace it without changing backend infrastructure. Add modules through protected API routes, schemas, and generated client calls. Keep schema evolution in PocketBase migrations.
 
 See [`docs/README.md`](docs/README.md) for UI, navigation, API, auth, data model, development, and deployment guidance.
+
+## Create And Upgrade Projects
+
+See [`docs/PROJECT-TOOLING.md`](docs/PROJECT-TOOLING.md) for the project
+generator, safe template upgrades, conflict behavior, and Git rollback steps.

@@ -3,6 +3,7 @@
 ## Major Features
 
 - [x] Embedded PocketBase, API, React shell, and Todo example.
+- [x] Shared PocketBase backup CLI with optional authenticated encryption.
 
 ## Minor Features
 
@@ -10,7 +11,7 @@
 
 ## Bug Fixes
 
-- [ ] Verify static frontend serving through the Go runtime.
+- [x] Verify static frontend serving through the Go runtime.
 
 ## DX Improvements
 

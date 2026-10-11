@@ -6,13 +6,12 @@ from Slopstack.
 
 ## The package is a monolith
 
-`apps/server/internal/app` is one Go package with no internal boundaries. Files
-are split by topic, not by package, so nothing in it can be imported from
-outside the module: `internal/` is enforced by the Go toolchain, and
-`github.com/slopstack/slopstack/...` is a single-module path. Any CORE file below
-requires either a new top-level package (e.g. `pkg/<name>`) or a separate Go
-module before Taskboard or Piggybudget can consume it. Nothing in the inventory
-implies the files can move today.
+At the Phase 0 audit, `apps/server/internal/app` was one Go package with no
+internal boundaries. Files were split by topic, not by package, so nothing in
+it could be imported outside the module. Since then, the shared runtime has
+been extracted into public packages under `github.com/andreasmolnardev/slopstack/go/`;
+see [`SHARED-RUNTIME.md`](SHARED-RUNTIME.md) for the current package contract.
+The classifications below record the original extraction decisions.
 
 Current contents, 7 files, ~180 non-comment lines of Go:
 

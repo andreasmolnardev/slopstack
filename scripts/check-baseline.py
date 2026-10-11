@@ -5,10 +5,11 @@ The baseline is only useful if it stays honest. This script enforces the two
 parts of it that can drift silently and cheaply, without needing a database or
 a running server:
 
-1. Routes. Every ``e.Router.<METHOD>("<path>"`` in apps/server/internal/app must
-   appear in ``baseline.json`` -> ``routes``, and every route recorded there
-   must still be registered in the source. The check runs both ways: a new route
-   that nobody documented is as much drift as a deleted route nobody removed.
+1. Effective template routes. Direct named-method PocketBase registrations in
+   apps/server/internal/app, Huma operations registered there, and the GET-only
+   SPA fallback in go/httpapi must appear in ``baseline.json`` -> ``routes``.
+   The check runs both ways. PocketBase ``Any`` adapter bridges are excluded:
+   their supported methods come from the Huma operations they dispatch to.
 
 2. Toolchain. The versions pinned in .github/workflows/ci.yml must be the ones
    recorded in ``baseline.json`` -> ``tool_versions``. A workflow bumped to a new
@@ -42,11 +43,16 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASELINE_PATH = os.path.join(REPO, "docs", "baseline.json")
 WORKFLOW_PATH = os.path.join(REPO, ".github", "workflows", "ci.yml")
 SERVER_DIR = os.path.join(REPO, "apps", "server", "internal", "app")
+STATIC_SOURCE = os.path.join(REPO, "go", "httpapi", "static.go")
 
-# Matches e.Router.GET("/path", ...) and friends. Anchored on the router
-# expression so a bare string in a test or a comment is not mistaken for a
-# registration. Test files are skipped separately below.
-ROUTE_RE = re.compile(r"\be\.Router\.(GET|POST|PUT|PATCH|DELETE|Any|OPTIONS)\(\s*\"([^\"]+)\"")
+# Direct named-method registrations only. Any routes in app.go are adapter
+# bridges; Huma declares the effective methods for those paths below.
+ROUTE_RE = re.compile(r"\be\.Router\.(GET|POST|PUT|PATCH|DELETE|OPTIONS)\(\s*\"([^\"]+)\"")
+HUMA_OPERATION_RE = re.compile(
+    r"huma\.Operation\s*\{[^}]*?\bMethod:\s*\"([^\"]+)\"[^}]*?\bPath:\s*\"([^\"]+)\"",
+    re.DOTALL,
+)
+STATIC_ROUTE_RE = re.compile(r"\be\.Router\.Any\(\s*\"([^\"]+)\"")
 
 # Keys inside baseline.json["tool_versions"] and the .github/workflows/ci.yml
 # env var each one is compared against. PNPM_VERSION is compared against the
@@ -65,13 +71,27 @@ def read_text(path: str) -> str:
 
 
 def source_routes() -> set:
-    """Every (METHOD, path) registered on the PocketBase router in the app package."""
+    """Effective template (METHOD, path) pairs from direct routes and Huma."""
     found = set()
+    app_sources = []
     for name in sorted(os.listdir(SERVER_DIR)):
         if not name.endswith(".go") or name.endswith("_test.go"):
             continue
-        for method, path in ROUTE_RE.findall(read_text(os.path.join(SERVER_DIR, name))):
+        source = read_text(os.path.join(SERVER_DIR, name))
+        app_sources.append(source)
+        for method, path in ROUTE_RE.findall(source):
             found.add((method.upper(), path))
+        for method, path in HUMA_OPERATION_RE.findall(source):
+            found.add((method.upper(), path))
+
+    # The shared SPA helper registers Any so it can coexist with PocketBase
+    # routes, but explicitly serves files only for GET. Count its effective
+    # public route only when the app wires the helper into the server.
+    app_source = "\n".join(app_sources)
+    static_source = read_text(STATIC_SOURCE)
+    if "RegisterStaticDirectory(e," in app_source and "event.Request.Method != http.MethodGet" in static_source:
+        for path in STATIC_ROUTE_RE.findall(static_source):
+            found.add(("GET", path))
     return found
 
 
@@ -90,7 +110,7 @@ def normalize_go(value: str) -> str:
 
 
 def main() -> int:
-    for path in (BASELINE_PATH, WORKFLOW_PATH, SERVER_DIR):
+    for path in (BASELINE_PATH, WORKFLOW_PATH, SERVER_DIR, STATIC_SOURCE):
         if not os.path.exists(path):
             print("check-baseline: missing %s" % os.path.relpath(path, REPO), file=sys.stderr)
             return 2

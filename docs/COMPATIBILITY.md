@@ -1,9 +1,10 @@
-# Compatibility Baseline
+# Compatibility Baseline and Current Runtime
 
 This document records the Phase 0 baseline of the **Slopstack template**: what
 the toolchain was, what passed, and what later phases must not break. It is a
-description of the template as it stands today, not a promise about any derived
-app.
+description of the measured baseline followed by the current runtime contract.
+The historical Phase 0 measurements below are retained for migration context;
+the HTTP surface section documents the implemented template now.
 
 The machine-readable companion is [`docs/baseline.json`](baseline.json).
 `scripts/check-baseline.py` fails CI if the two disagree.
@@ -119,72 +120,67 @@ picks it up automatically. The `working-directory` is now pinned explicitly to
 
 ### Template-registered routes
 
-The template adds four routes on top of PocketBase's own router. All four are
-registered in `apps/server/internal/app/app.go` via `e.Router.*`.
+The template registers OpenAPI documentation routes, mounts Huma operations
+through PocketBase's live router, and serves the built frontend when the
+configured public directory exists. The SPA wildcard is registered for all
+methods so it can coexist with PocketBase's all-method API routes; it only
+serves frontend content for `GET` and returns 404 for other methods.
 
 | Method | Path | Auth | Source | Line |
 | ------ | ---- | ---- | ------ | ---- |
-| GET | `/openapi.json` | none | `app.go` | 47 |
-| GET | `/openapi.yaml` | none | `app.go` | 48 |
-| GET | `/docs` | none | `app.go` | 55 |
-| GET | `/api/todos` | required (`event.Auth == nil` → 401) | `app.go` | 72 |
+| GET | `/openapi.json` | none | `app.go` | 54 |
+| GET | `/openapi.yaml` | none | `app.go` | 55 |
+| GET | `/docs` | none | `app.go` | 62 |
+| GET | `/api/todos` | required | `todos.go` | `listTodos` |
+| POST | `/api/todos` | required | `todos.go` | `createTodo` |
+| GET | `/api/todos/{id}` | required | `todos.go` | `getTodo` |
+| PATCH | `/api/todos/{id}` | required | `todos.go` | `updateTodo` |
+| DELETE | `/api/todos/{id}` | required | `todos.go` | `deleteTodo` |
+| GET | `/{path...}` | none | `go/httpapi/static.go` | `RegisterStaticRoutes` |
 
-`GET /api/todos` currently returns a hard-coded `[]` and ignores its `Config`
-argument (`_ = config`). It is a shape example, not a working query.
+Todo operations use the authenticated PocketBase request event, store records
+in the `todos` collection, and scope reads, updates, and deletes to the current
+user. The static route serves assets and falls back to `index.html` for
+client-side routes. It excludes API, admin, OpenAPI, and docs paths from the
+frontend fallback.
 
 PocketBase itself additionally serves `/api/health`, `/_/` (admin UI),
 `/api/collections`, `/api/records`, `/api/auth-*`, `/api/realtime`,
-`/api/settings`, `/api/backups`, `/api/admins`, and the static file routes. None
-of those are registered by template code and none appear in the route table
-below.
+`/api/settings`, `/api/backups`, and `/api/admins`. These PocketBase-owned
+routes are not registered by template code and do not appear in the route table
+above. The template's conditional SPA fallback is listed separately.
 
 ### Huma-declared operations
 
-Exactly one Huma operation is declared, in `registerTodoAPI`
-(`apps/server/internal/app/app.go:68`):
+The five Todo operations above are declared in `registerTodoAPI`
+(`apps/server/internal/app/todos.go`).
 
 | operationId | Method | Path | Schema | Security |
 | ----------- | ------ | ---- | ------ | -------- |
-| `listTodos` | GET | `/api/todos` | `Todo{id,title,completed}` | `pocketbaseAuth` |
+| `listTodos` | GET | `/api/todos` | `Todo{id,title,completed,due_date,created,updated}` | `pocketbaseAuth` |
+| `createTodo` | POST | `/api/todos` | `Todo` | `pocketbaseAuth` |
+| `getTodo` | GET | `/api/todos/{id}` | `Todo` | `pocketbaseAuth` |
+| `updateTodo` | PATCH | `/api/todos/{id}` | `Todo` | `pocketbaseAuth` |
+| `deleteTodo` | DELETE | `/api/todos/{id}` | empty | `pocketbaseAuth` |
 
 The document is OpenAPI `3.1.0`, title `Slopstack API`, version `0.1.0`, with a
 single server entry taken from `SLOPSTACK_PUBLIC_URL` and a bearer/JWT security
-scheme named `pocketbaseAuth`. Huma's adapter is constructed over a throwaway
-`http.NewServeMux()` in `main.go` that is never served; Huma is used for schema
-and documentation only.
+scheme named `pocketbaseAuth`. The Huma adapter is mounted into PocketBase's
+router for each declared operation, so the documented operations are the live
+handlers.
 
-### Known inconsistency: spec and handler are registered separately
+### Frontend serving
 
-**`GET /api/todos` is declared and implemented in two different places.**
-
-- `registerTodoAPI` calls `huma.Register(...)` for documentation only. Its
-  handler is `func(...) { return nil, nil }`.
-- `registerTodoRoutes` calls `e.Router.GET("/api/todos", ...)` for the actual
-  behaviour. This is the function PocketBase dispatches to.
-
-Nothing links the two. Consequences:
-
-- The OpenAPI document can describe a route that does not exist, or exist with a
-  different shape, without any compile-time or test-time signal.
-- A Huma operation registered without a matching `e.Router` call is pure
-  documentation: `/openapi.json` would advertise an endpoint that returns 404.
-- An `e.Router` route registered without a matching `huma.Register` call is
-  invisible to `pnpm generate:api`, so `pnpm generate:client` cannot generate a
-  typed client for it. That is exactly why the generated client contains
-  `listTodos` but the runtime handler ignores it entirely.
-
-This is a **Phase 2 work item**. It is recorded here, not fixed. The fix is to
-route Huma through the same adapter as `e.Router` (or to derive one from the
-other) so a route cannot be documented without being served, and vice versa.
-
-`docs/ARCHITECTURE.md` lists the related items: the discarded Huma mux
-(inconsistency 4), the empty `/api/todos` handler (5), and the gitignored
-generated client that CI's `git diff --exit-code` cannot check (6).
+When `SLOPSTACK_PUBLIC_DIR` (default `public`) exists, PocketBase serves its
+files and SPA fallback from that directory. The container image copies the
+Vite build to `/app/public`, so the packaged image serves both the API and
+frontend from one process. During local development Vite serves the frontend
+and proxies API calls to PocketBase.
 
 ## Environment variables
 
-Verbatim from `apps/server/internal/app/config.go`. These seven are the whole
-configuration surface.
+The Go runtime reads the following variables, plus `SLOPSTACK_PUBLIC_DIR` for
+the optional built frontend.
 
 | Variable | Type | Default | Consumed by |
 | -------- | ---- | ------- | ----------- |
@@ -195,6 +191,7 @@ configuration surface.
 | `SLOPSTACK_LOG_LEVEL` | string | `info` | parsed into `Config`, read by nothing |
 | `SLOPSTACK_STORAGE_PATH` | string | `pb_data` | `pocketbase.Config.DefaultDataDir` (`main.go:20`) |
 | `SLOPSTACK_DEVELOPMENT` | bool | `false` | `pocketbase.Config.DefaultDev` (`main.go:20`) |
+| `SLOPSTACK_PUBLIC_DIR` | path | `public` | Optional static frontend directory (`app.go`) |
 
 `SLOPSTACK_DEVELOPMENT` is also set to `true` by `.air.toml` for the dev loop.
 `VITE_API_URL` appears in `.env.example` and is read by
@@ -250,8 +247,9 @@ migration note. Breaking one of these invalidates an existing installation.
 
 Phase 1 renames the module identity. The rename must be **code-only**:
 
-- `github.com/slopstack/slopstack` → the target path in `go.mod` and every
-  import.
+- `github.com/andreasmolnardev/slopstack` is the current canonical upstream
+  module path; generated apps replace it with their own path in `go.mod` and
+  imports.
 - `@slopstack/web` → the target package name in `apps/web/package.json`.
 - `SLOPSTACK_` → the target env prefix, in `config.go`, `.env.example`,
   `docker-compose.yml`, `README.md`, and `docs/`.
@@ -298,6 +296,8 @@ entries were read from source and from a read-only SQLite query against
 
 To regenerate after an intentional change: update `docs/baseline.json` in the
 same commit as the change, then run `python3 scripts/check-baseline.py`. It
-compares the recorded route table against `e.Router.*` in
-`apps/server/internal/app` and the recorded toolchain against the pins in
+compares the route table against direct named-method PocketBase routes, Huma
+operation methods and paths, and the effective GET-only SPA fallback in
+`go/httpapi`; PocketBase `Any` adapter bridges are represented by their Huma
+operations. It also compares the recorded toolchain against the pins in
 `.github/workflows/ci.yml`.
