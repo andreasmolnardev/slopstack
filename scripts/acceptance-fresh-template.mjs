@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyUpgrade, planUpgrade } from '../packages/create-slopstack/lib/upgrade.js';
-import { TEMPLATE_ROOT } from '../packages/create-slopstack/lib/template.js';
+import { TEMPLATE_ROOT, TEMPLATE_VERSION } from '../packages/create-slopstack/lib/template.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'slopstack-fresh-acceptance-'));
@@ -270,7 +270,7 @@ func listEntries(ctx context.Context, _ *struct{}) (*EntryListOutput, error) {
   const nextApiDocs = path.join(nextTemplate, 'docs/API.md');
   await fs.appendFile(nextApiDocs, '\n## Acceptance fixture\nThis new section is safe to adopt.\n');
   await fs.writeFile(path.join(nextTemplate, 'docs/UPGRADE-ACCEPTANCE.md'), 'Added by the synthetic next template.\n');
-  const nextPlan = await planUpgrade(projectRoot, { templateRoot: nextTemplate, version: '0.2.0', dryRun: true });
+  const nextPlan = await planUpgrade(projectRoot, { templateRoot: nextTemplate, version: '0.3.0', dryRun: true });
   assert.ok(nextPlan.conflicts.some(({ path: file }) => file === 'README.md'), 'modified README must be reported as a conflict');
   assert.ok(nextPlan.actions.some(({ path: file, kind }) => file === 'docs/API.md' && kind === 'update'));
   assert.ok(nextPlan.actions.some(({ path: file, kind }) => file === 'docs/UPGRADE-ACCEPTANCE.md' && kind === 'add'));
@@ -280,7 +280,7 @@ func listEntries(ctx context.Context, _ *struct{}) (*EntryListOutput, error) {
   assert.match(await fs.readFile(path.join(projectRoot, 'docs/API.md'), 'utf8'), /Acceptance fixture/);
   assert.equal(await fs.readFile(path.join(projectRoot, 'docs/UPGRADE-ACCEPTANCE.md'), 'utf8'), 'Added by the synthetic next template.\n');
   const lock = JSON.parse(await fs.readFile(path.join(projectRoot, '.slopstack/template-lock.json'), 'utf8'));
-  assert.equal(lock.templateVersion, '0.1.0', 'the version lock must not advance while a conflict remains');
+  assert.equal(lock.templateVersion, TEMPLATE_VERSION, 'the version lock must not advance while a conflict remains');
 
   console.log('PASS: fresh template creation, app extension, Go/OpenAPI/client builds, API+web runtime, and safe upgrade checks');
 } finally {
