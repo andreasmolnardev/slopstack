@@ -8,15 +8,22 @@ import (
 	"testing"
 
 	_ "github.com/andreasmolnardev/slopstack/apps/server/pb_migrations"
+	"github.com/andreasmolnardev/slopstack/go/audit"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/router"
+	"github.com/pocketbase/pocketbase/tools/types"
 )
 
 func newTodoTestServer(t *testing.T, app core.App, auth *core.Record) func(string, string, string) *httptest.ResponseRecorder {
 	t.Helper()
 	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	if err := audit.RegisterRequestHooks(app, audit.PocketBaseRecorder{App: app}, audit.RequestHookConfig{
+		Collections: []string{"todos"},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
@@ -132,6 +139,35 @@ func TestTodoCRUDUsesAuthenticatedOwner(t *testing.T) {
 	}
 	if _, err := app.FindRecordById("todos", todo.ID); err == nil {
 		t.Fatal("deleted todo still exists")
+	}
+
+	logs, err := app.FindRecordsByFilter("audit_logs", "", "", 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 3 {
+		t.Fatalf("audit log count = %d, want create/update/delete events", len(logs))
+	}
+	wantActions := map[string]bool{"todo.created": false, "todo.updated": false, "todo.deleted": false}
+	for _, log := range logs {
+		if log.GetString("actor") != user.Id {
+			t.Errorf("audit actor = %q, want %q", log.GetString("actor"), user.Id)
+		}
+		action := log.GetString("action")
+		if _, ok := wantActions[action]; !ok {
+			t.Errorf("unexpected audit action %q", action)
+			continue
+		}
+		wantActions[action] = true
+		var metadata map[string]any
+		if raw, ok := log.Get("metadata").(types.JSONRaw); !ok || json.Unmarshal(raw, &metadata) != nil || metadata["resource"] != "todos" || metadata["resource_id"] != todo.ID {
+			t.Errorf("audit metadata = %#v, want only todo resource identifiers", log.Get("metadata"))
+		}
+	}
+	for action, found := range wantActions {
+		if !found {
+			t.Errorf("missing audit action %q", action)
+		}
 	}
 }
 

@@ -80,8 +80,10 @@ pnpm release --version 1.2.3
 This is also a dry run. `pnpm release --version 1.2.3 --apply` updates only
 `release.version` and `image.tag` in `slopstack.yaml`. It does not create Git
 tags or push images. After reviewing and committing the config change, push a
-matching `v1.2.3` Git tag; the release workflow validates the version and
-publishes the configured multi-platform image to the registry.
+matching `v1.2.3` Git tag for the Go module release. The tag does not publish a
+container image. To publish the configured multi-platform image, manually run
+the Release workflow against that matching tag; it validates the metadata
+before pushing to the registry.
 
 ## Required production settings
 

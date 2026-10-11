@@ -9,6 +9,7 @@ Slopstack is a full-stack starter, not a task product. The task workspace in `ap
 - [Components](./COMPONENTS.md)
 - [API](./API.md)
 - [Data model](./DATA-MODEL.md)
+- [Audit events](./AUDIT.md)
 - [Authentication](./AUTH.md)
 - [Development](./DEVELOPMENT.md)
 - [Deployment](./DEPLOYMENT.md)

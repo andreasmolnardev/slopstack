@@ -92,6 +92,13 @@ def source_routes() -> set:
     if "RegisterStaticDirectory(e," in app_source and "event.Request.Method != http.MethodGet" in static_source:
         for path in STATIC_ROUTE_RE.findall(static_source):
             found.add(("GET", path))
+
+    # OpenAPI documentation is mounted by a shared helper now. Count its
+    # routes only when the application wires that helper into its serve hook.
+    openapi_source = read_text(os.path.join(REPO, "go", "httpapi", "openapi.go"))
+    if "RegisterOpenAPIDocs(e, api)" in app_source:
+        for method, path in re.findall(r"event\.Router\.(GET|POST|PUT|PATCH|DELETE|OPTIONS)\(\s*\"([^\"]+)\"", openapi_source):
+            found.add((method.upper(), path))
     return found
 
 

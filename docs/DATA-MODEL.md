@@ -13,7 +13,7 @@ Collections are created by `apps/server/internal/app/schema.go` on first boot an
 | `user_permissions` | User overrides and denies |
 | `group_members` | User membership relationships |
 | `todos` | Example task records owned by a user |
-| `audit_logs` | Security and activity history |
+| `audit_logs` | Security and activity history; see [Audit events](./AUDIT.md) |
 
 ## Example task fields
 

@@ -36,7 +36,7 @@ Should become a versioned Slopstack package consumed by all three repos.
 | ---- | ------ | -------- | ----- |
 | `config.go` | `Config`, `LoadConfig`, `env`, `envBool` | Every app in the family needs the same env contract. The names are already prefixed `SLOPSTACK_` in both derived apps. | The struct is not yet stable. Taskboard adds `RegistrationMode`, backup settings, and an S3 block; Piggybudget does similar. Upstream needs a core struct with a documented extension point, not the union of both derived shapes. Ambiguous — see "Ambiguous classifications". |
 | `auth.go` | `RegistrationAllowed`, `CurrentUser` | Trivially small, universally needed, and already identical in shape across all three repos. | The registration policy signature differs: template returns `Config.RegistrationEnabled`, Taskboard returns `RegistrationMode != disabled`. |
-| `authorization.go` | `Authorize` | Documented as "the single backend enforcement point"; every derived app copied it verbatim and calls it where the template does not. | Template version is a stub: it never reads the `permissions` / `group_permissions` tables. Real resolution logic lives in the derived apps (or nowhere). |
+| `authorization.go` | `Authorize` | Small app adapter over the shared permission evaluator and PocketBase rule loader. | Shared resolution covers direct user grants/denies and group grants; no current API route calls `Authorize`, so route enforcement remains an application integration responsibility. |
 | `schema.go` | `EnsureCollections`, `coreCollections`, `newCollection`, `repairRequiredFields`, `addFields`, `newField` | The base schema (`users`, `groups`, `permissions`, `group_permissions`, `user_permissions`, `group_members`, `todos`, `audit_logs`) is shared by all three repos today. The typed-field construction is now the proven implementation. | Needs splitting: the shared core collections vs. `todos`, which is an example module both derived apps replaced. See "Ambiguous classifications". |
 | `openapi.go` | `OpenAPIExportCommand` | A cobra wrapper that both derived apps carry identically. Trivially extractable. | The `Run func() error` field is a closure-injection seam, not a general interface. Fine as-is. |
 
@@ -108,17 +108,17 @@ Flagged rather than forced into a bucket.
    moves upstream verbatim, every derived app inherits a `todos` collection it
    does not use. Recommend splitting the declaration into a core set and an
    example set before extraction.
-3. **`authorization.go` `Authorize` — CORE or placeholder.** The template's
-   version denies all non-superusers. Both derived apps carry the same stub.
-   Centralizing a stub upstream locks in a permission model that does not exist
-   yet. Recommend deferring until the `permissions` / `group_permissions`
-   tables have a real resolution path.
+3. **`authorization.go` `Authorize` — CORE or placeholder.** The shared
+   evaluator now reads direct user rules and group memberships from
+   `user_permissions`, `group_members`, and `group_permissions`, with default
+   deny and explicit deny precedence. Route callers still need to opt in; no
+   current route calls `Authorize`.
 4. **`app.go` `Register` signature.** It is the composition root for all three
    repos but has no extension point. This is the main blocker for extracting
    anything else from the package.
-5. **`audit_logs`.** Present in all three schemas and written by nothing in the
-   template. Classified CORE because both derived apps keep it, but its intended
-   writer is unknown.
+5. **`audit_logs`.** Present in all three schemas. The shared `go/audit` package
+   now provides a PocketBase recorder and native request hooks; custom routes
+   must log their own successful mutations with reviewed metadata.
 
 ## Extraction blockers, independent of classification
 

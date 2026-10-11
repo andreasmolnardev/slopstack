@@ -27,7 +27,10 @@ func main() {
 	}
 
 	api := newOpenAPI(config)
-	app.Register(pb, config, api)
+	if err := app.Register(pb, config, api); err != nil {
+		slog.Error("configure server", "error", err)
+		os.Exit(1)
+	}
 	pb.RootCmd.AddCommand(backup.NewCommand(config.StoragePath, backup.PocketBaseStore{App: pb}))
 	registerExportCommand(pb, api)
 

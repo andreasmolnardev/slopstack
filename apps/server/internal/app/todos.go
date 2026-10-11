@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/andreasmolnardev/slopstack/go/audit"
+	"github.com/andreasmolnardev/slopstack/go/ownership"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
@@ -114,6 +116,7 @@ func createTodo(ctx context.Context, input *TodoCreateInput) (*TodoOutput, error
 	if err := event.App.Save(record); err != nil {
 		return nil, huma.Error400BadRequest("Todo could not be saved", err)
 	}
+	logTodoAudit(event, "todo.created", record)
 	return &TodoOutput{Body: todoFromRecord(record)}, nil
 }
 
@@ -157,6 +160,7 @@ func updateTodo(ctx context.Context, input *TodoUpdateInput) (*TodoOutput, error
 	if err := event.App.Save(record); err != nil {
 		return nil, huma.Error400BadRequest("Todo could not be saved", err)
 	}
+	logTodoAudit(event, "todo.updated", record)
 	return &TodoOutput{Body: todoFromRecord(record)}, nil
 }
 
@@ -172,7 +176,17 @@ func deleteTodo(ctx context.Context, input *TodoIDInput) (*TodoDeleteOutput, err
 	if err := event.App.Delete(record); err != nil {
 		return nil, huma.Error500InternalServerError("Todo could not be deleted", err)
 	}
+	logTodoAudit(event, "todo.deleted", record)
 	return &TodoDeleteOutput{}, nil
+}
+
+func logTodoAudit(event *core.RequestEvent, action string, record *core.Record) {
+	logger := audit.PocketBaseRecorder{App: event.App}
+	if err := logger.Log(event.Request.Context(), audit.Event{
+		ActorID: event.Auth.Id, Action: action, Resource: "todos", ResourceID: record.Id,
+	}); err != nil {
+		event.App.Logger().Error("write audit event", "action", action, "collection", "todos", "resource_id", record.Id, "error", err)
+	}
 }
 
 func authenticatedEvent(ctx context.Context) (*core.RequestEvent, error) {
@@ -185,7 +199,7 @@ func authenticatedEvent(ctx context.Context) (*core.RequestEvent, error) {
 
 func findOwnedTodo(event *core.RequestEvent, id string) (*core.Record, error) {
 	record, err := event.App.FindRecordById("todos", id)
-	if err != nil || record.GetString("owner") != event.Auth.Id {
+	if err != nil || !ownership.IsOwner(record, "owner", event.Auth.Id) {
 		return nil, huma.Error404NotFound("Todo not found")
 	}
 	return record, nil

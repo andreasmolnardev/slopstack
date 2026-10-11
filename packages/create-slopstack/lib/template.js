@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 
-export const TEMPLATE_VERSION = '0.1.0';
+export const TEMPLATE_VERSION = '0.2.0';
 export const TEMPLATE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../template');
 export const STATE_DIR = '.slopstack';
 export const BASE_DIR = path.join(STATE_DIR, 'template-base');

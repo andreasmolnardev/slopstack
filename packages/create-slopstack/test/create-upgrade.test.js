@@ -5,7 +5,12 @@ import path from 'node:path';
 import test from 'node:test';
 import { createProject } from '../lib/create.js';
 import { applyUpgrade, planUpgrade } from '../lib/upgrade.js';
-import { TEMPLATE_ROOT } from '../lib/template.js';
+import { TEMPLATE_ROOT, TEMPLATE_VERSION } from '../lib/template.js';
+
+test('packaged template version matches the CLI package version', async () => {
+  const packageJson = JSON.parse(await fs.readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal(TEMPLATE_VERSION, packageJson.version);
+});
 
 async function fixtureTemplate(files) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'slopstack-template-'));
