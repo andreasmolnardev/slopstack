@@ -25,6 +25,29 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           outputs: type=oci,dest=/tmp/slopstack-image.tar
+  image-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+        with:
+          version: v0.30.0
+      - name: Build runnable image
+        run: docker buildx build --platform linux/amd64 --load -t slopstack:ci .
+      - name: Run image and check health
+        run: |
+          set -euo pipefail
+          container="$(docker run -d -p 127.0.0.1:18090:8090 slopstack:ci)"
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:18090/api/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs "$container"
+          exit 1
   check:
     runs-on: ubuntu-latest
     steps:
