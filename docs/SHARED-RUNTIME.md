@@ -50,5 +50,5 @@ so it requires the explicit `--confirm` flag. Save the one-time recovery key
 outside the app data directory.
 
 The shared runtime is released as
-The next shared runtime release is v0.3.0. It adds audit and ownership packages plus shared OpenAPI documentation routes. Taskboard and Piggybudget still need to pin this immutable version before the release can be considered adopted. Updating Slopstack does not silently change either application. Follow `docs/COMPATIBILITY.md` for the cross-app test matrix and
+The shared runtime is released as [`github.com/andreasmolnardev/slopstack v0.3.0`](https://github.com/andreasmolnardev/slopstack/releases/tag/v0.3.0). It adds audit and ownership packages plus shared OpenAPI and Huma routing. Taskboard and Piggybudget pin this immutable version in their app updates. Updating Slopstack does not silently change either application. Follow `docs/COMPATIBILITY.md` for the cross-app test matrix and
 historical database validation status.
