@@ -1,0 +1,16 @@
+{
+  "name": "create-slopstack",
+  "version": "0.2.0",
+  "description": "Create and safely upgrade Slopstack projects",
+  "type": "module",
+  "bin": {
+    "create-slopstack": "./bin/create.js",
+    "slopstack": "./bin/slopstack.js",
+    "slopstack-upgrade": "./bin/upgrade.js"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "files": ["bin", "lib", "template"],
+  "engines": { "node": ">=20" }
+}

@@ -4,26 +4,77 @@ on:
   push:
   pull_request:
 
+env:
+  # Pinned so the run matches the baseline recorded in docs/baseline.json.
+  # scripts/check-baseline.py fails if these drift from that file.
+  GO_VERSION: '1.27.1'
+  NODE_VERSION: '22.23.2'
+  PNPM_VERSION: '11.8.0'
+
 jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+        with:
+          version: v0.30.0
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          outputs: type=oci,dest=/tmp/slopstack-image.tar
+  image-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+        with:
+          version: v0.30.0
+      - name: Build runnable image
+        run: docker buildx build --platform linux/amd64 --load -t slopstack:ci .
+      - name: Run image and check health
+        run: |
+          set -euo pipefail
+          container="$(docker run -d -p 127.0.0.1:18090:8090 slopstack:ci)"
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:18090/api/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs "$container"
+          exit 1
   check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 11
+          version: ${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - uses: actions/setup-go@v5
         with:
-          go-version: stable
+          go-version: ${{ env.GO_VERSION }}
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm build
+      # Single Go module rooted at go.mod, so ./... from the repo root covers
+      # all Go code. Set explicitly rather than left implicit; apps/server is
+      # the only Go directory today.
+      - run: go build ./...
+        working-directory: .
       - run: go test ./...
+        working-directory: .
       - run: pnpm generate:api
       - run: pnpm generate:client
       - run: git diff --exit-code
+      - run: python3 scripts/check-baseline.py
+      - run: pnpm acceptance:fresh-template

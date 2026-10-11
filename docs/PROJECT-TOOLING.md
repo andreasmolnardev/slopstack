@@ -1,0 +1,98 @@
+# Create And Upgrade Projects
+
+## Create
+
+After the `create-slopstack` package is published or available from your
+configured package registry, create a project with:
+
+```sh
+pnpm create slopstack my-app
+cd my-app
+pnpm install
+pnpm dev
+```
+
+The project name must use lowercase letters, numbers, and hyphens. The generator
+uses it for the app title, Go module path (`github.com/your-org/<name>`), web
+package name, CLI name, Docker data volume, and environment prefix. For example,
+`my-app` uses `MY_APP_*`. Change the Go module path to your own hosting
+organization before publishing your code.
+
+The generator claims a new destination directory exclusively and refuses an
+existing path. If a file write fails, it leaves the partial directory in place
+for inspection; it never recursively removes the destination. Create the
+destination's parent directory first. It includes a
+`.slopstack/template-lock.json` and the `.slopstack/template-base/` snapshot
+used by the upgrade tool. The lock stores a SHA-256 checksum for every saved
+base file, and upgrade stops before planning if a checksum or snapshot file
+does not match. PocketBase data directories are not copied or migrated.
+
+When working from this repository before publishing the package, use:
+
+```sh
+node packages/create-slopstack/bin/create.js my-app
+node packages/create-slopstack/bin/slopstack.js upgrade --dry-run
+```
+
+## Fresh-template acceptance
+
+Run the end-to-end disposable-app check with:
+
+```sh
+pnpm acceptance:fresh-template
+```
+
+It creates an unrelated app in a unique OS temporary directory, installs from
+the generated lockfile, adds a sample app-owned collection and API route, then
+tests Go/OpenAPI/client builds, API and web serving, and an upgrade with a local
+conflict. It removes only the temporary directory it created. The harness does
+not use or alter any PocketBase data in this repository.
+
+If the pinned pnpm version cannot be fetched in an offline environment, this
+explicit local-only mode skips package installation and links the already
+installed `apps/web/node_modules` tree into the disposable app:
+
+```sh
+SLOPSTACK_ACCEPTANCE_REUSE_NODE_MODULES=1 node scripts/acceptance-fresh-template.mjs
+```
+
+That mode checks generation, Go, API/client generation, builds, runtime, and
+upgrade behavior, but it does **not** prove a fresh dependency install. Use the
+default command in CI or whenever the pinned package manager is available.
+
+## Upgrade
+
+Install the CLI package once, then preview and apply safe changes:
+
+```sh
+pnpm add --global create-slopstack
+pnpm slopstack upgrade --dry-run
+pnpm slopstack upgrade
+```
+
+The tool compares each file with its saved template base. It updates or removes
+files only when the current file still matches that base. It adds new template
+files only when the target path is free. Locally edited files and new-file
+collisions are reported and left as they are. Safe changes can still apply when
+other files conflict. The template version advances only after every conflict
+is clear. If you keep a custom version of a conflicted file, the conflict stays
+visible on later runs; review and merge that file yourself.
+
+The packaged template version follows the `create-slopstack` package version.
+Projects created from one version keep a per-file base snapshot, so an upgrade
+does not need to rewrite that snapshot before showing a preview.
+
+## Roll Back
+
+Commit or stash current work before upgrading, then inspect the generated diff
+and commit the upgrade separately. To undo a committed upgrade, use
+`git revert <upgrade-commit>`. For an uncommitted upgrade, restore only the
+paths listed by the preview after checking that those paths contain no later
+work. Do not use `git reset --hard` as an upgrade rollback.
+
+The upgrader is a file-level three-way comparison. It does not merge source
+code, modify PocketBase data, run migrations, install dependencies, or resolve
+conflicts in custom files.
+
+For the `slopstack.yaml` schema and dry-run deploy/release commands, see
+[`DEPLOYMENT.md`](DEPLOYMENT.md).

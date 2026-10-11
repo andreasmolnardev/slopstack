@@ -8,11 +8,12 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/andreasmolnardev/slopstack/apps/server/internal/app"
+	_ "github.com/andreasmolnardev/slopstack/apps/server/pb_migrations"
+	"github.com/andreasmolnardev/slopstack/go/backup"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/pocketbase/pocketbase"
-	"github.com/slopstack/slopstack/apps/server/internal/app"
-	_ "github.com/slopstack/slopstack/apps/server/pb_migrations"
 )
 
 func main() {
@@ -26,7 +27,11 @@ func main() {
 	}
 
 	api := newOpenAPI(config)
-	app.Register(pb, config, api)
+	if err := app.Register(pb, config, api); err != nil {
+		slog.Error("configure server", "error", err)
+		os.Exit(1)
+	}
+	pb.RootCmd.AddCommand(backup.NewCommand(config.StoragePath, backup.PocketBaseStore{App: pb}))
 	registerExportCommand(pb, api)
 
 	if err := pb.Start(); err != nil {

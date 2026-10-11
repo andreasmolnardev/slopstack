@@ -1,4 +1,4 @@
-module github.com/slopstack/slopstack
+module github.com/andreasmolnardev/slopstack
 
 go 1.26.0
 
