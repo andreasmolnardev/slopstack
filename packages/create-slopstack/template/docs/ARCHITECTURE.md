@@ -74,7 +74,8 @@ and local UI routing remain in the reference app.
 
 `slopstack.yaml` defines the canonical camelCase project schema. Vite reads its
 web port and API proxy target. `pnpm deploy` previews a multi-platform Buildx
-command by default; `pnpm deploy --push` is the explicit push action.
+command by default; `pnpm deploy --push` checks the pinned Buildx version and
+pushes; `pnpm deploy --export PATH` writes a local OCI archive.
 `pnpm release --version x.y.z` previews a version update, and `--apply` only
 updates the version and image tag in the config. See [Deployment](./DEPLOYMENT.md)
 and [Project tooling](./PROJECT-TOOLING.md).

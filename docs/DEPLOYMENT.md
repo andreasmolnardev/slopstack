@@ -59,7 +59,17 @@ pnpm deploy
 `pnpm deploy` is a dry run. To run the Buildx command and push the configured
 image, explicitly use `pnpm deploy --push` after setting up Docker credentials.
 The command uses `docker buildx build --platform linux/amd64,linux/arm64` and
-the repository and tag in `slopstack.yaml`.
+the repository and tag in `slopstack.yaml`. It checks that the installed
+Buildx version matches `tools.dockerBuildx` before building.
+
+To export a local multi-platform OCI archive without logging in to a registry:
+
+```sh
+pnpm deploy --export ./sample-app.oci.tar
+```
+
+Load the archive with a compatible OCI image tool or import it into a registry
+before deploying it. Keep the archive outside the app's persistent data path.
 
 Prepare a version change with:
 
@@ -69,8 +79,9 @@ pnpm release --version 1.2.3
 
 This is also a dry run. `pnpm release --version 1.2.3 --apply` updates only
 `release.version` and `image.tag` in `slopstack.yaml`. It does not create Git
-tags, publish packages, or push images. Review and commit the config change,
-then deploy separately.
+tags or push images. After reviewing and committing the config change, push a
+matching `v1.2.3` Git tag; the release workflow validates the version and
+publishes the configured multi-platform image to the registry.
 
 ## Required production settings
 
@@ -81,4 +92,22 @@ then deploy separately.
 
 ## Frontend
 
-The frontend is a static Vite build. Keep `/api` proxied to the Go runtime or set `VITE_API_URL` to the deployed API origin.
+The frontend is a static Vite build. Keep `/api` proxied to the Go runtime or
+set `VITE_API_URL` to the deployed API origin. Put the app behind a TLS
+terminating reverse proxy and forward requests to the container's port 8090.
+For Nginx, a minimal location is:
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8090;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+
+Before an app upgrade, create and verify a backup, keep the persistent data
+volume mounted, then deploy the new image. Check the app health endpoint and
+logs before removing the old image; database migrations run when the new app
+starts. Test restore procedures with a disposable copy of the data.

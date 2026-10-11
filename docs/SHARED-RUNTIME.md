@@ -5,13 +5,13 @@ consume them through the `github.com/andreasmolnardev/slopstack` module; the app
 their PocketBase composition roots, config structs, database schemas, route
 handlers, archive formats, and domain logic.
 
-| Package | Responsibility | Current consumers |
-| --- | --- | --- |
-| `go/auth` | PocketBase authenticated-user and user-ID helpers | Slopstack, Taskboard, Piggybudget |
+| Package            | Responsibility                                                                    | Current consumers                 |
+| ------------------ | --------------------------------------------------------------------------------- | --------------------------------- |
+| `go/auth`          | PocketBase authenticated-user and user-ID helpers                                 | Slopstack, Taskboard, Piggybudget |
 | `go/authorization` | Storage-agnostic user/role permission evaluation; explicit denies override grants | Slopstack, Taskboard, Piggybudget |
-| `go/backup` | PocketBase backup CLI, encryption-key management, and authenticated encryption | Slopstack, Taskboard, Piggybudget |
-| `go/config` | Environment lookup with legacy aliases and typed fallback parsing | Slopstack, Taskboard, Piggybudget |
-| `go/httpapi` | Static frontend assets and SPA fallback routes | Slopstack, Taskboard, Piggybudget |
+| `go/backup`        | PocketBase backup CLI, encryption-key management, and authenticated encryption    | Slopstack, Taskboard, Piggybudget |
+| `go/config`        | Environment lookup with legacy aliases and typed fallback parsing                 | Slopstack, Taskboard, Piggybudget |
+| `go/httpapi`       | Static frontend assets and SPA fallback routes                                    | Slopstack, Taskboard, Piggybudget |
 
 The authorization evaluator deliberately does not own a database schema. Its
 PocketBase adapter reads the shared `user_permissions`, `group_members`, and
@@ -32,11 +32,9 @@ configured remote stores. Restore replaces live data and restarts the process,
 so it requires the explicit `--confirm` flag. Save the one-time recovery key
 outside the app data directory.
 
-The first shared runtime release is
-[`github.com/andreasmolnardev/slopstack v0.1.0`](https://github.com/andreasmolnardev/slopstack/releases/tag/v0.1.0).
-The backup compatibility additions are being prepared for v0.2.0. During
-integration, each app uses a temporary sibling `replace`; it will be removed
-after v0.2.0 is published and both apps pin that immutable version. Updating
-Slopstack does not silently change either application. Follow
-`docs/COMPATIBILITY.md` for the cross-app test matrix and remaining historical
-database validation.
+The shared runtime is released as
+[`github.com/andreasmolnardev/slopstack v0.2.0`](https://github.com/andreasmolnardev/slopstack/releases/tag/v0.2.0).
+Taskboard and Piggybudget pin this immutable module version; neither uses a
+sibling-path `replace`. Updating Slopstack does not silently change either
+application. Follow `docs/COMPATIBILITY.md` for the cross-app test matrix and
+historical database validation status.
