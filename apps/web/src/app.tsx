@@ -1636,19 +1636,23 @@ function AdminUsersView() {
   );
 }
 
-type ManagedGroup = { id: string; name: string; description?: string };
+type ManagedGroup = { id: string; name: string; description?: string; organization?: string };
+type ManagedOrganization = { id: string; name: string };
 type ManagedMembership = { id: string; group: string; user: string };
 type ManagedPermission = { id: string; name: string; category?: string };
 type GroupPermission = { id: string; group: string; permission: string; denied?: boolean };
 
 function AdminGroupsView() {
   const [groups, setGroups] = useState<ManagedGroup[]>([]);
+  const [organizations, setOrganizations] = useState<ManagedOrganization[]>([]);
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [memberships, setMemberships] = useState<ManagedMembership[]>([]);
   const [permissions, setPermissions] = useState<ManagedPermission[]>([]);
   const [groupPermissions, setGroupPermissions] = useState<GroupPermission[]>([]);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [organization, setOrganization] = useState('');
+  const [organizationName, setOrganizationName] = useState('');
   const [selectedUsers, setSelectedUsers] = useState<Record<string, string>>({});
   const [selectedPermissions, setSelectedPermissions] = useState<Record<string, string>>({});
   const [permissionEffects, setPermissionEffects] = useState<Record<string, string>>({});
@@ -1658,18 +1662,20 @@ function AdminGroupsView() {
 
   async function load() {
     try {
-      const [nextGroups, nextUsers, nextMemberships, nextPermissions, nextGroupPermissions] = await Promise.all([
+      const [nextGroups, nextUsers, nextMemberships, nextPermissions, nextGroupPermissions, nextOrganizations] = await Promise.all([
         pb.collection('groups').getFullList<ManagedGroup>({ sort: 'name' }),
         pb.collection('users').getFullList<ManagedUser>({ sort: 'email' }),
         pb.collection('group_members').getFullList<ManagedMembership>(),
         pb.collection('permissions').getFullList<ManagedPermission>({ sort: 'name' }),
         pb.collection('group_permissions').getFullList<GroupPermission>(),
+        pb.collection('organizations').getFullList<ManagedOrganization>({ sort: 'name' }),
       ]);
       setGroups(nextGroups);
       setUsers(nextUsers);
       setMemberships(nextMemberships);
       setPermissions(nextPermissions);
       setGroupPermissions(nextGroupPermissions);
+      setOrganizations(nextOrganizations);
       setError('');
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Unable to load groups.');
@@ -1681,12 +1687,23 @@ function AdminGroupsView() {
   async function createGroup(event: FormEvent) {
     event.preventDefault();
     try {
-      await pb.collection('groups').create({ name: name.trim(), description: description.trim() });
+      await pb.collection('groups').create({ name: name.trim(), description: description.trim(), organization });
       setName('');
       setDescription('');
       await load();
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : 'Unable to create group.');
+    }
+  }
+
+  async function createOrganization(event: FormEvent) {
+    event.preventDefault();
+    try {
+      await pb.collection('organizations').create({ name: organizationName.trim() });
+      setOrganizationName('');
+      await load();
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : 'Unable to create organization.');
     }
   }
 
@@ -1763,11 +1780,25 @@ function AdminGroupsView() {
       <PageHeading eyebrow="Administration" title="Groups" description="Create groups and manage their user memberships." />
       {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
       <Card>
+        <CardHeader><CardTitle>Organizations</CardTitle><CardDescription>Optional tenant scope. Single-user apps can leave this empty.</CardDescription></CardHeader>
+        <CardContent className="grid gap-4">
+          <form className="grid gap-3 sm:grid-cols-[1fr_auto]" onSubmit={(event) => void createOrganization(event)}>
+            <Input aria-label="Organization name" placeholder="Organization name" value={organizationName} onChange={(event) => setOrganizationName(event.target.value)} required />
+            <Button type="submit">Create organization</Button>
+          </form>
+          <div className="flex flex-wrap gap-2">{organizations.map((item) => <Badge key={item.id} variant="outline">{item.name}</Badge>)}</div>
+        </CardContent>
+      </Card>
+      <Card>
         <CardHeader><CardTitle>Create a group</CardTitle><CardDescription>Groups can receive shared permissions.</CardDescription></CardHeader>
         <CardContent>
-          <form className="grid gap-3 sm:grid-cols-[1fr_2fr_auto]" onSubmit={(event) => void createGroup(event)}>
+          <form className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_2fr_1fr_auto]" onSubmit={(event) => void createGroup(event)}>
             <Input aria-label="Group name" placeholder="Group name" value={name} onChange={(event) => setName(event.target.value)} required />
             <Input aria-label="Description" placeholder="Description" value={description} onChange={(event) => setDescription(event.target.value)} />
+            <select className="h-10 rounded-xl border bg-background px-3 text-sm" aria-label="Organization scope" value={organization} onChange={(event) => setOrganization(event.target.value)}>
+              <option value="">No organization</option>
+              {organizations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </select>
             <Button type="submit">Create group</Button>
           </form>
         </CardContent>
@@ -1789,7 +1820,7 @@ function AdminGroupsView() {
         return (
           <Card key={group.id}>
             <CardHeader className="flex flex-row items-start justify-between gap-4">
-              <div><CardTitle>{group.name}</CardTitle><CardDescription>{group.description || 'No description'} · {members.length} members</CardDescription></div>
+              <div><CardTitle>{group.name}</CardTitle><CardDescription>{group.description || 'No description'} · {group.organization ? `${organizations.find((item) => item.id === group.organization)?.name ?? 'Organization'} · ` : ''}{members.length} members</CardDescription></div>
               <Button variant="destructive" size="sm" onClick={() => void deleteGroup(group)}>Delete</Button>
             </CardHeader>
             <CardContent className="grid gap-4">
