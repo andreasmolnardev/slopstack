@@ -2,6 +2,7 @@ FROM golang:1.26-alpine AS server-build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
+COPY VERSION VERSION
 COPY apps/server apps/server
 RUN go run ./apps/server/cmd/slopstack openapi export
 RUN CGO_ENABLED=0 go build -o /slopstack ./apps/server/cmd/slopstack
@@ -21,8 +22,9 @@ RUN addgroup -S slopstack && adduser -S slopstack -G slopstack
 WORKDIR /app
 ENV SLOPSTACK_PUBLIC_DIR=/app/public
 COPY --from=server-build /slopstack /app/slopstack
+COPY VERSION /app/VERSION
 COPY --from=web-build /src/apps/web/dist /app/public
-RUN chown -R slopstack:slopstack /app
+RUN mkdir -p /app/pb_data && chown -R slopstack:slopstack /app
 USER slopstack
 VOLUME ["/app/pb_data"]
 EXPOSE 8090

@@ -36,7 +36,7 @@ func main() {
 }
 
 func newOpenAPI(config app.Config) huma.API {
-	api := humago.New(http.NewServeMux(), huma.DefaultConfig("Slopstack API", "0.1.0"))
+	api := humago.New(http.NewServeMux(), huma.DefaultConfig("Slopstack API", app.Version()))
 	api.OpenAPI().OpenAPI = "3.1.0"
 	api.OpenAPI().Servers = []*huma.Server{{URL: config.PublicURL}}
 	api.OpenAPI().Components.SecuritySchemes = map[string]*huma.SecurityScheme{

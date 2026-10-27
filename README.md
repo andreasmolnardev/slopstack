@@ -34,6 +34,7 @@ The server serves `/openapi.json`, `/openapi.yaml`, and `/docs`. Export offline 
 ## Docker And Deployment
 
 `docker compose up --build` runs the production image and persists PocketBase data in `slopstack-data`. Set `SLOPSTACK_PUBLIC_URL` and secure-cookie values for your deployment.
+The release workflow publishes `ghcr.io/<owner>/slopstack:<VERSION>` and `:latest` when a `v<VERSION>` tag is pushed. Keep the root `VERSION` file and tag in sync.
 
 ## Customization
 
