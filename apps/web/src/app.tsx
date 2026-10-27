@@ -303,9 +303,25 @@ function getUserInitials(name: string) {
 
 function formatDate(value: string) {
   if (!value) return 'No due date';
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(
-    new Date(`${value}T12:00:00`),
-  );
+  const userId = pb.authStore.record?.id;
+  let preferences: Partial<UserPreferences> = {};
+  if (userId) {
+    try { preferences = JSON.parse(localStorage.getItem(`slopstack.preferences.${userId}`) ?? '{}') as Partial<UserPreferences>; }
+    catch { /* use the locale defaults */ }
+  }
+  const date = new Date(`${value}T12:00:00Z`);
+  const parts = new Intl.DateTimeFormat(preferences.locale || 'en-US', {
+    timeZone: preferences.timeZone || 'UTC', month: 'short', day: 'numeric', year: 'numeric',
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map(({ type, value: part }) => [type, part]));
+  switch (preferences.dateFormat) {
+    case 'yyyy-MM-dd': return `${values.year}-${new Intl.DateTimeFormat('en', { timeZone: 'UTC', month: '2-digit' }).format(date)}-${new Intl.DateTimeFormat('en', { timeZone: 'UTC', day: '2-digit' }).format(date)}`;
+    case 'MM/dd/yyyy': return `${new Intl.DateTimeFormat('en', { timeZone: 'UTC', month: '2-digit' }).format(date)}/${new Intl.DateTimeFormat('en', { timeZone: 'UTC', day: '2-digit' }).format(date)}/${values.year}`;
+    case 'dd/MM/yyyy': return `${new Intl.DateTimeFormat('en', { timeZone: 'UTC', day: '2-digit' }).format(date)}/${new Intl.DateTimeFormat('en', { timeZone: 'UTC', month: '2-digit' }).format(date)}/${values.year}`;
+    default: return new Intl.DateTimeFormat(preferences.locale || 'en-US', {
+      timeZone: preferences.timeZone || 'UTC', month: 'short', day: 'numeric',
+    }).format(date);
+  }
 }
 
 function priorityClass(priority: Priority) {
@@ -349,6 +365,7 @@ export function App() {
     let active = true;
     getPreferences().then((preferences) => {
       if (!active) return;
+      localStorage.setItem(`slopstack.preferences.${authUserId}`, JSON.stringify(preferences));
       setTheme(preferences.theme);
       setNavigationStyle(preferences.navigation);
     }).catch(() => undefined);
@@ -2685,6 +2702,8 @@ function SettingsView() {
     if (key === 'theme') setTheme(String(value));
     void savePreferences(patch).then((saved) => {
       setPreferences(saved);
+      const userId = pb.authStore.record?.id;
+      if (userId) localStorage.setItem(`slopstack.preferences.${userId}`, JSON.stringify(saved));
       window.dispatchEvent(new CustomEvent('slopstack:preferences', { detail: saved }));
     }).catch(() => setPreferencesError('Could not save this preference.'));
   }
