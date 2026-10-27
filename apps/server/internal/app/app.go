@@ -2,9 +2,11 @@ package app
 
 import (
 	"net/http"
+	"os"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/pocketbase/pocketbase"
+	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 )
 
@@ -56,4 +58,9 @@ func registerRoutes(e *core.ServeEvent, config Config, api huma.API) {
 		return event.HTML(http.StatusOK, "<!doctype html><html><body><redoc spec-url=\"/openapi.json\"></redoc><script src=\"https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js\"></script></body></html>")
 	})
 	registerTodoRoutes(e, config)
+	registerStaticFrontend(e, config)
+}
+
+func registerStaticFrontend(e *core.ServeEvent, config Config) {
+	e.Router.GET("/{path...}", apis.Static(os.DirFS(config.PublicDirectory), true))
 }

@@ -19,6 +19,7 @@ RUN pnpm --filter @slopstack/web build
 FROM alpine:3.22
 RUN addgroup -S slopstack && adduser -S slopstack -G slopstack
 WORKDIR /app
+ENV SLOPSTACK_PUBLIC_DIR=/app/public
 COPY --from=server-build /slopstack /app/slopstack
 COPY --from=web-build /src/apps/web/dist /app/public
 RUN chown -R slopstack:slopstack /app

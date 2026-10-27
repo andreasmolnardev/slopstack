@@ -12,6 +12,7 @@ type Config struct {
 	RegistrationEnabled bool
 	LogLevel            string
 	StoragePath         string
+	PublicDirectory     string
 	Development         bool
 }
 
@@ -23,6 +24,7 @@ func LoadConfig() Config {
 		RegistrationEnabled: envBool("SLOPSTACK_REGISTRATION_ENABLED", true),
 		LogLevel:            env("SLOPSTACK_LOG_LEVEL", "info"),
 		StoragePath:         env("SLOPSTACK_STORAGE_PATH", "pb_data"),
+		PublicDirectory:     env("SLOPSTACK_PUBLIC_DIR", "apps/web/dist"),
 		Development:         envBool("SLOPSTACK_DEVELOPMENT", false),
 	}
 }
