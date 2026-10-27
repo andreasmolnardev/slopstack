@@ -334,6 +334,15 @@ function priorityClass(priority: Priority) {
       : 'bg-sky-100 text-sky-700';
 }
 
+function applyThemeTokens(tokens: UserPreferences['themeTokens']) {
+  document.documentElement.style.setProperty('--primary', tokens.primary);
+  document.documentElement.style.setProperty('--ring', tokens.primary);
+  document.documentElement.style.setProperty('--sidebar-primary', tokens.primary);
+  document.documentElement.style.setProperty('--sidebar-ring', tokens.primary);
+  document.documentElement.style.setProperty('--accent', tokens.accent);
+  document.documentElement.style.setProperty('--radius', tokens.radius);
+}
+
 export function App() {
   const { pathname, navigate } = useNavigation();
   const { setTheme } = useTheme();
@@ -369,12 +378,14 @@ export function App() {
       if (!active) return;
       localStorage.setItem(`slopstack.preferences.${authUserId}`, JSON.stringify(preferences));
       setTheme(preferences.theme);
+      applyThemeTokens(preferences.themeTokens);
       setNavigationStyle(preferences.navigation);
     }).catch(() => undefined);
     const onPreferencesChange = (event: Event) => {
       const preferences = (event as CustomEvent<Partial<UserPreferences>>).detail;
       if (preferences.navigation) setNavigationStyle(preferences.navigation);
       if (preferences.theme) setTheme(preferences.theme);
+      if (preferences.themeTokens) applyThemeTokens(preferences.themeTokens);
     };
     window.addEventListener('slopstack:preferences', onPreferencesChange);
     return () => {
@@ -2955,6 +2966,7 @@ function SettingsView() {
   const [twoFactor, setTwoFactor] = useState(true);
   const [preferences, setPreferences] = useState<UserPreferences>({
     locale: 'en-US', timeZone: 'UTC', dateFormat: 'MMM d, yyyy', timeFormat: '12h', theme: 'light', navigation: 'sidebar',
+    themeTokens: { primary: '#007acc', accent: '#dbeeff', radius: '0.75rem' },
   });
   const [preferencesError, setPreferencesError] = useState('');
 
@@ -2975,6 +2987,7 @@ function SettingsView() {
       setPreferences(saved);
       const userId = pb.authStore.record?.id;
       if (userId) localStorage.setItem(`slopstack.preferences.${userId}`, JSON.stringify(saved));
+      applyThemeTokens(saved.themeTokens);
       window.dispatchEvent(new CustomEvent('slopstack:preferences', { detail: saved }));
     }).catch(() => setPreferencesError('Could not save this preference.'));
   }
@@ -3042,6 +3055,23 @@ function SettingsView() {
                   value={preferences.theme}
                   options={['light', 'dark', 'system']}
                   onChange={(value) => updatePreference('theme', value)}
+                />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="flex items-center justify-between gap-4 text-sm">
+                    <span>Primary theme token</span>
+                    <input aria-label="Primary theme color" type="color" value={preferences.themeTokens.primary} onChange={(event) => updatePreference('themeTokens', { ...preferences.themeTokens, primary: event.target.value })} />
+                  </label>
+                  <label className="flex items-center justify-between gap-4 text-sm">
+                    <span>Accent theme token</span>
+                    <input aria-label="Accent theme color" type="color" value={preferences.themeTokens.accent} onChange={(event) => updatePreference('themeTokens', { ...preferences.themeTokens, accent: event.target.value })} />
+                  </label>
+                </div>
+                <SettingsSelectRow
+                  label="Corner radius"
+                  description="Customize the shape of buttons, cards, and controls."
+                  value={preferences.themeTokens.radius}
+                  options={['0.5rem', '0.75rem', '1rem']}
+                  onChange={(value) => updatePreference('themeTokens', { ...preferences.themeTokens, radius: value })}
                 />
                 <SettingsSwitchRow
                   label="Two-factor authentication"

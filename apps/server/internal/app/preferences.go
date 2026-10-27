@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -12,22 +13,30 @@ import (
 )
 
 type UserPreferences struct {
-	Locale     string `json:"locale"`
-	TimeZone   string `json:"timeZone"`
-	DateFormat string `json:"dateFormat"`
-	TimeFormat string `json:"timeFormat"`
-	Theme      string `json:"theme"`
-	Navigation string `json:"navigation"`
+	Locale      string      `json:"locale"`
+	TimeZone    string      `json:"timeZone"`
+	DateFormat  string      `json:"dateFormat"`
+	TimeFormat  string      `json:"timeFormat"`
+	Theme       string      `json:"theme"`
+	Navigation  string      `json:"navigation"`
+	ThemeTokens ThemeTokens `json:"themeTokens"`
+}
+
+type ThemeTokens struct {
+	Primary string `json:"primary"`
+	Accent  string `json:"accent"`
+	Radius  string `json:"radius"`
 }
 
 type userPreferencesPatchInput struct {
 	Body struct {
-		Locale     *string `json:"locale,omitempty"`
-		TimeZone   *string `json:"timeZone,omitempty"`
-		DateFormat *string `json:"dateFormat,omitempty"`
-		TimeFormat *string `json:"timeFormat,omitempty"`
-		Theme      *string `json:"theme,omitempty"`
-		Navigation *string `json:"navigation,omitempty"`
+		Locale      *string      `json:"locale,omitempty"`
+		TimeZone    *string      `json:"timeZone,omitempty"`
+		DateFormat  *string      `json:"dateFormat,omitempty"`
+		TimeFormat  *string      `json:"timeFormat,omitempty"`
+		Theme       *string      `json:"theme,omitempty"`
+		Navigation  *string      `json:"navigation,omitempty"`
+		ThemeTokens *ThemeTokens `json:"themeTokens,omitempty"`
 	} `json:"body"`
 }
 type userPreferencesOutput struct{ Body UserPreferences }
@@ -51,7 +60,7 @@ func registerPreferencesRoutes(e *core.ServeEvent) {
 }
 
 func defaultUserPreferences() UserPreferences {
-	return UserPreferences{Locale: "en-US", TimeZone: "UTC", DateFormat: "MMM d, yyyy", TimeFormat: "12h", Theme: "light", Navigation: "sidebar"}
+	return UserPreferences{Locale: "en-US", TimeZone: "UTC", DateFormat: "MMM d, yyyy", TimeFormat: "12h", Theme: "light", Navigation: "sidebar", ThemeTokens: ThemeTokens{Primary: "#007acc", Accent: "#dbeeff", Radius: "0.75rem"}}
 }
 
 func getMyPreferencesRoute(event *core.RequestEvent) error {
@@ -89,6 +98,9 @@ func patchMyPreferencesRoute(event *core.RequestEvent) error {
 	}
 	if patch.Body.Navigation != nil {
 		prefs.Navigation = *patch.Body.Navigation
+	}
+	if patch.Body.ThemeTokens != nil {
+		prefs.ThemeTokens = *patch.Body.ThemeTokens
 	}
 	if err := validateUserPreferences(prefs); err != nil {
 		return event.BadRequestError("invalid preferences", err)
@@ -129,6 +141,13 @@ func readUserPreferences(user *core.Record) UserPreferences {
 }
 
 func validateUserPreferences(p UserPreferences) error {
+	colorToken := regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+	if !colorToken.MatchString(p.ThemeTokens.Primary) || !colorToken.MatchString(p.ThemeTokens.Accent) {
+		return fmt.Errorf("theme color tokens must be six-digit hex colors")
+	}
+	if p.ThemeTokens.Radius != "0.5rem" && p.ThemeTokens.Radius != "0.75rem" && p.ThemeTokens.Radius != "1rem" {
+		return fmt.Errorf("unsupported theme radius")
+	}
 	if _, err := time.LoadLocation(p.TimeZone); err != nil {
 		return fmt.Errorf("timeZone must be a valid IANA time zone")
 	}

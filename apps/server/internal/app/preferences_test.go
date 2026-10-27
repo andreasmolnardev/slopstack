@@ -18,4 +18,10 @@ func TestValidateUserPreferences(t *testing.T) {
 	if err := validateUserPreferences(prefs); err == nil {
 		t.Fatal("unknown time zone should fail validation")
 	}
+
+	prefs = defaultUserPreferences()
+	prefs.ThemeTokens.Primary = "red; background:url(javascript:alert(1))"
+	if err := validateUserPreferences(prefs); err == nil {
+		t.Fatal("unsafe theme values should fail validation")
+	}
 }
