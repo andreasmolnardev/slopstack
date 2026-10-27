@@ -13,6 +13,7 @@ import (
 func Register(pb *pocketbase.PocketBase, config Config, api huma.API) {
 	pb.RootCmd.PersistentFlags().StringVar(&config.HTTPAddress, "http", config.HTTPAddress, "HTTP address")
 	registerTodoAPI(api)
+	registerPreferencesAPI(api)
 	pb.OnBootstrap().BindFunc(func(e *core.BootstrapEvent) error {
 		if err := e.Next(); err != nil {
 			return err
@@ -58,6 +59,7 @@ func registerRoutes(e *core.ServeEvent, config Config, api huma.API) {
 		return event.HTML(http.StatusOK, "<!doctype html><html><body><redoc spec-url=\"/openapi.json\"></redoc><script src=\"https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js\"></script></body></html>")
 	})
 	registerTodoRoutes(e, config)
+	registerPreferencesRoutes(e)
 	registerStaticFrontend(e, config)
 }
 
