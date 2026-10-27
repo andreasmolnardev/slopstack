@@ -15,4 +15,4 @@ Slopstack is a full-stack starter, not a task product. The task workspace in `ap
 
 ## Example module
 
-The example demonstrates local task state, create and complete actions, filtering, schedule and analytics views, profile settings, responsive navigation, and shadcn component composition. Replace this module with your domain screens while keeping server, schema, auth, and generated-client patterns.
+The example demonstrates authenticated, persisted task CRUD, filtering, schedule and analytics views, profile settings, responsive navigation, and shadcn component composition. Replace this module with your domain screens while keeping server, schema, auth, and generated-client patterns.

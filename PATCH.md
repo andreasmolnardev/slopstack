@@ -3,6 +3,7 @@
 ## Major Features
 
 - [x] Embedded PocketBase, API, React shell, and Todo example.
+- [x] Persisted, owner-scoped Todo list, create, read, update, and delete API with generated client usage.
 
 ## Minor Features
 

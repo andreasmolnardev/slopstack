@@ -44,7 +44,7 @@ type todoIDInput struct {
 type todoOutput struct{ Body todo }
 type todoCreateInput struct{ Body todoWrite }
 type todoUpdateInput struct {
-	todoIDInput
+	ID   string `path:"id"`
 	Body todoWrite
 }
 type todoCreatedOutput struct {
@@ -69,7 +69,7 @@ func registerTodoAPI(api huma.API) {
 	huma.Register(api, huma.Operation{
 		OperationID: "createTodo", Method: http.MethodPost, Path: "/api/todos",
 		Tags: []string{"Todos"}, Summary: "Create a todo for the current user",
-		Security: security, Errors: errors,
+		Security: security, Errors: errors, DefaultStatus: http.StatusCreated,
 	}, func(context.Context, *todoCreateInput) (*todoCreatedOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{
 		OperationID: "getTodo", Method: http.MethodGet, Path: "/api/todos/{id}",
@@ -84,7 +84,7 @@ func registerTodoAPI(api huma.API) {
 	huma.Register(api, huma.Operation{
 		OperationID: "deleteTodo", Method: http.MethodDelete, Path: "/api/todos/{id}",
 		Tags: []string{"Todos"}, Summary: "Delete one of the current user's todos",
-		Security: security, Errors: []int{http.StatusUnauthorized, http.StatusNotFound},
+		Security: security, Errors: []int{http.StatusUnauthorized, http.StatusNotFound}, DefaultStatus: http.StatusNoContent,
 	}, func(context.Context, *todoIDInput) (*todoDeletedOutput, error) { return nil, nil })
 }
 

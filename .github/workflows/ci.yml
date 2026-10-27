@@ -20,10 +20,10 @@ jobs:
         with:
           go-version: stable
       - run: pnpm install --frozen-lockfile
+      - run: pnpm generate:api
+      - run: pnpm generate:client
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm build
       - run: go test ./...
-      - run: pnpm generate:api
-      - run: pnpm generate:client
       - run: git diff --exit-code

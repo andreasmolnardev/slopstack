@@ -1,17 +1,20 @@
+FROM golang:1.26-alpine AS server-build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY apps/server apps/server
+RUN go run ./apps/server/cmd/slopstack openapi export
+RUN CGO_ENABLED=0 go build -o /slopstack ./apps/server/cmd/slopstack
+
 FROM node:24-alpine AS web-build
 WORKDIR /src
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/package.json
 RUN corepack enable && pnpm install --frozen-lockfile --ignore-scripts && pnpm rebuild esbuild
 COPY apps/web apps/web
+COPY --from=server-build /src/openapi/openapi.json openapi/openapi.json
+RUN pnpm --filter @slopstack/web generate:client
 RUN pnpm --filter @slopstack/web build
-
-FROM golang:1.26-alpine AS server-build
-WORKDIR /src
-COPY go.mod go.sum ./
-RUN go mod download
-COPY apps/server apps/server
-RUN CGO_ENABLED=0 go build -o /slopstack ./apps/server/cmd/slopstack
 
 FROM alpine:3.22
 RUN addgroup -S slopstack && adduser -S slopstack -G slopstack

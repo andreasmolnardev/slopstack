@@ -17,6 +17,6 @@ Collections are created by `apps/server/internal/app/schema.go` on first boot an
 
 ## Example task fields
 
-The starter `todos` collection has `owner`, `title`, `completed`, and `due_date`. The reference UI adds display-only concepts such as priority, project, description, and assignees in local demo state.
+The starter `todos` collection has `owner`, `title`, `description`, `priority`, `completed`, and `due_date`. Each task belongs to one user. Priority accepts `High`, `Medium`, or `Low`; an empty due date means no due date is set.
 
 When making schema changes, add a new PocketBase migration. Do not rewrite an applied migration.

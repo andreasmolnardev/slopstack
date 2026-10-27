@@ -35,7 +35,6 @@ import {
   Heart,
   Home,
   Image,
-  Inbox,
   Info,
   KeyRound,
   Link,
@@ -90,7 +89,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -113,9 +111,11 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
-import { Avatar, AvatarFallback, AvatarGroup, AvatarGroupCount } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useTheme } from 'next-themes';
 import { pb } from './api/pocketbase';
+import { createTodoRecord, deleteTodoRecord, getTodos, updateTodoRecord } from './api/todos';
+import type { Todo, TodoWrite } from './api/generated/types.gen';
 
 type Priority = 'High' | 'Medium' | 'Low';
 type View = 'overview' | 'tasks' | 'schedule' | 'analytics' | 'components' | 'icons' | 'profile';
@@ -126,59 +126,7 @@ type Route =
   | { kind: 'admin'; section: AdminSection }
   | { kind: 'auth'; mode: AuthMode }
   | { kind: 'not-found' };
-type Task = {
-  id: string;
-  title: string;
-  description: string;
-  dueDate: string;
-  priority: Priority;
-  completed: boolean;
-  project: string;
-  assignees: number;
-};
-
-const starterTasks: Task[] = [
-  {
-    id: 'homepage',
-    title: 'Design homepage mockups',
-    description: 'Create high-fidelity mockups for the new homepage.',
-    dueDate: '2026-08-25',
-    priority: 'High',
-    completed: false,
-    project: 'Marketing site',
-    assignees: 4,
-  },
-  {
-    id: 'content',
-    title: 'Plan social media content',
-    description: 'Build next week content themes and posting schedule.',
-    dueDate: '2026-08-26',
-    priority: 'Medium',
-    completed: false,
-    project: 'Campaign launch',
-    assignees: 3,
-  },
-  {
-    id: 'review',
-    title: 'Review analytics dashboard',
-    description: 'Check performance trends and share the weekly summary.',
-    dueDate: '2026-08-27',
-    priority: 'Low',
-    completed: true,
-    project: 'Operations',
-    assignees: 2,
-  },
-  {
-    id: 'handoff',
-    title: 'Prepare design handoff',
-    description: 'Package assets and implementation notes for engineering.',
-    dueDate: '2026-08-29',
-    priority: 'High',
-    completed: false,
-    project: 'Marketing site',
-    assignees: 5,
-  },
-];
+type Task = Omit<Todo, 'priority'> & { priority: Priority };
 
 const navItems: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -352,6 +300,7 @@ function getUserInitials(name: string) {
 }
 
 function formatDate(value: string) {
+  if (!value) return 'No due date';
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(
     new Date(`${value}T12:00:00`),
   );
@@ -365,47 +314,26 @@ function priorityClass(priority: Priority) {
       : 'bg-sky-100 text-sky-700';
 }
 
-function PersonStack({ count }: { count: number }) {
-  return (
-    <AvatarGroup>
-      <Avatar size="sm">
-        <AvatarFallback className="bg-violet-100 text-violet-700">AM</AvatarFallback>
-      </Avatar>
-      <Avatar size="sm">
-        <AvatarFallback className="bg-orange-100 text-orange-700">JD</AvatarFallback>
-      </Avatar>
-      {count > 2 && (
-        <Avatar size="sm">
-          <AvatarFallback className="bg-emerald-100 text-emerald-700">SK</AvatarFallback>
-        </Avatar>
-      )}
-      {count > 3 && <AvatarGroupCount>{count - 3}+</AvatarGroupCount>}
-    </AvatarGroup>
-  );
-}
-
 export function App() {
   const { pathname, navigate } = useNavigation();
   const route = routeForPath(pathname);
-  const [, refreshAuth] = useState(0);
-  const [tasks, setTasks] = useState<Task[]>(() => {
-    try {
-      const stored = localStorage.getItem('slopstack-reference-tasks');
-      return stored ? (JSON.parse(stored) as Task[]) : starterTasks;
-    } catch {
-      return starterTasks;
-    }
-  });
+  const [authRevision, refreshAuth] = useState(0);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [tasksLoading, setTasksLoading] = useState(true);
+  const [taskError, setTaskError] = useState('');
+  const [taskSaving, setTaskSaving] = useState(false);
+  const [taskDialogOpen, setTaskDialogOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [taskFilter, setTaskFilter] = useState('all');
   const [search, setSearch] = useState('');
-  const [dialogOpen, setDialogOpen] = useState(false);
   const [newTask, setNewTask] = useState({
     title: '',
     description: '',
-    dueDate: '2026-08-30',
+    dueDate: '',
     priority: 'Medium' as Priority,
   });
   const isAuthenticated = pb.authStore.isValid;
+  const authUserId = pb.authStore.record?.id ?? '';
   const isSuperuser = pb.authStore.record?.collectionName === '_superusers';
   const isAdmin = isSuperuser || pb.authStore.record?.isAdmin === true;
 
@@ -414,8 +342,30 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('slopstack-reference-tasks', JSON.stringify(tasks));
-  }, [tasks]);
+    let active = true;
+    if (!authUserId) {
+      setTasks([]);
+      setTasksLoading(false);
+      return;
+    }
+
+    setTasksLoading(true);
+    setTaskError('');
+    getTodos()
+      .then((records) => {
+        if (active) setTasks(records as Task[]);
+      })
+      .catch(() => {
+        if (active) setTaskError('Could not load your tasks. Please try again.');
+      })
+      .finally(() => {
+        if (active) setTasksLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [authRevision, authUserId]);
 
   const completed = tasks.filter((task) => task.completed).length;
   const visibleTasks = useMemo(
@@ -428,8 +378,7 @@ export function App() {
         const query = search.trim().toLowerCase();
         return (
           matchesFilter &&
-          (!query ||
-            `${task.title} ${task.description} ${task.project}`.toLowerCase().includes(query))
+          (!query || `${task.title} ${task.description}`.toLowerCase().includes(query))
         );
       }),
     [search, taskFilter, tasks],
@@ -454,7 +403,10 @@ export function App() {
       return;
     }
     if (route.kind === 'auth' && isAuthenticated) {
-      navigate(route.mode === 'admin-login' && isSuperuser ? '/admin/users' : '/app/overview', true);
+      navigate(
+        route.mode === 'admin-login' && isSuperuser ? '/admin/users' : '/app/overview',
+        true,
+      );
     }
   }, [isAdmin, isAuthenticated, isSuperuser, navigate, pathname, route]);
 
@@ -479,30 +431,71 @@ export function App() {
   const userName = getUserName(user);
   const userInitials = getUserInitials(userName);
 
-  function addTask(event: FormEvent) {
+  function openTaskEditor(task?: Task) {
+    setTaskError('');
+    setEditingTask(task ?? null);
+    setNewTask(
+      task
+        ? {
+            title: task.title,
+            description: task.description,
+            dueDate: task.due_date,
+            priority: task.priority,
+          }
+        : { title: '', description: '', dueDate: '', priority: 'Medium' },
+    );
+    setTaskDialogOpen(true);
+  }
+
+  async function saveTask(event: FormEvent) {
     event.preventDefault();
     const title = newTask.title.trim();
     if (!title) return;
-    setTasks((current) => [
-      {
-        id: crypto.randomUUID(),
-        title,
-        description:
-          newTask.description.trim() || 'Example task created from the reference module.',
-        dueDate: newTask.dueDate,
-        priority: newTask.priority,
-        completed: false,
-        project: 'New project',
-        assignees: 1,
-      },
-      ...current,
-    ]);
-    setNewTask({ title: '', description: '', dueDate: '2026-08-30', priority: 'Medium' });
-    setDialogOpen(false);
+    const input: TodoWrite = {
+      title,
+      description: newTask.description.trim(),
+      due_date: newTask.dueDate,
+      priority: newTask.priority,
+    };
+    setTaskSaving(true);
+    setTaskError('');
+    try {
+      const saved = editingTask
+        ? await updateTodoRecord(editingTask.id, input)
+        : await createTodoRecord(input);
+      const savedTask = saved as Task;
+      setTasks((current) =>
+        editingTask
+          ? current.map((task) => (task.id === savedTask.id ? savedTask : task))
+          : [savedTask, ...current],
+      );
+      setTaskDialogOpen(false);
+      setEditingTask(null);
+    } catch {
+      setTaskError('Could not save this task. Check the fields and try again.');
+    } finally {
+      setTaskSaving(false);
+    }
   }
 
-  function toggleTask(id: string, completed: boolean) {
-    setTasks((current) => current.map((task) => (task.id === id ? { ...task, completed } : task)));
+  async function toggleTask(id: string, completed: boolean) {
+    setTaskError('');
+    try {
+      const saved = (await updateTodoRecord(id, { completed })) as Task;
+      setTasks((current) => current.map((task) => (task.id === id ? saved : task)));
+    } catch {
+      setTaskError('Could not update this task. Please try again.');
+    }
+  }
+
+  async function deleteTask(id: string) {
+    setTaskError('');
+    try {
+      await deleteTodoRecord(id);
+      setTasks((current) => current.filter((task) => task.id !== id));
+    } catch {
+      setTaskError('Could not delete this task. Please try again.');
+    }
   }
 
   function renderView() {
@@ -511,12 +504,14 @@ export function App() {
         <TasksView
           tasks={visibleTasks}
           onToggle={toggleTask}
-          onDelete={(id) => setTasks((current) => current.filter((item) => item.id !== id))}
+          onDelete={deleteTask}
+          onEdit={(task) => openTaskEditor(task)}
+          tasksLoading={tasksLoading}
           search={search}
           onSearch={setSearch}
           filter={taskFilter}
           onFilter={setTaskFilter}
-          onAdd={() => setDialogOpen(true)}
+          onAdd={() => openTaskEditor()}
         />
       );
     if (view === 'schedule') return <ScheduleView tasks={tasks} onToggle={toggleTask} />;
@@ -546,84 +541,10 @@ export function App() {
               <BarChart3 className="size-4" />
               View analytics
             </Button>
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-              <DialogTrigger asChild>
-                <Button className="gap-2">
-                  <Plus className="size-4" />
-                  Add task
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Add new task</DialogTitle>
-                  <DialogDescription>
-                    This form demonstrates how a feature module can compose shadcn components.
-                  </DialogDescription>
-                </DialogHeader>
-                <form id="new-task-form" onSubmit={addTask} className="grid gap-4 py-2">
-                  <div className="grid gap-2">
-                    <Label htmlFor="task-title">Task name</Label>
-                    <Input
-                      id="task-title"
-                      autoFocus
-                      value={newTask.title}
-                      onChange={(event) => setNewTask({ ...newTask, title: event.target.value })}
-                      placeholder="Design homepage mockups"
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="task-description">Description</Label>
-                    <Textarea
-                      id="task-description"
-                      value={newTask.description}
-                      onChange={(event) =>
-                        setNewTask({ ...newTask, description: event.target.value })
-                      }
-                      placeholder="What needs to happen?"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="grid gap-2">
-                      <Label htmlFor="task-due">Due date</Label>
-                      <Input
-                        id="task-due"
-                        type="date"
-                        value={newTask.dueDate}
-                        onChange={(event) =>
-                          setNewTask({ ...newTask, dueDate: event.target.value })
-                        }
-                      />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label>Priority</Label>
-                      <Select
-                        value={newTask.priority}
-                        onValueChange={(value) =>
-                          setNewTask({ ...newTask, priority: value as Priority })
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="High">High</SelectItem>
-                          <SelectItem value="Medium">Medium</SelectItem>
-                          <SelectItem value="Low">Low</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                </form>
-                <DialogFooter>
-                  <Button variant="outline" type="button" onClick={() => setDialogOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button type="submit" form="new-task-form">
-                    Create task
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
+            <Button className="gap-2" onClick={() => openTaskEditor()}>
+              <Plus className="size-4" />
+              Add task
+            </Button>
           </div>
         </div>
         <div className="grid gap-4 md:grid-cols-3">
@@ -656,7 +577,7 @@ export function App() {
                 <div>
                   <CardTitle>Tasks in this example</CardTitle>
                   <CardDescription>
-                    Swap this local state for generated API calls in your module.
+                    Tasks are stored in PocketBase and scoped to your account.
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
@@ -690,23 +611,26 @@ export function App() {
                   </TabsTrigger>
                 </TabsList>
               </Tabs>
-              <div className="divide-y">
-                {visibleTasks.map((task) => (
-                  <TaskRow
-                    key={task.id}
-                    task={task}
-                    onToggle={toggleTask}
-                    onDelete={(id) =>
-                      setTasks((current) => current.filter((item) => item.id !== id))
-                    }
-                  />
-                ))}
-                {visibleTasks.length === 0 && (
-                  <div className="p-10 text-center text-sm text-muted-foreground">
-                    No tasks match current filter.
-                  </div>
-                )}
-              </div>
+              {tasksLoading ? (
+                <p className="p-10 text-center text-sm text-muted-foreground">Loading tasks…</p>
+              ) : (
+                <div className="divide-y">
+                  {visibleTasks.map((task) => (
+                    <TaskRow
+                      key={task.id}
+                      task={task}
+                      onToggle={toggleTask}
+                      onDelete={deleteTask}
+                      onEdit={(item) => openTaskEditor(item)}
+                    />
+                  ))}
+                  {visibleTasks.length === 0 && (
+                    <div className="p-10 text-center text-sm text-muted-foreground">
+                      No tasks match current filter.
+                    </div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
           <div className="grid gap-6">
@@ -886,6 +810,11 @@ export function App() {
             }`}
           >
             <div className="mx-auto max-w-7xl">{renderView()}</div>
+            {taskError && (
+              <p className="mx-auto mt-4 max-w-7xl text-sm text-destructive" role="alert">
+                {taskError}
+              </p>
+            )}
           </div>
           <nav className="flex shrink-0 border-t bg-card px-3 py-2 lg:hidden">
             {navItems.map(({ id, label, icon: Icon }) => (
@@ -902,6 +831,15 @@ export function App() {
           </nav>
         </div>
       </div>
+      <TaskEditorDialog
+        open={taskDialogOpen}
+        onOpenChange={setTaskDialogOpen}
+        editing={Boolean(editingTask)}
+        value={newTask}
+        onChange={setNewTask}
+        onSubmit={saveTask}
+        saving={taskSaving}
+      />
     </main>
   );
 }
@@ -1866,6 +1804,8 @@ function TasksView({
   tasks,
   onToggle,
   onDelete,
+  onEdit,
+  tasksLoading,
   search,
   onSearch,
   filter,
@@ -1875,6 +1815,8 @@ function TasksView({
   tasks: Task[];
   onToggle: (id: string, completed: boolean) => void;
   onDelete: (id: string) => void;
+  onEdit: (task: Task) => void;
+  tasksLoading: boolean;
   search: string;
   onSearch: (value: string) => void;
   filter: string;
@@ -1900,7 +1842,7 @@ function TasksView({
             <div>
               <CardTitle>All tasks</CardTitle>
               <CardDescription>
-                These records are local demo state until you connect your generated API client.
+                These tasks are stored in PocketBase and can be edited from this list.
               </CardDescription>
             </div>
             <div className="relative">
@@ -1922,16 +1864,26 @@ function TasksView({
               <TabsTrigger value="completed">Completed</TabsTrigger>
             </TabsList>
           </Tabs>
-          <div className="divide-y">
-            {tasks.map((task) => (
-              <TaskRow key={task.id} task={task} onToggle={onToggle} onDelete={onDelete} />
-            ))}
-            {tasks.length === 0 && (
-              <div className="p-12 text-center text-sm text-muted-foreground">
-                No tasks match current filter.
-              </div>
-            )}
-          </div>
+          {tasksLoading ? (
+            <p className="p-10 text-center text-sm text-muted-foreground">Loading tasks…</p>
+          ) : (
+            <div className="divide-y">
+              {tasks.map((task) => (
+                <TaskRow
+                  key={task.id}
+                  task={task}
+                  onToggle={onToggle}
+                  onDelete={onDelete}
+                  onEdit={onEdit}
+                />
+              ))}
+              {tasks.length === 0 && (
+                <div className="p-12 text-center text-sm text-muted-foreground">
+                  No tasks match current filter.
+                </div>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
     </>
@@ -1942,10 +1894,12 @@ function TaskRow({
   task,
   onToggle,
   onDelete,
+  onEdit,
 }: {
   task: Task;
   onToggle: (id: string, completed: boolean) => void;
   onDelete: (id: string) => void;
+  onEdit: (task: Task) => void;
 }) {
   return (
     <div className="group flex items-start gap-4 px-6 py-4 transition-colors hover:bg-muted/20">
@@ -1969,16 +1923,11 @@ function TaskRow({
           </Badge>
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
             <Clock3 className="size-3.5" />
-            {formatDate(task.dueDate)}
-          </span>
-          <span className="hidden items-center gap-1 text-xs text-muted-foreground sm:flex">
-            <Inbox className="size-3.5" />
-            {task.project}
+            {formatDate(task.due_date)}
           </span>
         </div>
       </div>
       <div className="flex items-center gap-4">
-        <PersonStack count={task.assignees} />
         <Button
           variant="ghost"
           size="icon"
@@ -1988,11 +1937,113 @@ function TaskRow({
         >
           <Trash2 className="size-4 text-muted-foreground" />
         </Button>
-        <Button variant="ghost" size="icon" aria-label="More task actions">
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={`Edit ${task.title}`}
+          onClick={() => onEdit(task)}
+        >
           <MoreHorizontal className="size-4 text-muted-foreground" />
         </Button>
       </div>
     </div>
+  );
+}
+
+type TaskEditorValue = {
+  title: string;
+  description: string;
+  dueDate: string;
+  priority: Priority;
+};
+
+function TaskEditorDialog({
+  open,
+  onOpenChange,
+  editing,
+  value,
+  onChange,
+  onSubmit,
+  saving,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  editing: boolean;
+  value: TaskEditorValue;
+  onChange: (value: TaskEditorValue) => void;
+  onSubmit: (event: FormEvent) => void;
+  saving: boolean;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{editing ? 'Edit task' : 'Add new task'}</DialogTitle>
+          <DialogDescription>
+            Tasks are saved to your account and can be changed later.
+          </DialogDescription>
+        </DialogHeader>
+        <form id="task-editor-form" onSubmit={onSubmit} className="grid gap-4 py-2">
+          <div className="grid gap-2">
+            <Label htmlFor="task-title">Task name</Label>
+            <Input
+              id="task-title"
+              autoFocus
+              maxLength={200}
+              required
+              value={value.title}
+              onChange={(event) => onChange({ ...value, title: event.target.value })}
+              placeholder="Design homepage mockups"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="task-description">Description</Label>
+            <Textarea
+              id="task-description"
+              maxLength={5000}
+              value={value.description}
+              onChange={(event) => onChange({ ...value, description: event.target.value })}
+              placeholder="What needs to happen?"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-2">
+              <Label htmlFor="task-due">Due date</Label>
+              <Input
+                id="task-due"
+                type="date"
+                value={value.dueDate}
+                onChange={(event) => onChange({ ...value, dueDate: event.target.value })}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="task-priority">Priority</Label>
+              <Select
+                value={value.priority}
+                onValueChange={(priority) => onChange({ ...value, priority: priority as Priority })}
+              >
+                <SelectTrigger id="task-priority">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="High">High</SelectItem>
+                  <SelectItem value="Medium">Medium</SelectItem>
+                  <SelectItem value="Low">Low</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </form>
+        <DialogFooter>
+          <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button type="submit" form="task-editor-form" disabled={saving || !value.title.trim()}>
+            {saving ? 'Saving…' : editing ? 'Save task' : 'Create task'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -2043,7 +2094,7 @@ function ScheduleView({
               <div className="flex-1">
                 <p className="font-medium">{task.title}</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {task.project} · {task.description}
+                  {formatDate(task.due_date)} · {task.description}
                 </p>
               </div>
               <Checkbox
