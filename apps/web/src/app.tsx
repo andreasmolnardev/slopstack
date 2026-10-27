@@ -115,7 +115,9 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useTheme } from 'next-themes';
 import { pb } from './api/pocketbase';
 import { createTodoRecord, deleteTodoRecord, getTodos, updateTodoRecord } from './api/todos';
+import { getPreferences, savePreferences } from './api/preferences';
 import type { Todo, TodoWrite } from './api/generated/types.gen';
+import type { UserPreferences, UserPreferencesPatchInputBodyWritable } from './api/generated/types.gen';
 
 type Priority = 'High' | 'Medium' | 'Low';
 type View = 'overview' | 'tasks' | 'schedule' | 'analytics' | 'components' | 'icons' | 'profile';
@@ -316,6 +318,7 @@ function priorityClass(priority: Priority) {
 
 export function App() {
   const { pathname, navigate } = useNavigation();
+  const { setTheme } = useTheme();
   const route = routeForPath(pathname);
   const [authRevision, refreshAuth] = useState(0);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -325,6 +328,7 @@ export function App() {
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [taskFilter, setTaskFilter] = useState('all');
+  const [navigationStyle, setNavigationStyle] = useState('sidebar');
   const [search, setSearch] = useState('');
   const [newTask, setNewTask] = useState({
     title: '',
@@ -336,6 +340,29 @@ export function App() {
   const authUserId = pb.authStore.record?.id ?? '';
   const isSuperuser = pb.authStore.record?.collectionName === '_superusers';
   const isAdmin = isSuperuser || pb.authStore.record?.isAdmin === true;
+
+  useEffect(() => {
+    if (!authUserId) {
+      setNavigationStyle('sidebar');
+      return;
+    }
+    let active = true;
+    getPreferences().then((preferences) => {
+      if (!active) return;
+      setTheme(preferences.theme);
+      setNavigationStyle(preferences.navigation);
+    }).catch(() => undefined);
+    const onPreferencesChange = (event: Event) => {
+      const preferences = (event as CustomEvent<Partial<UserPreferences>>).detail;
+      if (preferences.navigation) setNavigationStyle(preferences.navigation);
+      if (preferences.theme) setTheme(preferences.theme);
+    };
+    window.addEventListener('slopstack:preferences', onPreferencesChange);
+    return () => {
+      active = false;
+      window.removeEventListener('slopstack:preferences', onPreferencesChange);
+    };
+  }, [authUserId, setTheme]);
 
   useEffect(() => {
     return pb.authStore.onChange(() => refreshAuth((value) => value + 1));
@@ -685,21 +712,21 @@ export function App() {
   }
 
   return (
-    <main className="h-screen overflow-hidden bg-background text-foreground">
+    <main data-navigation={navigationStyle} className="h-screen overflow-hidden bg-background text-foreground">
       <div className="mx-auto flex h-full max-w-[1600px]">
-        <aside className="hidden h-full w-64 shrink-0 flex-col border-r bg-card px-4 py-6 lg:flex">
+        <aside className={`hidden h-full shrink-0 flex-col border-r bg-card py-6 lg:flex ${navigationStyle === 'rail' ? 'w-20 px-2' : 'w-64 px-4'} ${navigationStyle === 'topbar' || navigationStyle === 'bottom' ? 'lg:hidden' : ''}`}>
           <div className="flex items-center gap-3 px-3">
             <div className="flex size-9 items-center justify-center rounded-xl bg-slate-950 text-white">
               <Check className="size-5" />
             </div>
-            <div>
+            <div className={navigationStyle === 'rail' ? 'sr-only' : ''}>
               <p className="font-semibold tracking-tight">Slopstack</p>
               <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                 Reference app
               </p>
             </div>
           </div>
-          <div className="mt-10 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          <div className={`mt-10 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground ${navigationStyle === 'rail' ? 'sr-only' : ''}`}>
             Workspace
           </div>
           <nav className="mt-3 grid gap-1" aria-label="Workspace navigation">
@@ -707,57 +734,57 @@ export function App() {
               <Button
                 key={id}
                 variant={view === id ? 'secondary' : 'ghost'}
-                className="justify-start gap-3 font-medium"
+                className={`justify-start gap-3 font-medium ${navigationStyle === 'rail' ? 'justify-center px-0' : ''}`}
                 onClick={() => navigate(`/app/${id}`)}
               >
                 <Icon className="size-4" />
-                {label}
+                <span className={navigationStyle === 'rail' ? 'sr-only' : ''}>{label}</span>
               </Button>
             ))}{' '}
           </nav>
-          <div className="mt-9 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          <div className={`mt-9 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground ${navigationStyle === 'rail' ? 'sr-only' : ''}`}>
             Manage
           </div>
           <nav className="mt-3 grid gap-1">
             <Button
               variant={view === 'profile' ? 'secondary' : 'ghost'}
-              className="justify-start gap-3"
+              className={`justify-start gap-3 ${navigationStyle === 'rail' ? 'justify-center px-0' : ''}`}
               onClick={() => navigate('/app/profile')}
             >
               <Settings2 className="size-4" />
-              Settings
+              <span className={navigationStyle === 'rail' ? 'sr-only' : ''}>Settings</span>
             </Button>
             <Button
               variant="ghost"
-              className="justify-start gap-3"
+              className={`justify-start gap-3 ${navigationStyle === 'rail' ? 'justify-center px-0' : ''}`}
               onClick={() => window.open('/docs', '_blank')}
             >
               <FileText className="size-4" />
-              API docs
+              <span className={navigationStyle === 'rail' ? 'sr-only' : ''}>API docs</span>
               <ArrowUpRight className="ml-auto size-3" />
             </Button>
             {isSuperuser && (
               <Button
                 variant="ghost"
-                className="justify-start gap-3"
+                className={`justify-start gap-3 ${navigationStyle === 'rail' ? 'justify-center px-0' : ''}`}
                 onClick={() => navigate('/admin/users')}
               >
                 <UserCog className="size-4" />
-                Admin console
+                <span className={navigationStyle === 'rail' ? 'sr-only' : ''}>Admin console</span>
               </Button>
             )}
             {isAdmin && (
               <Button
                 variant="ghost"
-                className="justify-start gap-3"
+                className={`justify-start gap-3 ${navigationStyle === 'rail' ? 'justify-center px-0' : ''}`}
                 onClick={() => navigate('/app/profile')}
               >
                 <ShieldCheck className="size-4" />
-                Admin settings
+                <span className={navigationStyle === 'rail' ? 'sr-only' : ''}>Admin settings</span>
               </Button>
             )}
           </nav>
-          <SidebarTools />
+          {navigationStyle !== 'rail' && <SidebarTools />}
           <div className="mt-auto pt-24">
             <Separator className="mb-5" />
             <div className="flex items-center gap-3 px-2">
@@ -784,7 +811,7 @@ export function App() {
               </div>
               <span className="font-semibold">Slopstack</span>
             </div>
-            <div className="hidden items-center gap-2 text-sm text-muted-foreground lg:flex">
+            <div className={`hidden items-center gap-2 text-sm text-muted-foreground lg:flex ${navigationStyle === 'topbar' ? 'lg:hidden' : ''}`}>
               {view === 'profile' ? (
                 <>
                   <span>Manage</span>
@@ -801,6 +828,15 @@ export function App() {
                 </>
               )}
             </div>
+            {navigationStyle === 'topbar' && (
+              <nav className="hidden items-center gap-1 lg:flex" aria-label="Workspace navigation">
+                {navItems.map(({ id, label, icon: Icon }) => (
+                  <Button key={id} variant={view === id ? 'secondary' : 'ghost'} size="sm" className="gap-2" onClick={() => navigate(`/app/${id}`)}>
+                    <Icon className="size-4" />{label}
+                  </Button>
+                ))}
+              </nav>
+            )}
           </header>
           <div
             className={`min-h-0 flex-1 overflow-y-auto ${
@@ -816,7 +852,7 @@ export function App() {
               </p>
             )}
           </div>
-          <nav className="flex shrink-0 border-t bg-card px-3 py-2 lg:hidden">
+          <nav className={`flex shrink-0 border-t bg-card px-3 py-2 ${navigationStyle === 'bottom' ? 'lg:justify-center lg:gap-6' : 'lg:hidden'}`}>
             {navItems.map(({ id, label, icon: Icon }) => (
               <Button
                 key={id}
@@ -2623,13 +2659,35 @@ function Metric({ label, value, progress }: { label: string; value: string; prog
 }
 
 function SettingsView() {
-  const { setTheme, theme } = useTheme();
+  const { setTheme } = useTheme();
   const [notifications, setNotifications] = useState({ daily: true, event: true, team: true });
   const [mobilePush, setMobilePush] = useState(true);
   const [desktop, setDesktop] = useState(true);
   const [email, setEmail] = useState(false);
   const [twoFactor, setTwoFactor] = useState(true);
-  const [language, setLanguage] = useState('English');
+  const [preferences, setPreferences] = useState<UserPreferences>({
+    locale: 'en-US', timeZone: 'UTC', dateFormat: 'MMM d, yyyy', timeFormat: '12h', theme: 'light', navigation: 'sidebar',
+  });
+  const [preferencesError, setPreferencesError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    getPreferences().then((saved) => { if (active) setPreferences(saved); }).catch(() => {
+      if (active) setPreferencesError('Could not load saved preferences.');
+    });
+    return () => { active = false; };
+  }, []);
+
+  function updatePreference<K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) {
+    const patch = { [key]: value } as UserPreferencesPatchInputBodyWritable;
+    setPreferences((current) => ({ ...current, [key]: value }));
+    setPreferencesError('');
+    if (key === 'theme') setTheme(String(value));
+    void savePreferences(patch).then((saved) => {
+      setPreferences(saved);
+      window.dispatchEvent(new CustomEvent('slopstack:preferences', { detail: saved }));
+    }).catch(() => setPreferencesError('Could not save this preference.'));
+  }
 
   function setNotification(key: keyof typeof notifications, checked: boolean) {
     setNotifications((current) => ({ ...current, [key]: checked }));
@@ -2690,10 +2748,10 @@ function SettingsView() {
           <div className="grid gap-6">
                 <SettingsSelectRow
                   label="Appearance"
-                  description="Customize how you theams looks on your device."
-                  value={theme === 'dark' ? 'Dark' : 'Light'}
-                  options={['Light', 'Dark']}
-                  onChange={(value) => setTheme(value.toLowerCase())}
+                  description="Choose the color theme for this account."
+                  value={preferences.theme}
+                  options={['light', 'dark', 'system']}
+                  onChange={(value) => updatePreference('theme', value)}
                 />
                 <SettingsSwitchRow
                   label="Two-factor authentication"
@@ -2702,12 +2760,41 @@ function SettingsView() {
                   onCheckedChange={setTwoFactor}
                 />
                 <SettingsSelectRow
-                  label="Language"
-                  description="Customize how you theams looks on your device."
-                  value={language}
-                  options={['English', 'Spanish', 'French']}
-                  onChange={setLanguage}
+                  label="Locale"
+                  description="Use this locale for dates, numbers, and future translated UI."
+                  value={preferences.locale}
+                  options={['en-US', 'en-GB', 'es-ES', 'fr-FR']}
+                  onChange={(value) => updatePreference('locale', value)}
                 />
+                <SettingsSelectRow
+                  label="Time zone"
+                  description="Use an IANA time zone for date and time display."
+                  value={preferences.timeZone}
+                  options={['UTC', 'America/Los_Angeles', 'America/New_York', 'Europe/London', 'Europe/Paris', 'Asia/Tokyo']}
+                  onChange={(value) => updatePreference('timeZone', value)}
+                />
+                <SettingsSelectRow
+                  label="Date format"
+                  description="Choose how dates appear across the app."
+                  value={preferences.dateFormat}
+                  options={['MMM d, yyyy', 'yyyy-MM-dd', 'MM/dd/yyyy', 'dd/MM/yyyy']}
+                  onChange={(value) => updatePreference('dateFormat', value)}
+                />
+                <SettingsSelectRow
+                  label="Time format"
+                  description="Choose between 12-hour and 24-hour time."
+                  value={preferences.timeFormat}
+                  options={['12h', '24h']}
+                  onChange={(value) => updatePreference('timeFormat', value)}
+                />
+                <SettingsSelectRow
+                  label="Navigation layout"
+                  description="Select the navigation pattern for this app."
+                  value={preferences.navigation}
+                  options={['sidebar', 'topbar', 'rail', 'bottom']}
+                  onChange={(value) => updatePreference('navigation', value)}
+                />
+                {preferencesError && <p className="text-sm text-destructive" role="alert">{preferencesError}</p>}
               </div>
             </div>
       </div>
