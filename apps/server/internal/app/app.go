@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/andreasmolnardev/slopstack/go/ownership"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/apis"
@@ -19,6 +20,11 @@ func Register(pb *pocketbase.PocketBase, config Config, api huma.API) {
 			return err
 		}
 		if err := EnsureCollections(e.App); err != nil {
+			return err
+		}
+		if err := ownership.RegisterRequestHooks(e.App, ownership.Policy{
+			Collection: "todos", OwnerField: "owner", ProtectedFields: []string{"created", "updated"}, AllowSuperusers: true,
+		}); err != nil {
 			return err
 		}
 		return e.App.RunAppMigrations()

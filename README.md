@@ -27,6 +27,8 @@ If `8090` is busy, set `SLOPSTACK_HTTP_ADDRESS=127.0.0.1:18090` before running `
 
 PocketBase provides login, logout, registration, password reset, verification, and persistent tokens through its standard auth API. Set `SLOPSTACK_REGISTRATION_ENABLED=false` for custom registration endpoints. Enforce permissions in the backend with `Authorize`; frontend visibility is not authorization.
 
+Shared Go auth and ownership helpers are pinned to `github.com/andreasmolnardev/slopstack v0.3.0`, the same version used by Piggybudget. Apps should upgrade that dependency explicitly after reviewing its release notes.
+
 ## OpenAPI
 
 The server serves `/openapi.json`, `/openapi.yaml`, and `/docs`. Export offline with `go run ./apps/server/cmd/slopstack openapi export`.
