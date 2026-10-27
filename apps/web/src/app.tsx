@@ -122,7 +122,7 @@ import type { UserPreferences, UserPreferencesPatchInputBodyWritable } from './a
 type Priority = 'High' | 'Medium' | 'Low';
 type View = 'overview' | 'tasks' | 'schedule' | 'analytics' | 'components' | 'icons' | 'profile';
 type AuthMode = 'login' | 'register' | 'forgot-password' | 'admin-login';
-type AdminSection = 'users' | 'sso';
+type AdminSection = 'users' | 'groups' | 'sso';
 type Route =
   | { kind: 'app'; view: View }
   | { kind: 'admin'; section: AdminSection }
@@ -227,6 +227,8 @@ function routeForPath(pathname: string): Route {
     case '/admin':
     case '/admin/users':
       return { kind: 'admin', section: 'users' };
+    case '/admin/groups':
+      return { kind: 'admin', section: 'groups' };
     case '/admin/sso':
       return { kind: 'admin', section: 'sso' };
     case '/auth/login':
@@ -1264,6 +1266,14 @@ function AdminDashboard({
               Users
             </Button>
             <Button
+              variant={section === 'groups' ? 'secondary' : 'ghost'}
+              className="justify-start gap-3"
+              onClick={() => navigate('/admin/groups')}
+            >
+              <Users className="size-4" />
+              Groups
+            </Button>
+            <Button
               variant={section === 'sso' ? 'secondary' : 'ghost'}
               className="justify-start gap-3"
               onClick={() => navigate('/admin/sso')}
@@ -1298,7 +1308,7 @@ function AdminDashboard({
               <span>Admin</span>
               <span>/</span>
               <span className="font-medium text-foreground">
-                {section === 'users' ? 'Users' : 'SSO & security'}
+                {section === 'users' ? 'Users' : section === 'groups' ? 'Groups' : 'SSO & security'}
               </span>
             </div>
             <Button variant="ghost" className="gap-2 px-2" onClick={onSignOut}>
@@ -1310,7 +1320,7 @@ function AdminDashboard({
           </header>
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-8 sm:px-8 lg:px-10 lg:py-10">
             <div className="mx-auto max-w-7xl">
-              {section === 'users' ? <AdminUsersView /> : <AdminSsoView />}
+              {section === 'users' ? <AdminUsersView /> : section === 'groups' ? <AdminGroupsView /> : <AdminSsoView />}
             </div>
           </div>
           <nav className="flex shrink-0 border-t bg-card px-3 py-2 lg:hidden">
@@ -1321,6 +1331,14 @@ function AdminDashboard({
             >
               <Users className="size-4" />
               Users
+            </Button>
+            <Button
+              variant={section === 'groups' ? 'secondary' : 'ghost'}
+              className="flex-1 gap-2"
+              onClick={() => navigate('/admin/groups')}
+            >
+              <Users className="size-4" />
+              Groups
             </Button>
             <Button
               variant={section === 'sso' ? 'secondary' : 'ghost'}
@@ -1571,6 +1589,125 @@ function AdminUsersView() {
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+type ManagedGroup = { id: string; name: string; description?: string };
+type ManagedMembership = { id: string; group: string; user: string };
+
+function AdminGroupsView() {
+  const [groups, setGroups] = useState<ManagedGroup[]>([]);
+  const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [memberships, setMemberships] = useState<ManagedMembership[]>([]);
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [selectedUsers, setSelectedUsers] = useState<Record<string, string>>({});
+  const [error, setError] = useState('');
+
+  async function load() {
+    try {
+      const [nextGroups, nextUsers, nextMemberships] = await Promise.all([
+        pb.collection('groups').getFullList<ManagedGroup>({ sort: 'name' }),
+        pb.collection('users').getFullList<ManagedUser>({ sort: 'email' }),
+        pb.collection('group_members').getFullList<ManagedMembership>(),
+      ]);
+      setGroups(nextGroups);
+      setUsers(nextUsers);
+      setMemberships(nextMemberships);
+      setError('');
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Unable to load groups.');
+    }
+  }
+
+  useEffect(() => { void load(); }, []);
+
+  async function createGroup(event: FormEvent) {
+    event.preventDefault();
+    try {
+      await pb.collection('groups').create({ name: name.trim(), description: description.trim() });
+      setName('');
+      setDescription('');
+      await load();
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : 'Unable to create group.');
+    }
+  }
+
+  async function addMember(group: ManagedGroup) {
+    const user = selectedUsers[group.id];
+    if (!user) return;
+    try {
+      await pb.collection('group_members').create({ group: group.id, user });
+      setSelectedUsers((current) => ({ ...current, [group.id]: '' }));
+      await load();
+    } catch (addError) {
+      setError(addError instanceof Error ? addError.message : 'Unable to add group member.');
+    }
+  }
+
+  async function removeMember(membership: ManagedMembership) {
+    try {
+      await pb.collection('group_members').delete(membership.id);
+      await load();
+    } catch (removeError) {
+      setError(removeError instanceof Error ? removeError.message : 'Unable to remove group member.');
+    }
+  }
+
+  async function deleteGroup(group: ManagedGroup) {
+    if (!window.confirm(`Delete the ${group.name} group and its memberships?`)) return;
+    try {
+      await Promise.all(memberships.filter((member) => member.group === group.id).map((member) => pb.collection('group_members').delete(member.id)));
+      await pb.collection('groups').delete(group.id);
+      await load();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'Unable to delete group.');
+    }
+  }
+
+  return (
+    <div className="grid gap-6">
+      <PageHeading eyebrow="Administration" title="Groups" description="Create groups and manage their user memberships." />
+      {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+      <Card>
+        <CardHeader><CardTitle>Create a group</CardTitle><CardDescription>Groups can receive shared permissions.</CardDescription></CardHeader>
+        <CardContent>
+          <form className="grid gap-3 sm:grid-cols-[1fr_2fr_auto]" onSubmit={(event) => void createGroup(event)}>
+            <Input aria-label="Group name" placeholder="Group name" value={name} onChange={(event) => setName(event.target.value)} required />
+            <Input aria-label="Description" placeholder="Description" value={description} onChange={(event) => setDescription(event.target.value)} />
+            <Button type="submit">Create group</Button>
+          </form>
+        </CardContent>
+      </Card>
+      {groups.map((group) => {
+        const members = memberships.filter((member) => member.group === group.id);
+        const availableUsers = users.filter((user) => !members.some((member) => member.user === user.id));
+        return (
+          <Card key={group.id}>
+            <CardHeader className="flex flex-row items-start justify-between gap-4">
+              <div><CardTitle>{group.name}</CardTitle><CardDescription>{group.description || 'No description'} · {members.length} members</CardDescription></div>
+              <Button variant="destructive" size="sm" onClick={() => void deleteGroup(group)}>Delete</Button>
+            </CardHeader>
+            <CardContent className="grid gap-4">
+              {members.map((member) => {
+                const user = users.find((candidate) => candidate.id === member.user);
+                return <div key={member.id} className="flex items-center justify-between border-t pt-3 text-sm"><span>{user?.display_name || user?.email || member.user}</span><Button variant="ghost" size="sm" onClick={() => void removeMember(member)}>Remove</Button></div>;
+              })}
+              {availableUsers.length > 0 && (
+                <div className="flex flex-col gap-2 border-t pt-3 sm:flex-row">
+                  <select className="h-10 min-w-0 flex-1 rounded-xl border bg-background px-3 text-sm" aria-label={`Add member to ${group.name}`} value={selectedUsers[group.id] ?? ''} onChange={(event) => setSelectedUsers((current) => ({ ...current, [group.id]: event.target.value }))}>
+                    <option value="">Choose a user…</option>
+                    {availableUsers.map((user) => <option key={user.id} value={user.id}>{user.display_name || user.email}</option>)}
+                  </select>
+                  <Button variant="outline" onClick={() => void addMember(group)} disabled={!selectedUsers[group.id]}>Add member</Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
   );
 }
 
