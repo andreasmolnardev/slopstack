@@ -42,4 +42,6 @@ The release workflow publishes `ghcr.io/<owner>/slopstack:<VERSION>` and `:lates
 
 The Todo example is in `apps/web/src/app.tsx`. Replace it without changing backend infrastructure. Add modules through protected API routes, schemas, and generated client calls. Keep schema evolution in PocketBase migrations.
 
+The complete checked-in shadcn component set is under `apps/web/src/components/ui`; unused components stay out of the production bundle. Reusable composed patterns are under `apps/web/src/components/patterns`.
+
 See [`docs/README.md`](docs/README.md) for UI, navigation, API, auth, data model, development, and deployment guidance.

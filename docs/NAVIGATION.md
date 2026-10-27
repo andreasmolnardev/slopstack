@@ -13,10 +13,11 @@ Desktop uses a persistent left sidebar and a sticky top bar.
 | Components  | `/app/components` | UI primitive catalog                 |
 | Settings    | `/app/profile`    | Account and workspace settings       |
 | Admin users | `/admin/users`    | Superuser user management            |
+| Admin groups | `/admin/groups`  | Optional organizations, groups, memberships, and permission rules |
 | Admin SSO   | `/admin/sso`      | PocketBase OAuth2 provider setup     |
 | API docs    | `/docs`           | OpenAPI documentation served by Go   |
 
-The frontend uses browser history routes so each workspace view has a shareable deep link. Unauthenticated app paths redirect to `/auth/login` with a return path.
+The frontend uses browser history routes so each workspace view has a shareable deep link. Unauthenticated app paths redirect to `/auth/login` with a return path. Users can choose sidebar, top bar, rail, or bottom navigation in personal settings; the choice is saved with their account.
 
 ## Mobile
 
