@@ -31,3 +31,15 @@ go test ./...
 6. Run client and server checks.
 
 Generated output under `apps/web/src/api/generated` must not be edited manually.
+
+## Create and update an app
+
+```sh
+pnpm slopstack init ../my-app
+cd ../my-app
+pnpm slopstack upgrade --from ../slopstack --preview
+pnpm slopstack upgrade --from ../slopstack
+pnpm slopstack rollback
+```
+
+The CLI records SHA-256 baselines for template-owned files in `.slopstack/state.json`. An upgrade stops before writing if a file changed both locally and in the new template. It snapshots changed files and the old manifest, runs `go test ./...` and the web production build, and restores the snapshot if validation fails. Keep domain code and data in app-owned files; upgrades never replace files with local edits silently.

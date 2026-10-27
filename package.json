@@ -12,6 +12,7 @@
     "test": "pnpm -r test",
     "generate:api": "go run ./apps/server/cmd/slopstack openapi export",
     "generate:client": "pnpm --filter @slopstack/web generate:client",
+    "slopstack": "node scripts/slopstack.mjs",
     "format": "prettier --write ."
   },
   "devDependencies": {
