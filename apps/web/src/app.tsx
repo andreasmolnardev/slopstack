@@ -1140,6 +1140,7 @@ type ManagedUser = {
   display_name?: string;
   verified: boolean;
   disabled: boolean;
+  isAdmin?: boolean;
   created: string;
 };
 
@@ -1357,6 +1358,10 @@ function AdminDashboard({
 
 function AdminUsersView() {
   const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [permissionCatalog, setPermissionCatalog] = useState<ManagedPermission[]>([]);
+  const [userRules, setUserRules] = useState<Array<{ id: string; user: string; permission: string; denied?: boolean }>>([]);
+  const [selectedPermissions, setSelectedPermissions] = useState<Record<string, string>>({});
+  const [permissionEffects, setPermissionEffects] = useState<Record<string, string>>({});
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -1367,7 +1372,14 @@ function AdminUsersView() {
     setLoading(true);
     setError('');
     try {
-      setUsers(await pb.collection('users').getFullList<ManagedUser>({ sort: '-created' }));
+      const [nextUsers, nextPermissions, nextRules] = await Promise.all([
+        pb.collection('users').getFullList<ManagedUser>({ sort: '-created' }),
+        pb.collection('permissions').getFullList<ManagedPermission>({ sort: 'name' }),
+        pb.collection('user_permissions').getFullList<{ id: string; user: string; permission: string; denied?: boolean }>(),
+      ]);
+      setUsers(nextUsers);
+      setPermissionCatalog(nextPermissions);
+      setUserRules(nextRules);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Unable to load users.');
     } finally {
@@ -1412,6 +1424,30 @@ function AdminUsersView() {
       await loadUsers();
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : 'Unable to delete user.');
+    }
+  }
+
+  async function addUserRule(user: ManagedUser) {
+    const permission = selectedPermissions[user.id];
+    if (!permission) return;
+    try {
+      await pb.collection('user_permissions').create({
+        user: user.id,
+        permission,
+        denied: permissionEffects[user.id] === 'deny',
+      });
+      await loadUsers();
+    } catch (ruleError) {
+      setError(ruleError instanceof Error ? ruleError.message : 'Unable to update user permissions.');
+    }
+  }
+
+  async function removeUserRule(rule: { id: string }) {
+    try {
+      await pb.collection('user_permissions').delete(rule.id);
+      await loadUsers();
+    } catch (ruleError) {
+      setError(ruleError instanceof Error ? ruleError.message : 'Unable to remove user permission.');
     }
   }
 
@@ -1531,6 +1567,26 @@ function AdminUsersView() {
                     >
                       <Trash2 className="size-4 text-muted-foreground" />
                     </Button>
+                  </div>
+                  <div className="grid w-full gap-2 sm:w-72">
+                    {userRules.filter((rule) => rule.user === user.id).map((rule) => (
+                      <div key={rule.id} className="flex items-center justify-between gap-2 text-xs">
+                        <span>{rule.permission} · {rule.denied ? 'Denied' : 'Allowed'}</span>
+                        <Button variant="ghost" size="sm" onClick={() => void removeUserRule(rule)}>Remove</Button>
+                      </div>
+                    ))}
+                    {permissionCatalog.length > 0 && (
+                      <div className="flex gap-2">
+                        <select className="h-9 min-w-0 flex-1 rounded-xl border bg-background px-2 text-xs" aria-label={`Direct permission for ${user.email}`} value={selectedPermissions[user.id] ?? ''} onChange={(event) => setSelectedPermissions((current) => ({ ...current, [user.id]: event.target.value }))}>
+                          <option value="">Choose permission…</option>
+                          {permissionCatalog.map((permission) => <option key={permission.id} value={permission.name}>{permission.name}</option>)}
+                        </select>
+                        <select className="h-9 rounded-xl border bg-background px-2 text-xs" aria-label="Direct permission effect" value={permissionEffects[user.id] ?? 'allow'} onChange={(event) => setPermissionEffects((current) => ({ ...current, [user.id]: event.target.value }))}>
+                          <option value="allow">Allow</option><option value="deny">Deny</option>
+                        </select>
+                        <Button variant="outline" size="sm" onClick={() => void addUserRule(user)} disabled={!selectedPermissions[user.id]}>Set</Button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
