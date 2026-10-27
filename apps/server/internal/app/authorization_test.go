@@ -83,6 +83,30 @@ func TestCurrentUserRejectsMissingAuthentication(t *testing.T) {
 	}
 }
 
+func TestAuthorizeRequiresPermission(t *testing.T) {
+	testApp, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testApp.Cleanup()
+	if err := EnsureCollections(testApp); err != nil {
+		t.Fatal(err)
+	}
+	user := createTestRecord(t, testApp, "users", map[string]any{"email": "authorize@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	event := &core.RequestEvent{App: testApp, Auth: user}
+
+	err = Authorize(event, "admin.users.manage")
+	var apiError *router.ApiError
+	if !errors.As(err, &apiError) || apiError.Status != 403 {
+		t.Fatalf("missing permission should return 403, got %v", err)
+	}
+
+	createTestRecord(t, testApp, "user_permissions", map[string]any{"user": user.Id, "permission": "admin.users.manage"})
+	if err := Authorize(event, "admin.users.manage"); err != nil {
+		t.Fatalf("direct permission grant should allow access, got %v", err)
+	}
+}
+
 func createTestRecord(t *testing.T, app core.App, collectionName string, fields map[string]any) *core.Record {
 	t.Helper()
 	collection, err := app.FindCollectionByNameOrId(collectionName)
