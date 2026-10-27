@@ -3,6 +3,7 @@
 ## Source
 
 All reusable UI primitives live in `apps/web/src/components/ui`. They are shadcn components backed by Radix primitives where interaction behavior needs accessibility and keyboard support.
+Reusable compositions live in `apps/web/src/components/patterns`: `PageHeading`, `DataTable`, `FormDialog`, and `NavigationLinks` provide app-ready page, table, dialog, and navigation patterns.
 
 ## Common composition
 
@@ -20,6 +21,7 @@ All reusable UI primitives live in `apps/web/src/components/ui`. They are shadcn
 ## Rules
 
 - Import primitives through `@/components/ui/*`.
+- Import shared compositions through `@/components/patterns/*`.
 - Use `cn` from `@/lib/utils` for conditional classes.
 - Keep product-specific composition in feature files, not inside primitives.
 - Add new primitives with shadcn CLI when available.

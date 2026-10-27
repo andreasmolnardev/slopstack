@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   Archive,
@@ -112,6 +112,8 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { PageHeading } from '@/components/patterns/page-heading';
+import { NavigationLinks, type NavigationStyle } from '@/components/patterns/navigation-links';
 import { useTheme } from 'next-themes';
 import { pb } from './api/pocketbase';
 import { createTodoRecord, deleteTodoRecord, getTodos, updateTodoRecord } from './api/todos';
@@ -206,7 +208,6 @@ function normalizePath(pathname: string) {
   const normalized = pathname.replace(/\/+$/, '');
   return normalized || '/';
 }
-
 function routeForPath(pathname: string): Route {
   switch (normalizePath(pathname)) {
     case '/app':
@@ -355,7 +356,7 @@ export function App() {
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [taskFilter, setTaskFilter] = useState('all');
-  const [navigationStyle, setNavigationStyle] = useState('sidebar');
+  const [navigationStyle, setNavigationStyle] = useState<NavigationStyle>('sidebar');
   const [search, setSearch] = useState('');
   const [newTask, setNewTask] = useState({
     title: '',
@@ -379,11 +380,11 @@ export function App() {
       localStorage.setItem(`slopstack.preferences.${authUserId}`, JSON.stringify(preferences));
       setTheme(preferences.theme);
       applyThemeTokens(preferences.themeTokens);
-      setNavigationStyle(preferences.navigation);
+      setNavigationStyle(preferences.navigation as NavigationStyle);
     }).catch(() => undefined);
     const onPreferencesChange = (event: Event) => {
       const preferences = (event as CustomEvent<Partial<UserPreferences>>).detail;
-      if (preferences.navigation) setNavigationStyle(preferences.navigation);
+      if (preferences.navigation) setNavigationStyle(preferences.navigation as NavigationStyle);
       if (preferences.theme) setTheme(preferences.theme);
       if (preferences.themeTokens) applyThemeTokens(preferences.themeTokens);
     };
@@ -759,19 +760,9 @@ export function App() {
           <div className={`mt-10 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground ${navigationStyle === 'rail' ? 'sr-only' : ''}`}>
             Workspace
           </div>
-          <nav className="mt-3 grid gap-1" aria-label="Workspace navigation">
-            {navItems.map(({ id, label, icon: Icon }) => (
-              <Button
-                key={id}
-                variant={view === id ? 'secondary' : 'ghost'}
-                className={`justify-start gap-3 font-medium ${navigationStyle === 'rail' ? 'justify-center px-0' : ''}`}
-                onClick={() => navigate(`/app/${id}`)}
-              >
-                <Icon className="size-4" />
-                <span className={navigationStyle === 'rail' ? 'sr-only' : ''}>{label}</span>
-              </Button>
-            ))}{' '}
-          </nav>
+          <div className="mt-3">
+            <NavigationLinks items={navItems} activeId={view} layout={navigationStyle} label="Workspace navigation" onNavigate={(id) => navigate(`/app/${id}`)} />
+          </div>
           <div className={`mt-9 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground ${navigationStyle === 'rail' ? 'sr-only' : ''}`}>
             Manage
           </div>
@@ -859,13 +850,9 @@ export function App() {
               )}
             </div>
             {navigationStyle === 'topbar' && (
-              <nav className="hidden items-center gap-1 lg:flex" aria-label="Workspace navigation">
-                {navItems.map(({ id, label, icon: Icon }) => (
-                  <Button key={id} variant={view === id ? 'secondary' : 'ghost'} size="sm" className="gap-2" onClick={() => navigate(`/app/${id}`)}>
-                    <Icon className="size-4" />{label}
-                  </Button>
-                ))}
-              </nav>
+              <div className="hidden lg:block">
+                <NavigationLinks items={navItems} activeId={view} layout="topbar" label="Workspace navigation" onNavigate={(id) => navigate(`/app/${id}`)} />
+              </div>
             )}
           </header>
           <div
@@ -882,19 +869,9 @@ export function App() {
               </p>
             )}
           </div>
-          <nav className={`flex shrink-0 border-t bg-card px-3 py-2 ${navigationStyle === 'bottom' ? 'lg:justify-center lg:gap-6' : 'lg:hidden'}`}>
-            {navItems.map(({ id, label, icon: Icon }) => (
-              <Button
-                key={id}
-                variant={view === id ? 'secondary' : 'ghost'}
-                className="flex-1 flex-col gap-1 py-2 text-[10px]"
-                onClick={() => navigate(`/app/${id}`)}
-              >
-                <Icon className="size-4" />
-                {label}
-              </Button>
-            ))}
-          </nav>
+          <div className={`shrink-0 border-t bg-card px-3 py-2 ${navigationStyle === 'bottom' ? 'lg:px-10' : 'lg:hidden'}`}>
+            <NavigationLinks items={navItems} activeId={view} layout="bottom" label="Workspace navigation" onNavigate={(id) => navigate(`/app/${id}`)} />
+          </div>
         </div>
       </div>
       <TaskEditorDialog
@@ -3228,27 +3205,3 @@ function SettingsSelectRow({
   );
 }
 
-function PageHeading({
-  eyebrow,
-  title,
-  description,
-  action,
-}: {
-  eyebrow: string;
-  title: string;
-  description: string;
-  action?: ReactNode;
-}) {
-  return (
-    <div className="mb-8 flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
-      <div>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-          {eyebrow}
-        </p>
-        <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{title}</h1>
-        <p className="mt-2 text-muted-foreground">{description}</p>
-      </div>
-      {action}
-    </div>
-  );
-}
