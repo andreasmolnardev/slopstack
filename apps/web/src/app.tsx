@@ -865,6 +865,25 @@ export function App() {
                 <NavigationLinks items={navItems} activeId={view} layout="topbar" label="Workspace navigation" onNavigate={(id) => navigate(`/app/${id}`)} />
               </div>
             )}
+            <div className="ml-auto flex items-center gap-1 lg:hidden">
+              <Button variant="ghost" size="icon" aria-label="Settings" onClick={() => navigate('/app/profile')}>
+                <Settings2 className="size-4" />
+              </Button>
+              <Button variant="ghost" size="icon" aria-label="Sign out" onClick={signOut}>
+                <LogOut className="size-4" />
+              </Button>
+            </div>
+            {(navigationStyle === 'topbar' || navigationStyle === 'bottom') && (
+              <div className="hidden items-center gap-2 lg:flex">
+                <span className="max-w-40 truncate text-sm text-muted-foreground">{userName}</span>
+                <Button variant="ghost" size="icon" aria-label="Settings" onClick={() => navigate('/app/profile')}>
+                  <Settings2 className="size-4" />
+                </Button>
+                <Button variant="ghost" size="icon" aria-label="Sign out" onClick={signOut}>
+                  <LogOut className="size-4" />
+                </Button>
+              </div>
+            )}
           </header>
           <div
             className={`min-h-0 flex-1 overflow-y-auto ${
