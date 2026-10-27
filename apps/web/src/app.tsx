@@ -304,14 +304,16 @@ function getUserInitials(name: string) {
   return name.slice(0, 2).toUpperCase();
 }
 
+function savedUserPreferences(): Partial<UserPreferences> {
+  const userId = pb.authStore.record?.id;
+  if (!userId) return {};
+  try { return JSON.parse(localStorage.getItem(`slopstack.preferences.${userId}`) ?? '{}') as Partial<UserPreferences>; }
+  catch { return {}; }
+}
+
 function formatDate(value: string) {
   if (!value) return 'No due date';
-  const userId = pb.authStore.record?.id;
-  let preferences: Partial<UserPreferences> = {};
-  if (userId) {
-    try { preferences = JSON.parse(localStorage.getItem(`slopstack.preferences.${userId}`) ?? '{}') as Partial<UserPreferences>; }
-    catch { /* use the locale defaults */ }
-  }
+  const preferences = savedUserPreferences();
   const date = new Date(`${value}T12:00:00Z`);
   const parts = new Intl.DateTimeFormat(preferences.locale || 'en-US', {
     timeZone: preferences.timeZone || 'UTC', month: 'short', day: 'numeric', year: 'numeric',
@@ -322,9 +324,18 @@ function formatDate(value: string) {
     case 'MM/dd/yyyy': return `${new Intl.DateTimeFormat('en', { timeZone: 'UTC', month: '2-digit' }).format(date)}/${new Intl.DateTimeFormat('en', { timeZone: 'UTC', day: '2-digit' }).format(date)}/${values.year}`;
     case 'dd/MM/yyyy': return `${new Intl.DateTimeFormat('en', { timeZone: 'UTC', day: '2-digit' }).format(date)}/${new Intl.DateTimeFormat('en', { timeZone: 'UTC', month: '2-digit' }).format(date)}/${values.year}`;
     default: return new Intl.DateTimeFormat(preferences.locale || 'en-US', {
-      timeZone: preferences.timeZone || 'UTC', month: 'short', day: 'numeric',
+      timeZone: preferences.timeZone || 'UTC', month: 'short', day: 'numeric', year: 'numeric',
     }).format(date);
   }
+}
+
+function formatTime(hour: number, minute: number) {
+  const preferences = savedUserPreferences();
+  const value = new Date(Date.UTC(2026, 0, 1, hour, minute));
+  return new Intl.DateTimeFormat(preferences.locale || 'en-US', {
+    timeZone: 'UTC', hour: 'numeric', minute: '2-digit',
+    hourCycle: preferences.timeFormat === '24h' ? 'h23' : 'h12',
+  }).format(value);
 }
 
 function priorityClass(priority: Priority) {
@@ -716,19 +727,19 @@ export function App() {
                 <CardDescription>Your next scheduled work</CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4">
-                {['Team sync', 'Design review', 'Launch retro'].map((item, index) => (
-                  <div className="flex items-center gap-3" key={item}>
+                {[
+                  { title: 'Team sync', day: 'Today', hour: 14, minute: 0 },
+                  { title: 'Design review', day: 'Tomorrow', hour: 10, minute: 30 },
+                  { title: 'Launch retro', day: 'Friday', hour: 16, minute: 0 },
+                ].map((item) => (
+                  <div className="flex items-center gap-3" key={item.title}>
                     <div className="flex size-9 items-center justify-center rounded-lg bg-muted">
                       <CalendarDays className="size-4 text-muted-foreground" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{item}</p>
+                      <p className="truncate text-sm font-medium">{item.title}</p>
                       <p className="text-xs text-muted-foreground">
-                        {index === 0
-                          ? 'Today, 2:00 PM'
-                          : index === 1
-                            ? 'Tomorrow, 10:30 AM'
-                            : 'Friday, 4:00 PM'}
+                        {item.day}, {formatTime(item.hour, item.minute)}
                       </p>
                     </div>
                     <ChevronDown className="size-4 -rotate-90 text-muted-foreground" />
