@@ -1594,26 +1594,38 @@ function AdminUsersView() {
 
 type ManagedGroup = { id: string; name: string; description?: string };
 type ManagedMembership = { id: string; group: string; user: string };
+type ManagedPermission = { id: string; name: string; category?: string };
+type GroupPermission = { id: string; group: string; permission: string; denied?: boolean };
 
 function AdminGroupsView() {
   const [groups, setGroups] = useState<ManagedGroup[]>([]);
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [memberships, setMemberships] = useState<ManagedMembership[]>([]);
+  const [permissions, setPermissions] = useState<ManagedPermission[]>([]);
+  const [groupPermissions, setGroupPermissions] = useState<GroupPermission[]>([]);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [selectedUsers, setSelectedUsers] = useState<Record<string, string>>({});
+  const [selectedPermissions, setSelectedPermissions] = useState<Record<string, string>>({});
+  const [permissionEffects, setPermissionEffects] = useState<Record<string, string>>({});
+  const [permissionName, setPermissionName] = useState('');
+  const [permissionCategory, setPermissionCategory] = useState('');
   const [error, setError] = useState('');
 
   async function load() {
     try {
-      const [nextGroups, nextUsers, nextMemberships] = await Promise.all([
+      const [nextGroups, nextUsers, nextMemberships, nextPermissions, nextGroupPermissions] = await Promise.all([
         pb.collection('groups').getFullList<ManagedGroup>({ sort: 'name' }),
         pb.collection('users').getFullList<ManagedUser>({ sort: 'email' }),
         pb.collection('group_members').getFullList<ManagedMembership>(),
+        pb.collection('permissions').getFullList<ManagedPermission>({ sort: 'name' }),
+        pb.collection('group_permissions').getFullList<GroupPermission>(),
       ]);
       setGroups(nextGroups);
       setUsers(nextUsers);
       setMemberships(nextMemberships);
+      setPermissions(nextPermissions);
+      setGroupPermissions(nextGroupPermissions);
       setError('');
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Unable to load groups.');
@@ -1655,6 +1667,42 @@ function AdminGroupsView() {
     }
   }
 
+  async function createPermission(event: FormEvent) {
+    event.preventDefault();
+    try {
+      await pb.collection('permissions').create({ name: permissionName.trim(), category: permissionCategory.trim() });
+      setPermissionName('');
+      setPermissionCategory('');
+      await load();
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : 'Unable to create permission.');
+    }
+  }
+
+  async function addGroupPermission(group: ManagedGroup) {
+    const permission = selectedPermissions[group.id];
+    if (!permission) return;
+    try {
+      await pb.collection('group_permissions').create({
+        group: group.id,
+        permission,
+        denied: permissionEffects[group.id] === 'deny',
+      });
+      await load();
+    } catch (assignError) {
+      setError(assignError instanceof Error ? assignError.message : 'Unable to assign permission.');
+    }
+  }
+
+  async function removeGroupPermission(rule: GroupPermission) {
+    try {
+      await pb.collection('group_permissions').delete(rule.id);
+      await load();
+    } catch (removeError) {
+      setError(removeError instanceof Error ? removeError.message : 'Unable to remove permission rule.');
+    }
+  }
+
   async function deleteGroup(group: ManagedGroup) {
     if (!window.confirm(`Delete the ${group.name} group and its memberships?`)) return;
     try {
@@ -1680,6 +1728,17 @@ function AdminGroupsView() {
           </form>
         </CardContent>
       </Card>
+      <Card>
+        <CardHeader><CardTitle>Permission catalog</CardTitle><CardDescription>Define named permissions that group rules can grant or deny.</CardDescription></CardHeader>
+        <CardContent>
+          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]" onSubmit={(event) => void createPermission(event)}>
+            <Input aria-label="Permission name" placeholder="todos.read" value={permissionName} onChange={(event) => setPermissionName(event.target.value)} required />
+            <Input aria-label="Permission category" placeholder="Todos" value={permissionCategory} onChange={(event) => setPermissionCategory(event.target.value)} />
+            <Button type="submit">Add permission</Button>
+          </form>
+          <div className="mt-4 flex flex-wrap gap-2">{permissions.map((permission) => <Badge key={permission.id} variant="secondary">{permission.name}</Badge>)}</div>
+        </CardContent>
+      </Card>
       {groups.map((group) => {
         const members = memberships.filter((member) => member.group === group.id);
         const availableUsers = users.filter((user) => !members.some((member) => member.user === user.id));
@@ -1703,6 +1762,25 @@ function AdminGroupsView() {
                   <Button variant="outline" onClick={() => void addMember(group)} disabled={!selectedUsers[group.id]}>Add member</Button>
                 </div>
               )}
+              <div className="grid gap-3 border-t pt-3">
+                <p className="text-sm font-medium">Permission rules</p>
+                {groupPermissions.filter((rule) => rule.group === group.id).map((rule) => {
+                  const permission = permissions.find((candidate) => candidate.id === rule.permission || candidate.name === rule.permission);
+                  return <div key={rule.id} className="flex items-center justify-between text-sm"><span>{permission?.name ?? rule.permission} · {rule.denied ? 'Denied' : 'Allowed'}</span><Button variant="ghost" size="sm" onClick={() => void removeGroupPermission(rule)}>Remove</Button></div>;
+                })}
+                {permissions.length > 0 && (
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <select className="h-10 min-w-0 flex-1 rounded-xl border bg-background px-3 text-sm" aria-label={`Permission for ${group.name}`} value={selectedPermissions[group.id] ?? ''} onChange={(event) => setSelectedPermissions((current) => ({ ...current, [group.id]: event.target.value }))}>
+                      <option value="">Choose a permission…</option>
+                      {permissions.map((permission) => <option key={permission.id} value={permission.name}>{permission.name}</option>)}
+                    </select>
+                    <select className="h-10 rounded-xl border bg-background px-3 text-sm" aria-label="Permission effect" value={permissionEffects[group.id] ?? 'allow'} onChange={(event) => setPermissionEffects((current) => ({ ...current, [group.id]: event.target.value }))}>
+                      <option value="allow">Allow</option><option value="deny">Deny</option>
+                    </select>
+                    <Button variant="outline" onClick={() => void addGroupPermission(group)} disabled={!selectedPermissions[group.id]}>Add rule</Button>
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
         );
