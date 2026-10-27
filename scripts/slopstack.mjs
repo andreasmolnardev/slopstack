@@ -199,7 +199,7 @@ function main() {
       }
       writeState(target, {
         templateVersion: readFileSync(path.join(source, 'VERSION'), 'utf8').trim(),
-        files: manifest(target),
+        files: targetFiles,
       });
       runValidation(target);
       console.log(`Upgrade complete. Roll back with: pnpm slopstack rollback ${snapshot.id}`);
