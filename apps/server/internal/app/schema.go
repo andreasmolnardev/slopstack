@@ -15,7 +15,8 @@ func EnsureCollections(app core.App) error {
 		Fields []map[string]any
 	}{
 		{"users", true, []map[string]any{{"name": "display_name", "type": "text"}, {"name": "disabled", "type": "bool"}, {"name": "isAdmin", "type": "bool"}, {"name": "preferences", "type": "json"}}},
-		{"groups", false, []map[string]any{{"name": "name", "type": "text", "required": true}, {"name": "description", "type": "text"}}},
+		{"organizations", false, []map[string]any{{"name": "name", "type": "text", "required": true}, {"name": "owner", "type": "text"}, {"name": "settings", "type": "json"}}},
+		{"groups", false, []map[string]any{{"name": "name", "type": "text", "required": true}, {"name": "description", "type": "text"}, {"name": "organization", "type": "text"}}},
 		{"permissions", false, []map[string]any{{"name": "name", "type": "text", "required": true}, {"name": "category", "type": "text"}}},
 		{"group_permissions", false, []map[string]any{{"name": "group", "type": "text", "required": true}, {"name": "permission", "type": "text", "required": true}, {"name": "denied", "type": "bool"}}},
 		{"user_permissions", false, []map[string]any{{"name": "user", "type": "text", "required": true}, {"name": "permission", "type": "text", "required": true}, {"name": "denied", "type": "bool"}}},

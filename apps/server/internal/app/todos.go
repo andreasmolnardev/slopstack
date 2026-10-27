@@ -186,14 +186,22 @@ func findOwnedTodo(event *core.RequestEvent) (*core.Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	records, err := event.App.FindRecordsByFilter("todos", "id = {:id} && owner = {:owner}", "", 1, 0, dbx.Params{
-		"id": event.Request.PathValue("id"), "owner": user.Id,
-	})
+	record, err := findTodoForOwner(event.App, event.Request.PathValue("id"), user.Id)
 	if err != nil {
 		return nil, event.InternalServerError("could not find todo", err)
 	}
-	if len(records) == 0 {
+	if record == nil {
 		return nil, event.NotFoundError("todo not found", nil)
+	}
+	return record, nil
+}
+
+func findTodoForOwner(app core.App, id, ownerID string) (*core.Record, error) {
+	records, err := app.FindRecordsByFilter("todos", "id = {:id} && owner = {:owner}", "", 1, 0, dbx.Params{
+		"id": id, "owner": ownerID,
+	})
+	if err != nil || len(records) == 0 {
+		return nil, err
 	}
 	return records[0], nil
 }

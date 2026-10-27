@@ -1,10 +1,12 @@
 package app
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
+	"github.com/pocketbase/pocketbase/tools/router"
 )
 
 func TestHasPermissionResolvesDirectAndGroupRules(t *testing.T) {
@@ -43,6 +45,41 @@ func TestHasPermissionResolvesDirectAndGroupRules(t *testing.T) {
 	allowed, err = HasPermission(testApp, user, true, "todos.read")
 	if err != nil || allowed {
 		t.Fatalf("direct user deny should override superuser: allowed=%v err=%v", allowed, err)
+	}
+}
+
+func TestTodoLookupRequiresOwnerMatch(t *testing.T) {
+	testApp, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testApp.Cleanup()
+	if err := EnsureCollections(testApp); err != nil {
+		t.Fatal(err)
+	}
+
+	owner := createTestRecord(t, testApp, "users", map[string]any{"email": "owner@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	other := createTestRecord(t, testApp, "users", map[string]any{"email": "other@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	todo := createTestRecord(t, testApp, "todos", map[string]any{"owner": owner.Id, "title": "private task"})
+
+	got, err := findTodoForOwner(testApp, todo.Id, owner.Id)
+	if err != nil || got == nil || got.Id != todo.Id {
+		t.Fatalf("owner should read their todo: got=%v err=%v", got, err)
+	}
+	got, err = findTodoForOwner(testApp, todo.Id, other.Id)
+	if err != nil || got != nil {
+		t.Fatalf("another user must not find this todo: got=%v err=%v", got, err)
+	}
+}
+
+func TestCurrentUserRejectsMissingAuthentication(t *testing.T) {
+	_, err := CurrentUser(&core.RequestEvent{})
+	if err == nil {
+		t.Fatal("missing auth should be rejected")
+	}
+	var apiError *router.ApiError
+	if !errors.As(err, &apiError) || apiError.Status != 401 {
+		t.Fatalf("missing auth should return 401, got %v", err)
 	}
 }
 
