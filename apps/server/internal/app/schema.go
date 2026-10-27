@@ -20,7 +20,7 @@ func EnsureCollections(app core.App) error {
 		{"group_permissions", false, []map[string]any{{"name": "group", "type": "text", "required": true}, {"name": "permission", "type": "text", "required": true}}},
 		{"user_permissions", false, []map[string]any{{"name": "user", "type": "text", "required": true}, {"name": "permission", "type": "text", "required": true}, {"name": "denied", "type": "bool"}}},
 		{"group_members", false, []map[string]any{{"name": "group", "type": "text", "required": true}, {"name": "user", "type": "text", "required": true}}},
-		{"todos", false, []map[string]any{{"name": "owner", "type": "text", "required": true}, {"name": "title", "type": "text", "required": true}, {"name": "completed", "type": "bool"}, {"name": "due_date", "type": "date"}}},
+		{"todos", false, []map[string]any{{"name": "owner", "type": "text", "required": true}, {"name": "title", "type": "text", "required": true}, {"name": "description", "type": "text"}, {"name": "priority", "type": "text"}, {"name": "completed", "type": "bool"}, {"name": "due_date", "type": "date"}}},
 		{"audit_logs", false, []map[string]any{{"name": "actor", "type": "text"}, {"name": "action", "type": "text", "required": true}, {"name": "metadata", "type": "json"}}},
 	}
 
