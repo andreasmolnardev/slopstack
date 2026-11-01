@@ -29,6 +29,8 @@ Background operations declare an async runner and receive an `AbortSignal` plus 
 
 `InfiniteFeed` supports an optional fixed-height virtualization window with overscan for large uniform rows. Leave virtualization unset for variable-height cards and articles.
 
+`DataChart` composes the checked-in shadcn chart container with Recharts line, bar, and area views. Supply a category key and series labels/colors; query and aggregation logic stay app-owned.
+
 The CLI generates frontend resource, view, and layout definitions plus a Go backend-plugin scaffold. The plugin scaffold leaves collections, endpoints, hooks, and jobs as explicit TODO slots, and the app still wires the plugin into bootstrap.
 
 ## Backend and authentication choices

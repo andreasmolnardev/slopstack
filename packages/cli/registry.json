@@ -386,8 +386,9 @@
     {
       "id": "chart",
       "category": "presentation",
-      "status": "partial",
-      "purpose": "Charts are available through Recharts, but not yet resource-generated."
+      "status": "implemented",
+      "purpose": "Charts are available through Recharts, but not yet resource-generated.",
+      "runtime": "DataChart / shadcn ChartContainer"
     },
     {
       "id": "permissions",
