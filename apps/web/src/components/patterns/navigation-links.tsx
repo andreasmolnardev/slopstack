@@ -1,4 +1,4 @@
-import type { LucideIcon } from 'lucide-react';
+import type { ComponentType } from 'react';
 import { Button } from '@/components/ui/button';
 
 export type NavigationStyle = 'sidebar' | 'topbar' | 'rail' | 'bottom';
@@ -10,7 +10,7 @@ export function NavigationLinks({
   onNavigate,
   label,
 }: {
-  items: Array<{ id: string; label: string; icon: LucideIcon }>;
+  items: Array<{ id: string; label: string; icon: ComponentType<{ className?: string }> }>;
   activeId: string;
   layout: NavigationStyle;
   onNavigate: (id: string) => void;

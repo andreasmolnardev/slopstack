@@ -31,6 +31,8 @@ Background operations declare an async runner and receive an `AbortSignal` plus 
 
 `DataChart` composes the checked-in shadcn chart container with Recharts line, bar, and area views. Supply a category key and series labels/colors; query and aggregation logic stay app-owned.
 
+`ApplicationShell` composes responsive navigation with a route content area. Choose sidebar, icon rail, top bar, or mobile bottom navigation; each style includes mobile navigation and an optional account region.
+
 The CLI generates frontend resource, view, and layout definitions plus a Go backend-plugin scaffold. The plugin scaffold leaves collections, endpoints, hooks, and jobs as explicit TODO slots, and the app still wires the plugin into bootstrap.
 
 ## Backend and authentication choices

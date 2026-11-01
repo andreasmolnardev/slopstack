@@ -31,16 +31,16 @@
     {
       "id": "shell",
       "category": "application",
-      "status": "partial",
+      "status": "implemented",
       "purpose": "Application frame with global UI and configurable navigation styles.",
-      "runtime": "ShellDefinition"
+      "runtime": "ShellDefinition / ApplicationShell / renderShell"
     },
     {
       "id": "navigation",
       "category": "application",
-      "status": "partial",
+      "status": "implemented",
       "purpose": "Responsive sidebar, top bar, rail, and bottom navigation patterns.",
-      "runtime": "NavigationItem"
+      "runtime": "NavigationLinks / ApplicationShell / getAccessibleNavigation"
     },
     {
       "id": "route-access",
@@ -87,16 +87,16 @@
     {
       "id": "filter",
       "category": "data",
-      "status": "partial",
+      "status": "implemented",
       "purpose": "Reusable URL-backed filter definitions and generated controls.",
-      "runtime": "FilterDefinition"
+      "runtime": "ResourceQueryControls / QueryDefinition.filters"
     },
     {
       "id": "relationship",
       "category": "data",
-      "status": "partial",
+      "status": "implemented",
       "purpose": "Typed one-to-one and one-to-many resource references and selectors.",
-      "runtime": "RelationField"
+      "runtime": "RelationField / async relation options"
     },
     {
       "id": "selection",
@@ -143,9 +143,9 @@
     {
       "id": "plugin",
       "category": "extension",
-      "status": "partial",
+      "status": "implemented",
       "purpose": "Register frontend capabilities or backend collections, endpoints, hooks, and jobs.",
-      "runtime": "SlopstackPlugin / BackendPlugin",
+      "runtime": "SlopstackPlugin / BackendPlugin / backend-plugin generator",
       "generator": "backend-plugin"
     },
     {
@@ -222,16 +222,16 @@
     {
       "id": "collection",
       "category": "data",
-      "status": "partial",
+      "status": "implemented",
       "purpose": "Render ordered and grouped items; persistence and domain-specific collections remain app-owned.",
       "runtime": "CollectionView"
     },
     {
       "id": "persistent-region",
       "category": "presentation",
-      "status": "partial",
+      "status": "implemented",
       "purpose": "Shell-owned regions rendered alongside route content; apps choose which content should persist.",
-      "runtime": "ShellDefinition.persistentRegions"
+      "runtime": "ShellDefinition.persistentRegions / renderShell"
     },
     {
       "id": "infinite-feed",
@@ -243,14 +243,14 @@
     {
       "id": "comment-thread",
       "category": "presentation",
-      "status": "partial",
+      "status": "implemented",
       "purpose": "Threaded reply composition and rendering; app owns persistence and permissions.",
       "runtime": "CommentThread"
     },
     {
       "id": "media-viewer",
       "category": "presentation",
-      "status": "partial",
+      "status": "implemented",
       "purpose": "Dialog-based image, video, and audio playback.",
       "runtime": "MediaViewer"
     },
@@ -264,9 +264,9 @@
     {
       "id": "agent-registry",
       "category": "developer-tools",
-      "status": "partial",
+      "status": "implemented",
       "purpose": "Machine-readable primitive catalog and scaffolding generators.",
-      "runtime": "packages/cli/registry.json"
+      "runtime": "packages/cli/registry.json / slopstack CLI"
     },
     {
       "id": "search-trigger",
@@ -361,8 +361,9 @@
     {
       "id": "card-item-renderer",
       "category": "presentation",
-      "status": "partial",
-      "purpose": "Reusable card and item renderers for resource data views."
+      "status": "implemented",
+      "purpose": "Reusable card and item renderers for resource data views.",
+      "runtime": "ResourceDataView.renderItem"
     },
     {
       "id": "menu-toolbar",
