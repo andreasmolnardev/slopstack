@@ -1,0 +1,121 @@
+import type {
+  ActionDefinition,
+  ApplicationDefinition,
+  LayoutDefinition,
+  ResourceDefinition,
+  SearchProvider,
+  ShortcutDefinition,
+  SlopstackPlugin,
+  ViewDefinition,
+} from './types';
+
+type Identified = { id: string };
+
+function addUnique<T extends Identified>(items: Map<string, T>, item: T, kind: string) {
+  if (items.has(item.id)) throw new Error(`Duplicate ${kind} id "${item.id}".`);
+  items.set(item.id, item);
+}
+
+export class SlopstackRegistry {
+  readonly resources = new Map<string, ResourceDefinition>();
+  readonly views = new Map<string, ViewDefinition>();
+  readonly layouts = new Map<string, LayoutDefinition>();
+  readonly actions = new Map<string, ActionDefinition>();
+  readonly searchProviders = new Map<string, SearchProvider>();
+  readonly shortcuts = new Map<string, ShortcutDefinition>();
+  readonly plugins = new Map<string, SlopstackPlugin>();
+
+  registerResource(resource: ResourceDefinition) {
+    addUnique(this.resources, resource, 'resource');
+  }
+
+  registerView(view: ViewDefinition) {
+    addUnique(this.views, view, 'view');
+  }
+
+  registerLayout(layout: LayoutDefinition) {
+    addUnique(this.layouts, layout, 'layout');
+  }
+
+  registerAction(action: ActionDefinition) {
+    addUnique(this.actions, action, 'action');
+  }
+
+  registerSearchProvider(provider: SearchProvider) {
+    addUnique(this.searchProviders, provider, 'search provider');
+  }
+
+  registerShortcut(shortcut: ShortcutDefinition) {
+    addUnique(this.shortcuts, shortcut, 'shortcut');
+  }
+
+  registerPlugin(plugin: SlopstackPlugin) {
+    addUnique(this.plugins, plugin, 'plugin');
+  }
+
+  validate(application: ApplicationDefinition) {
+    const issues: string[] = [];
+
+    for (const view of this.views.values()) {
+      if (view.layout && !this.layouts.has(view.layout)) {
+        issues.push(`View "${view.id}" refers to missing layout "${view.layout}".`);
+      }
+    }
+
+    for (const resource of this.resources.values()) {
+      const relationships = [
+        ...(resource.relations ?? []).map((relation) => relation.resource),
+        ...resource.fields.filter((field) => field.kind === 'relation').map((field) => field.resource),
+      ];
+      for (const target of relationships) {
+        if (!this.resources.has(target)) {
+          issues.push(`Resource "${resource.id}" refers to missing relationship resource "${target}".`);
+        }
+      }
+    }
+
+    for (const item of application.shell?.navigation ?? []) {
+      if (!this.views.has(item.view)) {
+        issues.push(`Navigation item "${item.id}" refers to missing view "${item.view}".`);
+      }
+    }
+
+    if (issues.length) throw new Error(`Invalid Slopstack application:\n- ${issues.join('\n- ')}`);
+  }
+}
+
+export function createSlopstackRegistry(application: ApplicationDefinition) {
+  const registry = new SlopstackRegistry();
+  for (const resource of application.resources ?? []) registry.registerResource(resource);
+  for (const layout of application.layouts ?? []) registry.registerLayout(layout);
+  for (const view of application.views ?? []) registry.registerView(view);
+  for (const action of application.actions ?? []) registry.registerAction(action);
+  for (const provider of application.searchProviders ?? []) registry.registerSearchProvider(provider);
+  for (const shortcut of application.shortcuts ?? []) registry.registerShortcut(shortcut);
+  for (const plugin of application.plugins ?? []) registry.registerPlugin(plugin);
+
+  registry.validate(application);
+
+  const cleanup: Array<() => void> = [];
+  let disposed = false;
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    for (const disposePlugin of [...cleanup].reverse()) disposePlugin();
+  };
+  try {
+    for (const plugin of registry.plugins.values()) {
+      const dispose = plugin.register(registry);
+      if (dispose) cleanup.push(dispose);
+    }
+    registry.validate(application);
+  } catch (error) {
+    dispose();
+    throw error;
+  }
+
+  return {
+    registry,
+    dispose,
+  };
+}
