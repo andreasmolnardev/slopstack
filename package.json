@@ -13,6 +13,7 @@
     "generate:api": "go run ./apps/server/cmd/slopstack openapi export",
     "generate:client": "pnpm --filter @slopstack/web generate:client",
     "slopstack": "node scripts/slopstack.mjs",
+    "slopstack:primitive": "node packages/cli/slopstack.mjs",
     "format": "prettier --write ."
   },
   "devDependencies": {

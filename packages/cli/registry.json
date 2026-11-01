@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "Slopstack primitive registry",
+  "schemaVersion": 1,
+  "runtime": "apps/web/src/lib/slopstack/types.ts",
+  "primitives": [
+    { "id": "resource", "category": "data", "purpose": "Typed data entity, fields, relationships, queries, CRUD source, and permissions.", "generator": "resource", "runtime": "ResourceDefinition" },
+    { "id": "view", "category": "application", "purpose": "Routed screen with typed route context and access requirements.", "generator": "view", "runtime": "ViewDefinition" },
+    { "id": "layout", "category": "presentation", "purpose": "Composable arrangement of named slots for views and components.", "generator": "layout", "runtime": "LayoutDefinition" },
+    { "id": "shell", "category": "application", "purpose": "Application frame with navigation and global UI.", "runtime": "ShellDefinition" },
+    { "id": "navigation", "category": "application", "purpose": "Links views into sidebar, top bar, rail, and bottom navigation.", "runtime": "NavigationItem" },
+    { "id": "action", "category": "interaction", "purpose": "Reusable operation with permissions, confirmation, notification, and loading lifecycle.", "runtime": "ActionDefinition" },
+    { "id": "field", "category": "data", "purpose": "Typed input definition for forms, including relations and files.", "runtime": "FieldDefinition" },
+    { "id": "form", "category": "interaction", "purpose": "Schema-driven fields, validation, defaults, and submission.", "runtime": "ResourceForm" },
+    { "id": "data-view", "category": "data", "purpose": "Resource display as a table, list, or card collection with selection.", "runtime": "ResourceDataView" },
+    { "id": "query", "category": "data", "purpose": "Search, filtering, sorting, pagination, and URL-synchronized state.", "runtime": "QueryDefinition" },
+    { "id": "search-provider", "category": "discovery", "purpose": "Search registered application resources and return ranked results.", "runtime": "SearchProvider" },
+    { "id": "command-palette", "category": "discovery", "purpose": "Unified search, navigation, and action interface with keyboard shortcut.", "runtime": "CommandPalette" },
+    { "id": "plugin", "category": "extension", "purpose": "Register resources, views, layouts, actions, search providers, and shortcuts.", "runtime": "SlopstackPlugin" },
+    { "id": "collection-definition", "category": "backend", "purpose": "PocketBase collection schema and migration declaration.", "runtime": "CollectionDefinition" },
+    { "id": "endpoint", "category": "backend", "purpose": "Custom typed Go/Huma API route.", "runtime": "Endpoint" },
+    { "id": "hook", "category": "backend", "purpose": "Backend lifecycle hook.", "runtime": "Hook" },
+    { "id": "job", "category": "backend", "purpose": "Scheduled or background backend operation.", "runtime": "Job" }
+  ]
+}
