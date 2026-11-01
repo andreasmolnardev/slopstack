@@ -43,6 +43,15 @@ export const todoResource = defineResource<Todo, TodoWrite, TodoWrite>({
   query: {
     searchFields: ['title', 'description'],
     defaultSort: 'due_date,created,id',
+    sortOptions: [
+      { label: 'Due date', value: 'due_date,created,id' },
+      { label: 'Due date (latest)', value: '-due_date' },
+      { label: 'Title', value: 'title' },
+      { label: 'Priority', value: 'priority' },
+    ],
+    filters: [
+      { id: 'status', label: 'Status', field: 'completed', operator: 'equals', options: [{ label: 'Active', value: 'active' }, { label: 'Completed', value: 'completed' }] },
+    ],
     pageSize: 25,
   },
 });

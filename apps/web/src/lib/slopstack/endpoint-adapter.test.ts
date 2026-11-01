@@ -54,6 +54,26 @@ describe('endpoint resource adapter', () => {
     expect(getInit.credentials).toBe('include');
   });
 
+  it('sends file fields as multipart form data without overriding the browser boundary', async () => {
+    const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    const fetcher: typeof fetch = async (input, init) => {
+      calls.push({ input, init });
+      return jsonResponse({ id: '1', label: 'Receipt' });
+    };
+    const uploadResource = defineResource<{ id: string; label: string; file: string }, { label: string; file: File }, { file?: File }>({
+      id: 'uploads',
+      label: 'Upload',
+      source: { kind: 'endpoint', create: '/uploads', update: '/uploads/{id}' },
+      fields: [{ name: 'file', label: 'File', kind: 'file', required: true }],
+    });
+    const adapter = createEndpointResourceAdapter(uploadResource, { fetcher });
+    const file = new File(['data'], 'receipt.txt', { type: 'text/plain' });
+    await adapter.create?.({ label: 'Receipt', file });
+    expect(calls[0].init?.body).toBeInstanceOf(FormData);
+    expect((calls[0].init?.body as FormData).get('file')).toBeInstanceOf(Blob);
+    expect(new Headers(calls[0].init?.headers).has('content-type')).toBe(false);
+  });
+
   it('surfaces response failures and missing endpoint definitions', async () => {
     const adapter = createEndpointResourceAdapter(widgets, { fetcher: async () => new Response('denied', { status: 403 }) });
     await expect(adapter.list?.()).rejects.toThrow('denied');

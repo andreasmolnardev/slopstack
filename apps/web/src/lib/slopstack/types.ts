@@ -29,6 +29,27 @@ export type BackendDefinition = {
   capabilities?: Partial<Record<'database' | 'realtime' | 'uploads' | 'admin', boolean>>;
 };
 
+export type AuthUser = {
+  id: string;
+  name?: string;
+  email?: string;
+  roles?: readonly string[];
+  [claim: string]: unknown;
+};
+
+export type AuthSession = {
+  user: AuthUser;
+  accessToken?: string;
+  expiresAt?: number;
+};
+
+export type AuthenticationAdapter<Credentials = unknown> = {
+  getSession: () => Promise<AuthSession | null>;
+  subscribe: (listener: (session: AuthSession | null) => void) => () => void;
+  signIn: (credentials: Credentials) => Promise<AuthSession | null>;
+  signOut: () => Promise<void>;
+};
+
 export type TextField = FieldBase<string, 'text'> & {
   inputType?: 'text' | 'email' | 'password' | 'url' | 'tel';
   multiline?: boolean;
@@ -110,6 +131,7 @@ export type ResourceSource =
 export type QueryDefinition = {
   searchFields?: readonly string[];
   defaultSort?: string;
+  sortOptions?: readonly { label: string; value: string }[];
   pageSize?: number;
   filters?: readonly FilterDefinition[];
 };

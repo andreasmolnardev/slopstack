@@ -49,11 +49,31 @@ export function createEndpointResourceAdapter<
     if (!path) throw new Error(`Resource "${definition.id}" has no ${operation} endpoint.`);
     return path;
   };
+  const isUploadBody = (body: unknown) => body !== null && typeof body === 'object'
+    && Object.values(body).some((value) => {
+      const values = Array.isArray(value) ? value : [value];
+      return values.some((item) => typeof Blob !== 'undefined' && item instanceof Blob);
+    });
+  const encodeBody = (body: unknown) => {
+    if (!isUploadBody(body)) return JSON.stringify(body);
+    const form = new FormData();
+    for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
+      for (const item of Array.isArray(value) ? value : [value]) {
+        if (typeof Blob !== 'undefined' && item instanceof Blob) {
+          form.append(key, item);
+        } else if (item !== undefined && item !== null) {
+          form.append(key, typeof item === 'string' ? item : JSON.stringify(item));
+        }
+      }
+    }
+    return form;
+  };
   const send = async <Result>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<Result> => {
+    const upload = isUploadBody(body);
     const response = await request(new URL(path, options.baseUrl ?? (typeof window === 'undefined' ? 'http://localhost' : window.location.origin)), {
       method,
-      headers: await headers(body !== undefined),
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      headers: await headers(body !== undefined && !upload),
+      ...(body === undefined ? {} : { body: encodeBody(body) }),
       signal,
       credentials: 'include',
     });

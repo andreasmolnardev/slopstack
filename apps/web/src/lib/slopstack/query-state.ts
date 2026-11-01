@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useState } from 'react';
 import type { ResourceQuery } from './resource-client';
 import type { QueryDefinition } from './types';
 
@@ -54,4 +55,27 @@ export function writeResourceQuery(
     params.set(`${FILTER_PREFIX}${filter}`, Array.isArray(value) ? value.join(',') : String(value));
   }
   return params;
+}
+/** Keeps a resource query synchronized with the current route's URL search parameters. */
+export function useResourceQueryState(definition: QueryDefinition) {
+  const read = useCallback(() => parseResourceQuery(window.location.search, definition), [definition]);
+  const [query, setQuery] = useState<ResourceQuery>(read);
+
+  useEffect(() => {
+    const onPopState = () => setQuery(read());
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [read]);
+
+  const update = useCallback((next: Partial<ResourceQuery>) => {
+    setQuery((current) => {
+      const updated = { ...current, ...next, page: next.page ?? 1 };
+      const params = writeResourceQuery(window.location.search, updated);
+      const search = params.toString();
+      window.history.replaceState(window.history.state, '', `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`);
+      return updated;
+    });
+  }, []);
+
+  return [query, update] as const;
 }

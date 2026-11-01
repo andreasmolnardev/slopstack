@@ -111,6 +111,9 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { ResourceForm, type ResourceFormValues } from '@/lib/slopstack/resource-form';
+import { ResourceQueryControls } from '@/components/patterns/resource-query-controls';
+import type { ResourceQuery } from '@/lib/slopstack/resource-client';
+import { useResourceQueryState } from '@/lib/slopstack/query-state';
 import { todoResource } from '@/resources/todos';
 import { Switch } from '@/components/ui/switch';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -120,7 +123,8 @@ import { CommandPalette } from '@/components/patterns/command-palette';
 import { ResourceDataView, type ResourceDataViewMode } from '@/components/patterns/resource-data-view';
 import type { DataTableColumn } from '@/components/patterns/data-table';
 import { useTheme } from 'next-themes';
-import { pb } from './api/pocketbase';
+import { pb, pbAuth } from './api/pocketbase';
+import { createPocketBaseAuthAdapter } from '@/lib/slopstack/auth-adapters';
 import { createTodoRecord, deleteTodoRecord, getTodos, updateTodoRecord } from './api/todos';
 import { getPreferences, savePreferences } from './api/preferences';
 import type { Todo, TodoWrite } from './api/generated/types.gen';
@@ -394,9 +398,14 @@ export function App() {
   const [taskSaving, setTaskSaving] = useState(false);
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const [taskFilter, setTaskFilter] = useState('all');
+  const [taskQuery, updateTaskQuery] = useResourceQueryState(todoResource.query ?? {});
+  const taskFilter = String(taskQuery.filters?.status ?? 'all');
+  const setTaskFilter = (status: string) => updateTaskQuery({ filters: status === 'all' ? {} : { status } });
   const [navigationStyle, setNavigationStyle] = useState<NavigationStyle>('sidebar');
-  const [search, setSearch] = useState('');
+  const search = taskQuery.search ?? '';
+  const setSearch = (search: string) => updateTaskQuery({ search });
+  const taskSort = taskQuery.sort ?? todoResource.query?.defaultSort ?? '';
+  const setTaskSort = (sort: string) => updateTaskQuery({ sort });
   const [newTask, setNewTask] = useState({
     title: '',
     description: '',
@@ -476,7 +485,7 @@ export function App() {
   }, [authUserId, setTheme]);
 
   useEffect(() => {
-    return pb.authStore.onChange(() => refreshAuth((value) => value + 1));
+    return pbAuth.subscribe(() => refreshAuth((value) => value + 1));
   }, []);
 
   useEffect(() => {
@@ -523,7 +532,7 @@ export function App() {
   );
 
   function signOut() {
-    pb.authStore.clear();
+    void pbAuth.signOut();
     navigate('/auth/login', true);
   }
 
@@ -648,6 +657,8 @@ export function App() {
           onSearch={setSearch}
           filter={taskFilter}
           onFilter={setTaskFilter}
+          sort={taskSort}
+          onSort={setTaskSort}
           onAdd={() => openTaskEditor()}
         />
       );
@@ -1044,7 +1055,7 @@ function AuthPage({
         });
       }
 
-      await pb.collection(collection).authWithPassword(email.trim(), password);
+      await createPocketBaseAuthAdapter(pb, collection).signIn({ identity: email.trim(), password });
       navigate(destination, true);
     } catch (submissionError) {
       setError(
@@ -2262,6 +2273,8 @@ function TasksView({
   onSearch,
   filter,
   onFilter,
+  sort,
+  onSort,
   onAdd,
 }: {
   tasks: Task[];
@@ -2273,11 +2286,27 @@ function TasksView({
   onSearch: (value: string) => void;
   filter: string;
   onFilter: (value: string) => void;
+  sort: string;
+  onSort: (value: string) => void;
   onAdd: () => void;
 }) {
   const [mode, setMode] = useState<ResourceDataViewMode>('list');
   const [selection, setSelection] = useState<readonly string[]>([]);
   useEffect(() => setSelection([]), [filter, search]);
+  const query: ResourceQuery = {
+    search,
+    sort,
+    filters: filter === 'all' ? {} : { status: filter },
+  };
+  const sortedTasks = [...tasks].sort((a, b) => {
+    const descending = sort.startsWith('-');
+    const field = sort.replace(/^-/, '').split(',')[0];
+    const comparison = field === 'title' ? a.title.localeCompare(b.title)
+      : field === 'priority' ? a.priority.localeCompare(b.priority)
+        : field === 'created' ? a.created.localeCompare(b.created)
+          : a.due_date.localeCompare(b.due_date);
+    return descending ? -comparison : comparison;
+  });
 
   const columns: DataTableColumn<Task>[] = [
     {
@@ -2324,13 +2353,15 @@ function TasksView({
                 These tasks are stored in PocketBase and can be edited from this list.
               </CardDescription>
             </div>
-            <div className="relative">
-              <Search className="absolute top-2.5 left-2.5 size-4 text-muted-foreground" />
-              <Input
-                className="w-full pl-9 sm:w-64"
-                value={search}
-                onChange={(event) => onSearch(event.target.value)}
-                placeholder="Search tasks"
+            <div className="min-w-0 flex-1 sm:max-w-3xl">
+              <ResourceQueryControls
+                resource={todoResource}
+                value={query}
+                onChange={(next) => {
+                  onSearch(next.search ?? '');
+                  onFilter(String(next.filters?.status ?? 'all'));
+                  onSort(next.sort ?? todoResource.query?.defaultSort ?? '');
+                }}
               />
             </div>
             <Select value={mode} onValueChange={(value) => setMode(value as ResourceDataViewMode)}>
@@ -2344,13 +2375,6 @@ function TasksView({
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          <Tabs value={filter} onValueChange={onFilter} className="border-b px-6 pt-4">
-            <TabsList>
-              <TabsTrigger value="all">All</TabsTrigger>
-              <TabsTrigger value="active">Active</TabsTrigger>
-              <TabsTrigger value="completed">Completed</TabsTrigger>
-            </TabsList>
-          </Tabs>
           {selection.length > 0 && (
             <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/20 px-6 py-3">
               <span className="text-sm text-muted-foreground">{selection.length} selected</span>
@@ -2366,7 +2390,7 @@ function TasksView({
           ) : (
             <div className="p-4 sm:p-6">
               <ResourceDataView
-                rows={tasks}
+                rows={sortedTasks}
                 columns={columns}
                 getRowKey={(task) => task.id}
                 mode={mode}
