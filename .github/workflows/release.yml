@@ -2,10 +2,11 @@ name: Release
 
 on:
   push:
-    tags: ['v*']
+    tags: ['v*', 'packages-v*']
 
 jobs:
   docker:
+    if: startsWith(github.ref_name, 'v') && !startsWith(github.ref_name, 'packages-v')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -33,3 +34,44 @@ jobs:
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
+
+  frontend-packages:
+    if: startsWith(github.ref_name, 'packages-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Check package release version
+        run: |
+          version="${GITHUB_REF_NAME#packages-v}"
+          for package in core ui react pocketbase; do
+            actual="$(node -p "require('./packages/$package/package.json').version")"
+            test "$actual" = "$version" || { echo "packages/$package is $actual, expected $version"; exit 1; }
+          done
+      - name: Verify packed consumer
+        run: pnpm verify:packages
+      - name: Build and pack frontend packages
+        run: |
+          set -eu
+          mkdir -p release-packages
+          for package in core ui react pocketbase; do
+            pnpm --filter "@slopstack/$package" build
+            (cd "packages/$package" && pnpm pack --pack-destination "$GITHUB_WORKSPACE/release-packages")
+          done
+          cd release-packages
+          sha256sum *.tgz > SHA256SUMS
+      - name: Create package release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Slopstack frontend packages ${{ github.ref_name }}
+          generate_release_notes: true
+          files: release-packages/*

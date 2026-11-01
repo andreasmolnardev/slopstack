@@ -1,4 +1,5 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -17,12 +18,35 @@ const run = (cmd, args, cwd) => {
 
 try {
   const tarballs = [];
-  for (const name of ['core', 'react', 'ui', 'pocketbase']) {
+  const packageNames = ['core', 'react', 'ui', 'pocketbase'];
+  const releaseVersion = JSON.parse(await readFile(join(root, 'packages/core/package.json'), 'utf8')).version;
+  for (const name of packageNames) {
     const pkgDir = join(root, 'packages', name);
+    const manifest = JSON.parse(await readFile(join(pkgDir, 'package.json'), 'utf8'));
+    if (manifest.name !== `@slopstack/${name}` || manifest.version !== releaseVersion) {
+      throw new Error(`${pkgDir} must be @slopstack/${name}@${releaseVersion} for a coordinated release`);
+    }
+    if (!manifest.exports || !manifest.types || !manifest.main) throw new Error(`${manifest.name} is missing public entry point metadata`);
+    for (const range of Object.values(manifest.peerDependencies ?? {})) {
+      if (typeof range !== 'string' || !/[0-9]+\.[0-9]+\.[0-9]+/.test(range)) {
+        throw new Error(`${manifest.name} has an invalid peer dependency range: ${range}`);
+      }
+    }
     const packed = spawnSync('corepack', ['pnpm', 'pack', '--pack-destination', artifacts], { cwd: pkgDir, env: npmEnv, encoding: 'utf8' });
     if (packed.status !== 0) throw new Error(`${packed.stderr}\n${packed.stdout}\npnpm pack failed for ${name}`);
-    const manifest = JSON.parse(await readFile(join(pkgDir, 'package.json'), 'utf8'));
     tarballs.push(join(artifacts, `slopstack-${name}-${manifest.version}.tgz`));
+  }
+
+  const checksums = [];
+  for (const tarball of tarballs) {
+    const digest = createHash('sha256').update(await readFile(tarball)).digest('hex');
+    checksums.push(`${digest}  ${tarball.split('/').at(-1)}`);
+  }
+  await writeFile(join(artifacts, 'SHA256SUMS'), `${checksums.join('\n')}\n`);
+  for (const line of (await readFile(join(artifacts, 'SHA256SUMS'), 'utf8')).trim().split('\n')) {
+    const [expected, filename] = line.split(/\s+/);
+    const actual = createHash('sha256').update(await readFile(join(artifacts, filename))).digest('hex');
+    if (actual !== expected) throw new Error(`SHA-256 mismatch for ${filename}`);
   }
 
   await writeFile(join(consumer, 'package.json'), JSON.stringify({
@@ -70,6 +94,12 @@ createRoot(document.getElementById('root')!).render(<App />);
   run('npm', ['run', 'build'], consumer);
   const lock = JSON.parse(await readFile(join(consumer, 'package-lock.json'), 'utf8'));
   if (Object.values(lock.packages).some((entry) => entry?.link === true)) throw new Error('Consumer lock unexpectedly links to a workspace or source package');
+  for (const name of packageNames) {
+    const entry = lock.packages[`node_modules/@slopstack/${name}`];
+    if (!entry || entry.version !== releaseVersion || !entry.integrity) {
+      throw new Error(`Consumer lock is missing an exact version and integrity for @slopstack/${name}`);
+    }
+  }
   console.log(`Packed artifacts installed and built in ${consumer}`);
 } finally {
   if (process.env.KEEP_SLOPSTACK_CONSUMER !== '1') await rm(temp, { recursive: true, force: true });

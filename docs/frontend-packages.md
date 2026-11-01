@@ -1,6 +1,23 @@
 # Frontend packages
 
-Slopstack ships four separately versioned npm packages. Each is built as ESM with declaration files and packed with its `dist` output. `@slopstack/core` has no runtime dependency on React, PocketBase, router, styling, or a query library. Its component slots are structural callback types so core contracts stay usable from non-React code.
+Slopstack maintains four versioned JavaScript packages. Each is built as ESM with declaration files and packed with its `dist` output. `@slopstack/core` has no runtime dependency on React, PocketBase, router, styling, or a query library. Its component slots are structural callback types so core contracts stay usable from non-React code.
+
+## Availability
+
+The source packages are in this repository at version `0.1.0`. This commit does not publish to npm. A `packages-v0.1.0` tag runs the package release workflow, builds the packages, and attaches the four `.tgz` files plus `SHA256SUMS` to the GitHub Release. Use the release download URLs below only after those assets exist; a tag alone does not confirm the workflow succeeded. The package workflow uses the repository's GitHub Actions `GITHUB_TOKEN` with `contents: write`; it does not need npm credentials, but the repository must allow Actions to create releases.
+
+After the `packages-vX.Y.Z` GitHub Release exists, apps can install the packages without a monorepo checkout or local path dependency. Replace `X.Y.Z` with the exact release version and select only the packages the app uses:
+
+```sh
+VERSION=0.1.0
+npm install \
+  "https://github.com/andreasmolnardev/slopstack/releases/download/packages-v${VERSION}/slopstack-core-${VERSION}.tgz" \
+  "https://github.com/andreasmolnardev/slopstack/releases/download/packages-v${VERSION}/slopstack-react-${VERSION}.tgz"
+```
+
+For Docker builds, install the same release URLs in the app's normal `package.json` and commit its generated lockfile. Keep the packages as exact versions (no `workspace:`, `file:`, or relative path specifiers); the lockfile records the resolved tarball and integrity, so clean CI and Docker builds need only the lockfile and normal registry/release network access. For an explicit integrity check before install, download `SHA256SUMS` from the same release and run `sha256sum --check SHA256SUMS` in the directory containing the tarballs. GitHub release URLs are public read access when the repository and release are public; private repositories require a build credential with GitHub release asset read access.
+
+To make the first package release after reviewing the release contents, push `packages-v0.1.0` from a commit whose four package manifests remain at `0.1.0`. The workflow rejects version mismatches and does not publish to npm. Subsequent package sets use a new matching `packages-vX.Y.Z` tag and manifest version. The existing `vX.Y.Z` tags remain reserved for container releases.
 
 | Package | Use it for | Runtime requirements |
 | --- | --- | --- |
@@ -12,14 +29,24 @@ Slopstack ships four separately versioned npm packages. Each is built as ESM wit
 Install only what the app needs:
 
 ```sh
-npm install @slopstack/core
-# Add React hooks or UI where needed:
-npm install @slopstack/react @slopstack/ui react react-dom
+VERSION=0.1.0
+# Core alone:
+npm install \
+  "https://github.com/andreasmolnardev/slopstack/releases/download/packages-v${VERSION}/slopstack-core-${VERSION}.tgz"
+# React hooks need core; forms also use UI:
+npm install \
+  "https://github.com/andreasmolnardev/slopstack/releases/download/packages-v${VERSION}/slopstack-core-${VERSION}.tgz" \
+  "https://github.com/andreasmolnardev/slopstack/releases/download/packages-v${VERSION}/slopstack-react-${VERSION}.tgz" \
+  "https://github.com/andreasmolnardev/slopstack/releases/download/packages-v${VERSION}/slopstack-ui-${VERSION}.tgz" \
+  react react-dom
 # Add PocketBase adapters only for PocketBase apps:
-npm install @slopstack/pocketbase pocketbase
+npm install \
+  "https://github.com/andreasmolnardev/slopstack/releases/download/packages-v${VERSION}/slopstack-core-${VERSION}.tgz" \
+  "https://github.com/andreasmolnardev/slopstack/releases/download/packages-v${VERSION}/slopstack-pocketbase-${VERSION}.tgz" \
+  pocketbase
 ```
 
-Use exact package versions together for a release set. Package versions are independent; a release can update one package without forcing unrelated packages to release. The starter workspace pins its compatible set explicitly.
+Use exact package versions together for a release set. Package versions are coordinated by the current release workflow; internal dependencies are packed with concrete semver ranges, and the starter workspace pins its compatible set explicitly.
 
 ## External REST adapter example
 
@@ -92,15 +119,15 @@ Forms live at `@slopstack/react/forms` and consume UI controls from `@slopstack/
 
 ## Versioning and release
 
-Each package has its own `version` field and npm release history. Keep internal package dependency ranges aligned with the lowest compatible released version. For a compatible change, update the package's patch or minor version. For a breaking public type, export, or runtime contract, increment that package's major version and document the migration.
+Each package has its own `version` field. Keep internal package dependency ranges aligned with the lowest compatible released version. For a compatible change, update the package's patch or minor version. For a breaking public type, export, or runtime contract, increment that package's major version and document the migration.
 
 Release steps:
 
 1. Update the changed package version and any dependent package minimums.
 2. Run `pnpm --filter @slopstack/core build`, `pnpm --filter @slopstack/react build`, `pnpm --filter @slopstack/ui build`, and `pnpm --filter @slopstack/pocketbase build` as needed.
 3. Run `pnpm verify:packages` to pack all artifacts and compile an isolated Vite consumer.
-4. Publish each changed package with `pnpm --filter <package> publish --access public` after npm provenance and release credentials are configured.
-5. Update app package versions and release notes; consumers upgrade package versions independently.
+4. Create and push the matching `packages-vX.Y.Z` tag to build the tarballs and attach them to the GitHub Release. Verify the workflow and release assets before updating consumers.
+5. Update app package versions and lockfiles to the release tarball URLs; consumers upgrade package versions independently.
 
 For an upgrade, review package changelogs, update only the packages used by the app, then run its typecheck and production build. UI package changes do not require apps that only install core or React hooks to upgrade.
 

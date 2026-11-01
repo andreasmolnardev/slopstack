@@ -30,7 +30,7 @@ Go handlers use Huma and publish OpenAPI 3.1 documentation. The TypeScript clien
 
 Typed resources can drive schema-defined forms, tables/lists/cards, selection and bulk actions, search/filter/sort controls, URL query state, PocketBase realtime invalidation, and a cross-view command palette. Resource clients work with PocketBase collections, REST endpoints, or application-owned adapters. The reference Todo flow uses a registered resource, reusable form and data-view patterns, generated API methods, provider-neutral PocketBase auth, and persisted theme/motion settings. View and layout contracts plus route resolution are available for modules that want registry-driven composition.
 
-The frontend runtime is published as independently versioned `@slopstack/core`, `@slopstack/react`, `@slopstack/ui`, and optional `@slopstack/pocketbase` packages. External apps can install only core and their chosen React integrations, then use REST, cookie sessions, their existing router/query cache, and their own realtime transport. See [frontend package installation, adapter examples, and release guidance](docs/frontend-packages.md).
+The frontend runtime is split into `@slopstack/core`, `@slopstack/react`, `@slopstack/ui`, and optional `@slopstack/pocketbase` packages. Versioned tarballs are prepared as GitHub Release assets by the package release workflow; check [frontend package installation and availability](docs/frontend-packages.md) for the current release state and install steps. External apps can install only core and their chosen React integrations, then use REST, cookie sessions, their existing router/query cache, and their own realtime transport.
 
 ### Packaging, deployment, and upgrades
 
