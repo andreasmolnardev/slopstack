@@ -15,10 +15,10 @@
     {
       "id": "view",
       "category": "application",
-      "status": "partial",
+      "status": "implemented",
       "purpose": "Routed screen with typed route context, path resolution, and access requirements.",
       "generator": "view",
-      "runtime": "ViewDefinition"
+      "runtime": "ViewDefinition / resolveApplicationRoute"
     },
     {
       "id": "layout",

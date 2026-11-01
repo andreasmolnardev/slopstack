@@ -196,8 +196,14 @@ export type ViewDefinition = {
   label: string;
   description?: string;
   layout?: SlopstackId;
+  layoutContents?: Readonly<Record<string, LayoutContent | readonly LayoutContent[]>>;
   access?: PermissionRequirement;
   component: ComponentType<{ context: ViewContext }>;
+};
+
+export type LayoutContent = {
+  kind: 'view' | 'component' | 'action' | 'resource';
+  content: ReactNode;
 };
 
 export type LayoutSlot = {

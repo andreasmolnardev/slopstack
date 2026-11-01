@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { getAccessibleNavigation, renderView, resolveAccessibleView, resolveView } from './view-runtime';
-import { defineShell, defineView } from './define';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { getAccessibleNavigation, renderView, resolveAccessibleView, resolveApplicationRoute, resolveView } from './view-runtime';
+import { defineLayout, defineShell, defineView } from './define';
 
 const views = [
   defineView({ id: 'tasks', path: '/tasks', label: 'Tasks', component: () => null }),
@@ -42,5 +44,47 @@ describe('view route resolver', () => {
     });
     expect(getAccessibleNavigation(shell, { authenticated: true }).map((item) => item.id)).toEqual(['tasks']);
     expect(renderView(view, { params: {}, search: new URLSearchParams('q=hello'), navigate: () => undefined }).props.context.search.get('q')).toBe('hello');
+  });
+
+  it('composes a matched view through its layout and shell', () => {
+    const application = {
+      id: 'example',
+      name: 'Example',
+      authentication: { provider: 'custom' as const, enforcement: 'server' as const, routes: { unauthorized: '/login' } },
+      views: [defineView({
+        id: 'task', path: '/tasks/:taskId', label: 'Task', layout: 'page',
+        component: ({ context }) => createElement('p', null, 'Task ', context.params.taskId),
+      })],
+      layouts: [defineLayout({
+        id: 'page', label: 'Page', slots: [{ id: 'main', accepts: ['view'] as const, required: true }],
+        component: ({ slots }) => createElement('main', null, slots.main),
+      })],
+      shell: defineShell({
+        id: 'shell', label: 'Shell', navigation: [],
+        component: ({ children }) => createElement('div', { className: 'shell' }, children),
+      }),
+    };
+    const result = resolveApplicationRoute(application, {
+      pathname: '/tasks/task-42',
+      search: new URLSearchParams('tab=details'),
+      navigate: () => undefined,
+      access: { authenticated: true },
+    });
+    expect(result.status).toBe('rendered');
+    if (result.status !== 'rendered') return;
+    expect(result.params).toEqual({ taskId: 'task-42' });
+    expect(renderToStaticMarkup(result.element)).toContain('<div class="shell"><main><p>Task task-42</p></main></div>');
+    expect(resolveApplicationRoute(application, { pathname: '/unknown', navigate: () => undefined, access: { authenticated: true } })).toEqual({ status: 'not-found' });
+  });
+
+  it('returns an unauthorized redirect for a protected view', () => {
+    const application = {
+      id: 'private-app', name: 'Private',
+      authentication: { provider: 'custom' as const, enforcement: 'server' as const, routes: { unauthorized: '/sign-in' } },
+      views: [defineView({ id: 'private', path: '/private', label: 'Private', access: { authenticated: true }, component: () => null })],
+    };
+    expect(resolveApplicationRoute(application, { pathname: '/private', navigate: () => undefined, access: { authenticated: false } })).toMatchObject({
+      status: 'denied', redirectTo: '/sign-in',
+    });
   });
 });

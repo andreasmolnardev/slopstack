@@ -1,6 +1,7 @@
-import { createElement } from 'react';
+import { createElement, type ReactNode } from 'react';
 import { canAccess, type AccessContext } from './access-runtime';
-import type { NavigationItem, ShellDefinition, ViewDefinition, ViewContext } from './types';
+import type { ApplicationDefinition, NavigationItem, ShellDefinition, ViewDefinition, ViewContext } from './types';
+import { renderLayout, renderShell } from './layout-runtime';
 
 export type ResolvedView = { view: ViewDefinition; params: Readonly<Record<string, string>> };
 export type AccessControlledView =
@@ -56,6 +57,44 @@ export function getAccessibleNavigation(shell: ShellDefinition, access: AccessCo
 /** Produces the React element for a resolved view and its typed route context. */
 export function renderView(view: ViewDefinition, context: ViewContext) {
   return createElement(view.component, { context });
+}
+
+export type ApplicationRouteResult =
+  | { status: 'not-found' }
+  | { status: 'denied'; view: ViewDefinition; redirectTo?: string }
+  | { status: 'rendered'; view: ViewDefinition; params: Readonly<Record<string, string>>; element: ReactNode };
+
+/** Composes route matching, client access, optional layouts, and the application shell. */
+export function resolveApplicationRoute(
+  application: ApplicationDefinition,
+  input: { pathname: string; search?: URLSearchParams; navigate: ViewContext['navigate']; access: AccessContext },
+): ApplicationRouteResult {
+  const resolved = resolveAccessibleView(
+    application.views ?? [],
+    input.pathname,
+    input.access,
+    application.authentication?.routes?.unauthorized,
+  );
+  if (!resolved) return { status: 'not-found' };
+  if (resolved.status === 'denied') return resolved;
+
+  const context: ViewContext = {
+    params: { ...resolved.params },
+    search: input.search ?? new URLSearchParams(),
+    navigate: input.navigate,
+  };
+  let element: ReactNode = renderView(resolved.view, context);
+  if (resolved.view.layout) {
+    const layout = application.layouts?.find((item) => item.id === resolved.view.layout);
+    if (!layout) throw new Error(`View "${resolved.view.id}" refers to missing layout "${resolved.view.layout}".`);
+    const contents = { ...(resolved.view.layoutContents ?? {}) };
+    const slot = layout.slots.find((item) => (item.id === 'content' || item.id === 'main') && !contents[item.id])
+      ?? layout.slots.find((item) => !contents[item.id] && (!item.accepts?.length || item.accepts.some((kind) => kind === 'view' || kind === 'component')));
+    if (slot) contents[slot.id] = { kind: 'view', content: element };
+    element = renderLayout(layout, contents);
+  }
+  if (application.shell) element = renderShell(application.shell, element);
+  return { status: 'rendered', view: resolved.view, params: resolved.params, element };
 }
 
 function decodeSegment(value: string) {
