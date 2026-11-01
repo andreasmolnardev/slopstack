@@ -14,7 +14,7 @@ function usage() {
   node packages/cli/slopstack.mjs generate view <name>
   node packages/cli/slopstack.mjs generate layout <name>
 
-  Kinds: text, number, boolean, date, datetime, time, slider, file
+  Kinds: text, number, boolean, select, relation, date, datetime, time, slider, file
   Options: --out <directory> (default: apps/web/src), --force
 `);
 }
@@ -52,12 +52,14 @@ function parseArgs(args) {
 }
 
 function fieldSource(field) {
-  const [name, kind, extra] = field.split(':');
+  const [name, kind, ...configuration] = field.split(':');
   if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(name ?? '')) throw new Error(`Invalid field name: ${name}`);
   const supported = new Set([
     'text',
     'number',
     'boolean',
+    'select',
+    'relation',
     'date',
     'datetime',
     'time',
@@ -68,11 +70,24 @@ function fieldSource(field) {
   const label = name.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
   let definition = `{ name: '${name}', label: '${label}', kind: '${kind}'`;
   if (kind === 'slider') {
-    const [min = '0', max = '100', step = '1'] = (extra ?? '').split(',');
+    const [min = '0', max = '100', step = '1'] = configuration.join(':').split(',');
     if (![min, max, step].every((value) => /^-?\d+(\.\d+)?$/.test(value)))
       throw new Error(`Invalid slider range for ${name}; use name:slider:min,max,step.`);
     definition += `, min: ${min}, max: ${max}, step: ${step}`;
   }
+  if (kind === 'select') {
+    const options = configuration.join(':').split(',').filter(Boolean);
+    if (!options.length || options.some((value) => !/^[A-Za-z0-9_-]+$/.test(value)))
+      throw new Error(`Invalid select options for ${name}; use name:select:value1,value2.`);
+    definition += `, options: [${options.map((value) => `{ label: '${value.replaceAll('_', ' ')}', value: '${value}' }`).join(', ')}]`;
+  }
+  if (kind === 'relation') {
+    const [resource, cardinality = 'one'] = configuration;
+    if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(resource ?? '') || !['one', 'many'].includes(cardinality))
+      throw new Error(`Invalid relationship for ${name}; use name:relation:resource:one|many.`);
+    definition += `, resource: '${resource}', cardinality: '${cardinality}'`;
+  }
+  if (kind === 'text' && configuration[0] === 'multiline') definition += ', multiline: true, rows: 3';
   return `${definition} }`;
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createTrustedProxyAuthAdapter } from './auth-adapters';
+import { createBearerAuthAdapter, createTrustedProxyAuthAdapter } from './auth-adapters';
 
 describe('trusted proxy auth adapter', () => {
   it('takes the identity from a server session endpoint and does not expose a browser token', async () => {
@@ -41,5 +41,30 @@ describe('trusted proxy auth adapter', () => {
     await adapter.signOut();
     expect(calls[0].input).toBe('/api/logout');
     expect(calls[0].init).toMatchObject({ method: 'POST', credentials: 'include' });
+  });
+
+  it('supports bearer login, server session lookup, and logout with app-owned token storage', async () => {
+    let token: string | null = null;
+    const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    const adapter = createBearerAuthAdapter<{ email: string; password: string }>({
+      loginEndpoint: '/api/login',
+      sessionEndpoint: '/api/session',
+      signOutEndpoint: '/api/logout',
+      getToken: () => token,
+      setToken: (next) => { token = next; },
+      fetcher: async (input, init) => {
+        calls.push({ input, init });
+        if (input === '/api/login') return Response.json({ token: 'secret-token', user: { id: 'user-2', email: 'person@example.test' } });
+        if (input === '/api/session') return Response.json({ user: { id: 'user-2' } });
+        return new Response(null, { status: 204 });
+      },
+    });
+    await adapter.signIn({ email: 'person@example.test', password: 'password' });
+    expect(token).toBe('secret-token');
+    await expect(adapter.getSession()).resolves.toMatchObject({ user: { id: 'user-2' }, accessToken: 'secret-token' });
+    await adapter.signOut();
+    expect(token).toBeNull();
+    expect(new Headers(calls[1].init?.headers).get('authorization')).toBe('Bearer secret-token');
+    expect(calls[2].input).toBe('/api/logout');
   });
 });

@@ -213,8 +213,9 @@
     {
       "id": "collection",
       "category": "data",
-      "status": "planned",
-      "purpose": "Ordered or grouped resource collections such as playlists or saved sets."
+      "status": "partial",
+      "purpose": "Render ordered and grouped items; persistence and domain-specific collections remain app-owned.",
+      "runtime": "CollectionView"
     },
     {
       "id": "persistent-region",
@@ -225,26 +226,30 @@
     {
       "id": "infinite-feed",
       "category": "presentation",
-      "status": "planned",
-      "purpose": "Virtualized infinite scrolling for large feeds."
+      "status": "partial",
+      "purpose": "Intersection-observer loading and accessible load-more control; virtualization is not included.",
+      "runtime": "InfiniteFeed"
     },
     {
       "id": "comment-thread",
       "category": "presentation",
-      "status": "planned",
-      "purpose": "Threaded discussions and reply interfaces."
+      "status": "partial",
+      "purpose": "Threaded reply composition and rendering; app owns persistence and permissions.",
+      "runtime": "CommentThread"
     },
     {
       "id": "media-viewer",
       "category": "presentation",
-      "status": "planned",
-      "purpose": "Images, video, audio, and fullscreen media controls."
+      "status": "partial",
+      "purpose": "Dialog-based image, video, and audio playback.",
+      "runtime": "MediaViewer"
     },
     {
       "id": "dashboard-widget",
       "category": "presentation",
-      "status": "partial",
-      "purpose": "Composable dashboard cards and chart content; app screens currently compose them directly."
+      "status": "implemented",
+      "purpose": "Composable dashboard cards with app-owned content and actions.",
+      "runtime": "DashboardWidget"
     },
     {
       "id": "agent-registry",
@@ -275,51 +280,58 @@
     {
       "id": "page-layout",
       "category": "presentation",
-      "status": "partial",
+      "status": "implemented",
       "purpose": "Standard page heading, content region, and actions pattern.",
-      "runtime": "PageHeading"
+      "runtime": "PageLayout"
     },
     {
       "id": "feed-layout",
       "category": "presentation",
-      "status": "planned",
-      "purpose": "Responsive feed or grid layout with optional infinite scrolling."
+      "status": "implemented",
+      "purpose": "Responsive one, two, or three column feed layout.",
+      "runtime": "FeedLayout"
     },
     {
       "id": "detail-layout",
       "category": "presentation",
-      "status": "partial",
-      "purpose": "Primary details and related information arranged through layout slots."
+      "status": "implemented",
+      "purpose": "Primary details and related information in responsive content regions.",
+      "runtime": "DetailLayout"
     },
     {
       "id": "master-detail-layout",
       "category": "presentation",
-      "status": "planned",
-      "purpose": "List and selected record displayed together."
+      "status": "implemented",
+      "purpose": "List and selected record displayed together.",
+      "runtime": "MasterDetailLayout"
     },
     {
       "id": "collection-layout",
       "category": "presentation",
-      "status": "planned",
-      "purpose": "Collection metadata and ordered child resources."
+      "status": "implemented",
+      "purpose": "Collection metadata, ordered child content, and optional footer.",
+      "runtime": "CollectionLayout"
     },
     {
       "id": "settings-layout",
       "category": "presentation",
-      "status": "partial",
-      "purpose": "Account and application preference screens with persisted settings."
+      "status": "implemented",
+      "purpose": "Responsive settings sections and active-section state.",
+      "runtime": "SettingsLayout"
     },
     {
       "id": "management-layout",
       "category": "presentation",
-      "status": "partial",
-      "purpose": "Admin table, filter, and toolbar patterns."
+      "status": "implemented",
+      "purpose": "Admin table, filter, toolbar, and footer slots.",
+      "runtime": "ManagementLayout"
     },
     {
       "id": "immersive-layout",
       "category": "presentation",
-      "status": "planned",
-      "purpose": "Fullscreen or distraction-free content shell."
+      "status": "implemented",
+      "purpose": "Fullscreen or distraction-free content shell.",
+      "runtime": "ImmersiveLayout"
     },
     {
       "id": "slot",
@@ -356,8 +368,9 @@
     {
       "id": "empty-loading-state",
       "category": "presentation",
-      "status": "partial",
-      "purpose": "Reusable empty, loading, skeleton, and error recovery patterns."
+      "status": "implemented",
+      "purpose": "Reusable empty and loading skeleton states.",
+      "runtime": "EmptyState / LoadingState"
     },
     {
       "id": "chart",

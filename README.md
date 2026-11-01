@@ -41,10 +41,10 @@ The Go runtime can serve the built frontend, and Docker packages the app with pe
 - **Backend:** Go server, Huma API routes, embedded PocketBase, SQLite, migrations, owner-scoped Todo CRUD, preferences, and permission enforcement.
 - **Authentication and administration:** PocketBase account flows, OAuth provider configuration, protected user/group administration, memberships, permission rules, and optional organizations.
 - **API workflow:** OpenAPI export, served API docs, and generated TypeScript client.
-- **Developer tooling:** Go and web development commands, tests, lint/build scripts, project initialization, primitive discovery/generation, and safe template upgrade/rollback commands.
+- **Developer tooling:** Go and web development commands, tests, lint/build scripts, project initialization, primitive discovery/generation, safe template upgrade/rollback commands, and the [`slopstack-app-builder` agent skill](skills/slopstack-app-builder/SKILL.md).
 - **Delivery:** Docker image and Compose setup, environment examples, CI checks, centralized app version, and a container publishing workflow.
 
-This is the current template scope, not every possible Slopstack integration. PocketBase is the complete built-in auth/data stack. Provider-neutral auth contracts include PocketBase and trusted-proxy adapters; bearer or other identity flows can implement the same adapter and provide request headers. Endpoint resources can use REST backends without PocketBase. External identity systems still require an app-owned server session/authorization integration. See the implementation status in the primitive catalog.
+This is the current template scope, not every possible Slopstack integration. PocketBase is the complete built-in auth/data stack. Provider-neutral auth contracts include PocketBase, trusted-proxy, and bearer-token adapters; bearer storage stays app-owned. Endpoint resources can use REST backends without PocketBase. External identity systems still require an app-owned server session/authorization integration. See the implementation status in the primitive catalog.
 
 ## Installation
 

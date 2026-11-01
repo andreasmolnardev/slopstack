@@ -116,6 +116,8 @@ import type { ResourceQuery } from '@/lib/slopstack/resource-client';
 import { useResourceQueryState } from '@/lib/slopstack/query-state';
 import { subscribePocketBaseResource } from '@/lib/slopstack/react-query';
 import primitiveCatalog from '../../../packages/cli/registry.json';
+import { CollectionView, CommentThread, DashboardWidget, EmptyState, InfiniteFeed, LoadingState, MediaViewer, type ThreadComment } from '@/components/patterns/advanced-patterns';
+import { FeedLayout, MasterDetailLayout } from '@/components/patterns/application-layouts';
 import { todoResource } from '@/resources/todos';
 import { Switch } from '@/components/ui/switch';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -2996,7 +2998,49 @@ function ComponentsView({ userInitials, userName }: { userInitials: string; user
           ))}
         </div>
       </section>
+      <AdvancedPatternsShowcase />
     </>
+  );
+}
+
+function AdvancedPatternsShowcase() {
+  const [mediaOpen, setMediaOpen] = useState(false);
+  const [feedItems, setFeedItems] = useState(['Activity 1', 'Activity 2', 'Activity 3']);
+  const [comments, setComments] = useState<ThreadComment[]>([
+    { id: 'comment-1', author: 'Taylor', body: 'These composed patterns are ready to adapt to app data.' },
+    { id: 'comment-2', author: 'Jordan', body: 'They keep loading, empty, and reply behavior consistent.', parentId: 'comment-1' },
+  ]);
+  const collections = [
+    { id: '1', title: 'Plan', group: 'Today' },
+    { id: '2', title: 'Review', group: 'Today' },
+    { id: '3', title: 'Ship', group: 'Tomorrow' },
+  ];
+  const previewImage = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="480"><rect width="100%" height="100%" fill="#e9e7ff"/><circle cx="400" cy="240" r="88" fill="#7163e8"/><path d="M380 190v100l84-50z" fill="white"/></svg>')}`;
+  return (
+    <section className="mt-12 space-y-5">
+      <PageHeading eyebrow="Composed UI" title="Application patterns" description="Layouts, feeds, collections, empty/loading states, comments, media, and dashboard widgets built on the shadcn primitives." />
+      <div className="grid gap-4 xl:grid-cols-2">
+        <DashboardWidget title="Dashboard widget" description="A reusable card with an application-owned renderer.">
+          <div className="grid grid-cols-3 gap-3 text-center"><div><p className="text-2xl font-semibold">12</p><p className="text-xs text-muted-foreground">Open</p></div><div><p className="text-2xl font-semibold">8</p><p className="text-xs text-muted-foreground">Done</p></div><div><p className="text-2xl font-semibold">3</p><p className="text-xs text-muted-foreground">Groups</p></div></div>
+        </DashboardWidget>
+        <DashboardWidget title="Collection and states" description="Group ordered items and standardize empty/loading feedback.">
+          <CollectionView items={collections} getKey={(item) => item.id} groupBy={(item) => item.group} renderItem={(item) => <div className="rounded-md border bg-background px-3 py-2 text-sm">{item.title}</div>} />
+          <div className="mt-4 grid gap-3 sm:grid-cols-2"><EmptyState title="No saved searches" description="Save a query to find it again." /><LoadingState label="Loading examples" rows={1} /></div>
+        </DashboardWidget>
+        <DashboardWidget title="Comment thread" description="A small threaded discussion with reply submission.">
+          <CommentThread comments={comments} currentUser="Alex" onSubmit={(body, parentId) => setComments((current) => [...current, { id: `comment-${current.length + 1}`, author: 'Alex', body, parentId }])} />
+        </DashboardWidget>
+        <DashboardWidget title="Media viewer" description="Accessible image, video, and audio presentation in a dialog.">
+          <div className="grid gap-3"><img src={previewImage} alt="Abstract sample media" className="max-h-48 w-full rounded-md object-cover" /><Button className="w-fit" onClick={() => setMediaOpen(true)}>Open media viewer</Button></div>
+          <MediaViewer open={mediaOpen} onOpenChange={setMediaOpen} title="Sample media" src={previewImage} kind="image" alt="Abstract purple play button illustration" />
+        </DashboardWidget>
+        <DashboardWidget title="Feed and master-detail layouts" description="Responsive data arrangements for navigation-heavy screens.">
+          <FeedLayout columns="two"><div className="rounded-md border p-3 text-sm">Feed column</div><div className="rounded-md border p-3 text-sm">Context panel</div></FeedLayout>
+          <div className="mt-4"><MasterDetailLayout master={<ul className="space-y-2 text-sm"><li>Inbox</li><li>Drafts</li></ul>} detail={<p className="text-sm">Selected section content.</p>} /></div>
+          <div className="mt-4"><InfiniteFeed items={feedItems} getKey={(item) => item} hasMore={feedItems.length < 6} loading={false} onLoadMore={() => setFeedItems((current) => [...current, ...current.map((_, index) => `Activity ${current.length + index + 1}`)].slice(0, 6))} renderItem={(item) => <div className="border-b py-2 text-sm">{item}</div>} /></div>
+        </DashboardWidget>
+      </div>
+    </section>
   );
 }
 

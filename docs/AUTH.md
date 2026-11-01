@@ -2,7 +2,7 @@
 
 PocketBase owns the auth lifecycle.
 
-The browser primitives expose a provider-neutral `AuthenticationAdapter` contract. The reference app uses PocketBase; apps behind an identity-aware proxy can use `createTrustedProxyAuthAdapter`, which reads a server-verified session endpoint and redirects to the external sign-in flow. Custom or bearer-token auth can implement the same contract and supply token-aware `headers` to `createEndpointResourceAdapter`. Do not infer identity from arbitrary browser headers or treat client route checks as authorization.
+The browser primitives expose a provider-neutral `AuthenticationAdapter` contract. The reference app uses PocketBase; apps behind an identity-aware proxy can use `createTrustedProxyAuthAdapter`, which reads a server-verified session endpoint and redirects to the external sign-in flow. `createBearerAuthAdapter` accepts app-owned token storage and a JSON login/session API. Both can supply token-aware `headers` to `createEndpointResourceAdapter`. Do not infer identity from arbitrary browser headers or treat client route checks as authorization.
 
 ## Built-in flows
 

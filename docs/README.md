@@ -13,6 +13,7 @@ Slopstack is a full-stack starter, not a task product. The task workspace in `ap
 - [Development](./DEVELOPMENT.md)
 - [Deployment](./DEPLOYMENT.md)
 - [Backend extensions](./backend-extensions.md)
+- [Slopstack app builder agent skill](../skills/slopstack-app-builder/SKILL.md)
 
 ## Example module
 
