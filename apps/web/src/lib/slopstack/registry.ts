@@ -1,5 +1,6 @@
 import type {
   ActionDefinition,
+  BackgroundOperationDefinition,
   AnyResourceDefinition,
   ApplicationDefinition,
   LayoutDefinition,
@@ -26,6 +27,7 @@ export class SlopstackRegistry {
   readonly searchProviders = new Map<string, SearchProvider>();
   readonly searchFallbacks = new Map<string, SearchFallbackDefinition>();
   readonly settings = new Map<string, SettingsDefinition>();
+  readonly backgroundOperations = new Map<string, BackgroundOperationDefinition>();
   readonly shortcuts = new Map<string, ShortcutDefinition>();
   readonly plugins = new Map<string, SlopstackPlugin>();
 
@@ -55,6 +57,10 @@ export class SlopstackRegistry {
 
   registerSettings(settings: SettingsDefinition) {
     addUnique(this.settings, settings, 'settings definition');
+  }
+
+  registerBackgroundOperation(operation: BackgroundOperationDefinition) {
+    addUnique(this.backgroundOperations, operation, 'background operation');
   }
 
   registerShortcut(shortcut: ShortcutDefinition) {
@@ -148,6 +154,7 @@ export function createSlopstackRegistry(application: ApplicationDefinition) {
   for (const provider of application.searchProviders ?? []) registry.registerSearchProvider(provider);
   for (const fallback of application.searchFallbacks ?? []) registry.registerSearchFallback(fallback);
   for (const settings of application.settings ?? []) registry.registerSettings(settings);
+  for (const operation of application.backgroundOperations ?? []) registry.registerBackgroundOperation(operation);
   for (const shortcut of application.shortcuts ?? []) registry.registerShortcut(shortcut);
   for (const plugin of application.plugins ?? []) registry.registerPlugin(plugin);
 

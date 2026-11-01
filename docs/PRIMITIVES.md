@@ -24,6 +24,8 @@ Relation fields accept preloaded options through `relationOptions`, or an aborta
 
 Applications can declare typed `SettingsDefinition` entries in the manifest. `createSettingsStore` loads persisted values over declared defaults, publishes updates, and supports reset; connect it to a `SettingsAdapter` for a PocketBase/Huma preference endpoint or use `createLocalStorageSettingsAdapter` for local appearance preferences. This keeps persistence provider-specific while the settings schema and UI remain reusable.
 
+Background operations declare an async runner and receive an `AbortSignal` plus a progress callback. `createBackgroundOperationManager` tracks running, succeeded, failed, and cancelled work, exposes snapshots to persistent shell UI, and lets the app cancel or dismiss completed entries. For server-side jobs, have the operation adapter relay server progress and cancellation to these same callbacks.
+
 The current CLI generates frontend resource, view, and layout definitions. It does not yet generate backend collection definitions, Huma endpoints, hooks, jobs, or plugin registration. Those contracts are implemented in the runtime and documented separately; wiring them into app bootstrap remains app-owned.
 
 ## Backend and authentication choices

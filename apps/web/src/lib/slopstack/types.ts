@@ -145,6 +145,15 @@ export type SettingsDefinition<Value extends Record<string, unknown> = Record<st
   defaults: Value;
 };
 
+export type BackgroundOperationDefinition<Input = unknown, Output = unknown> = {
+  id: SlopstackId;
+  label: string;
+  run: (input: Input, context: {
+    signal: AbortSignal;
+    reportProgress: (progress: number, message?: string) => void;
+  }) => Promise<Output>;
+};
+
 export type FilterDefinition = {
   id: string;
   label: string;
@@ -289,6 +298,7 @@ export type PluginContext = {
   registerSearchProvider: (provider: SearchProvider) => void;
   registerSearchFallback: (fallback: SearchFallbackDefinition) => void;
   registerSettings: (settings: SettingsDefinition) => void;
+  registerBackgroundOperation: (operation: BackgroundOperationDefinition) => void;
   registerShortcut: (shortcut: ShortcutDefinition) => void;
 };
 
@@ -313,6 +323,7 @@ export type ApplicationDefinition = {
   searchProviders?: readonly SearchProvider[];
   searchFallbacks?: readonly SearchFallbackDefinition[];
   settings?: readonly SettingsDefinition[];
+  backgroundOperations?: readonly BackgroundOperationDefinition[];
   shortcuts?: readonly ShortcutDefinition[];
   plugins?: readonly SlopstackPlugin[];
 };

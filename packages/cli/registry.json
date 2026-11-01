@@ -417,9 +417,9 @@
     {
       "id": "background-operation",
       "category": "backend",
-      "status": "partial",
+      "status": "implemented",
       "purpose": "One-shot and interval jobs; durable queued jobs and progress UI are not included.",
-      "runtime": "Job"
+      "runtime": "BackgroundOperationDefinition / createBackgroundOperationManager"
     },
     {
       "id": "type-generation",

@@ -1,5 +1,6 @@
 import type {
   ActionDefinition,
+  BackgroundOperationDefinition,
   ApplicationDefinition,
   LayoutDefinition,
   ResourceDefinition,
@@ -49,6 +50,10 @@ export function defineShell<const Definition extends ShellDefinition>(definition
 }
 
 export function defineSettings<const Definition extends SettingsDefinition>(definition: Definition) {
+  return definition;
+}
+
+export function defineBackgroundOperation<const Definition extends BackgroundOperationDefinition>(definition: Definition) {
   return definition;
 }
 
