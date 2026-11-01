@@ -3,5 +3,7 @@ export * from './action-runtime';
 export * from './registry';
 export * from './resource-client';
 export * from './resource-form';
+export * from './react-query';
 export * from './resource-validation';
+export * from './query-state';
 export * from './types';

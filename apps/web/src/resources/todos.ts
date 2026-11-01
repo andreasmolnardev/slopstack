@@ -39,6 +39,7 @@ export const todoResource = defineResource<Todo, TodoWrite, TodoWrite>({
     update: { authenticated: true },
     delete: { authenticated: true },
   },
+  identify: (record) => record.id,
   query: {
     searchFields: ['title', 'description'],
     defaultSort: 'due_date,created,id',
