@@ -409,9 +409,9 @@
     {
       "id": "router",
       "category": "application",
-      "status": "partial",
+      "status": "implemented",
       "purpose": "Reference route handling and typed view path resolution.",
-      "runtime": "resolveView"
+      "runtime": "createSlopstackRouter / NavigationAdapter / resolveApplicationRoute"
     },
     {
       "id": "api",

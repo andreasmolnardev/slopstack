@@ -18,4 +18,5 @@ export * from './search-runtime';
 export * from './settings-runtime';
 export * from './background-operations';
 export * from './state-runtime';
+export * from './router-runtime';
 export * from './types';
