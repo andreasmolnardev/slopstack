@@ -44,3 +44,5 @@ defineApplication({
 ```
 
 `authentication.enforcement` documents which server boundary enforces access. A route's `access` declaration only controls client navigation and rendering; authorization still belongs in PocketBase rules or authenticated server handlers. Trusted-proxy mode expects the server to verify the proxy identity and must not trust client-supplied identity headers.
+
+Search providers, actions, shortcuts, and `SearchFallbackDefinition` can all register in the app manifest or a frontend plugin. A fallback action receives the current query and appears when its minimum length and visibility rules match but the palette has no result.

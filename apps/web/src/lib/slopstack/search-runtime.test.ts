@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { filterPaletteActions, matchesShortcut, normalizeShortcutKeys, searchProviders, ShortcutRegistry } from './search-runtime';
-import type { SearchProvider, ShortcutDefinition } from './types';
+import { filterPaletteActions, filterSearchFallbacks, matchesShortcut, normalizeShortcutKeys, searchProviders, ShortcutRegistry } from './search-runtime';
+import type { SearchFallbackDefinition, SearchProvider, ShortcutDefinition } from './types';
 
 describe('search providers', () => {
   it('runs eligible providers, limits results, and isolates provider failures', async () => {
@@ -49,6 +49,17 @@ describe('command actions and shortcuts', () => {
     ];
     expect(filterPaletteActions(actions, 'transaction')).toEqual([actions[1]]);
     expect(filterPaletteActions(actions, '')).toEqual(actions);
+  });
+
+  it('offers search fallbacks only for eligible queries with no matching results', () => {
+    const fallback: SearchFallbackDefinition = {
+      id: 'search-all', label: 'Search all records for "{query}"', minQueryLength: 2,
+      execute: vi.fn(),
+    };
+    expect(filterSearchFallbacks([fallback], 'x', false)).toEqual([]);
+    expect(filterSearchFallbacks([fallback], 'task', true)).toEqual([]);
+    expect(filterSearchFallbacks([fallback], 'task', false)).toEqual([fallback]);
+    expect(filterSearchFallbacks([fallback], 'task', false, () => false)).toEqual([]);
   });
 
   it('normalizes common modifier aliases and matches key chords', () => {

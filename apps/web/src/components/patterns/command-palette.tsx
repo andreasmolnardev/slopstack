@@ -12,13 +12,14 @@ import {
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { runAction } from '@/lib/slopstack/action-runtime';
-import { filterPaletteActions, searchProviders, type PaletteAction } from '@/lib/slopstack/search-runtime';
-import type { SearchProvider, SearchResult } from '@/lib/slopstack/types';
+import { filterPaletteActions, filterSearchFallbacks, searchProviders, type PaletteAction } from '@/lib/slopstack/search-runtime';
+import type { SearchFallbackDefinition, SearchProvider, SearchResult } from '@/lib/slopstack/types';
 
 export function CommandPalette({
   providers = [],
   navigation = [],
   actions = [],
+  searchFallbacks = [],
   onNavigate,
   canAccess = () => true,
   onActionError,
@@ -29,6 +30,7 @@ export function CommandPalette({
   providers?: readonly SearchProvider[];
   navigation?: readonly SearchResult[];
   actions?: readonly PaletteAction[];
+  searchFallbacks?: readonly SearchFallbackDefinition[];
   onNavigate: (href: string) => void;
   canAccess?: PaletteActionAccess;
   onActionError?: (error: unknown, action: PaletteAction) => void;
@@ -42,6 +44,8 @@ export function CommandPalette({
   const [searching, setSearching] = useState(false);
   const visibleActions = useMemo(() => filterPaletteActions(actions.filter((action) => canAccess(action.access)), query), [actions, canAccess, query]);
   const visibleNavigation = useMemo(() => filterNavigation(navigation, query), [navigation, query]);
+  const hasResults = Boolean(visibleNavigation.length || visibleActions.length || groups.some((group) => group.results.length));
+  const visibleFallbacks = useMemo(() => filterSearchFallbacks(searchFallbacks, query, hasResults || searching, canAccess), [canAccess, hasResults, query, searching, searchFallbacks]);
 
   useEffect(() => {
     if (!open || !query.trim() || !providers.length) {
@@ -73,10 +77,10 @@ export function CommandPalette({
     return () => window.removeEventListener('keydown', listener);
   }, []);
 
-  const selectAction = async (action: PaletteAction) => {
+  const selectAction = async (action: PaletteAction, input = query) => {
     setOpen(false);
     try {
-      await runAction(action, query, {
+      await runAction(action, input, {
         navigate: (to) => onNavigate(to),
         authorize,
         confirm,
@@ -129,8 +133,13 @@ export function CommandPalette({
               {group.results.map((result) => <SearchItem key={`${group.providerId}:${result.id}`} result={result} onSelect={() => result.href && onNavigate(result.href)} />)}
             </CommandGroup>
           ))}
+          {visibleFallbacks.length > 0 && (
+            <CommandGroup heading="Search fallback">
+              {visibleFallbacks.map((fallback) => <CommandItem key={`fallback:${fallback.id}`} value={[fallback.label, fallback.description].filter(Boolean).join(' ')} onSelect={() => void selectAction(fallback, query)}><Search className="size-4" /><span>{fallback.label.replaceAll('{query}', query.trim())}</span>{fallback.description && <span className="ml-2 truncate text-muted-foreground">{fallback.description}</span>}</CommandItem>)}
+            </CommandGroup>
+          )}
           {searching && <CommandGroup heading="Search"><CommandItem disabled>Searching…</CommandItem></CommandGroup>}
-          {query.trim() && !searching && !visibleNavigation.length && !visibleActions.length && !groups.some((group) => group.results.length) && (
+          {query.trim() && !searching && !visibleNavigation.length && !visibleActions.length && !groups.some((group) => group.results.length) && !visibleFallbacks.length && (
             <CommandEmpty>No results found.</CommandEmpty>
           )}
         </CommandList>

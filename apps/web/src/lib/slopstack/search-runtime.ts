@@ -1,4 +1,4 @@
-import type { ActionDefinition, PermissionRequirement, SearchProvider, SearchResult, ShortcutDefinition } from './types';
+import type { ActionDefinition, PermissionRequirement, SearchFallbackDefinition, SearchProvider, SearchResult, ShortcutDefinition } from './types';
 
 export type SearchResultGroup = {
   providerId: string;
@@ -46,6 +46,19 @@ export function filterPaletteActions<Action extends PaletteActionDescriptor>(act
   return actions.filter((action) => [action.label, action.description, ...(action.keywords ?? [])]
     .filter(Boolean)
     .some((value) => value!.toLocaleLowerCase().includes(normalizedQuery)));
+}
+
+export function filterSearchFallbacks(
+  fallbacks: readonly SearchFallbackDefinition[],
+  query: string,
+  hasResults: boolean,
+  canAccess: (requirement?: PermissionRequirement) => boolean = () => true,
+) {
+  const normalized = query.trim();
+  return fallbacks.filter((fallback) => normalized.length >= (fallback.minQueryLength ?? 1)
+    && (!fallback.matches || fallback.matches(normalized))
+    && (!(fallback.whenNoResults ?? true) || !hasResults)
+    && canAccess(fallback.access));
 }
 
 export function normalizeShortcutKeys(keys: readonly string[]) {

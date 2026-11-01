@@ -134,7 +134,7 @@ import { getPreferences, savePreferences } from './api/preferences';
 import type { Todo, TodoWrite } from './api/generated/types.gen';
 import type { UserPreferences, UserPreferencesPatchInputBodyWritable } from './api/generated/types.gen';
 import { installShortcutRegistry, ShortcutRegistry, type PaletteAction } from './lib/slopstack/search-runtime';
-import type { SearchProvider, SearchResult } from './lib/slopstack/types';
+import type { SearchFallbackDefinition, SearchProvider, SearchResult } from './lib/slopstack/types';
 
 type Priority = 'High' | 'Medium' | 'Low';
 type View = 'overview' | 'tasks' | 'schedule' | 'analytics' | 'components' | 'icons' | 'profile';
@@ -452,6 +452,13 @@ export function App() {
     access: { authenticated: true, permission: 'todos:create' },
     execute: openNewTask,
   }], [openNewTask]);
+  const commandSearchFallbacks = useMemo<SearchFallbackDefinition[]>(() => [{
+    id: 'search-all-tasks',
+    label: 'Search all tasks for "{query}"',
+    description: 'Open the task list with this query applied.',
+    minQueryLength: 2,
+    execute: ({ input, navigate: go }) => go(`/app/tasks?q=${encodeURIComponent(input)}`),
+  }], []);
 
   useEffect(() => {
     const shortcuts = new ShortcutRegistry([{
@@ -966,6 +973,7 @@ export function App() {
                 navigation={commandNavigation}
                 providers={searchProviders}
                 actions={commandActions}
+                searchFallbacks={commandSearchFallbacks}
                 onNavigate={navigate}
                 canAccess={(requirement) => !requirement?.authenticated || isAuthenticated}
                 authorize={(requirement) => !requirement?.authenticated || isAuthenticated}

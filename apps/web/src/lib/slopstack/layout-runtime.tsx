@@ -1,5 +1,5 @@
-import { createElement, type ReactNode } from 'react';
-import type { LayoutDefinition, LayoutSlot } from './types';
+import { createElement, Fragment, type ReactNode } from 'react';
+import type { LayoutDefinition, LayoutSlot, ShellDefinition } from './types';
 
 export type LayoutItem = {
   kind: NonNullable<LayoutSlot['accepts']>[number];
@@ -29,4 +29,10 @@ export function renderLayout(layout: LayoutDefinition, contents: LayoutContents 
     slots[slot.id] = items.map((item) => item.content);
   }
   return createElement(layout.component, { slots });
+}
+
+/** Keeps shell-owned regions mounted alongside the changing route content. */
+export function renderShell(shell: ShellDefinition, children: ReactNode) {
+  const regions = (shell.persistentRegions ?? []).map(({ id, component: Region }) => createElement(Region, { key: id }));
+  return createElement(shell.component, { children: createElement(Fragment, null, children, ...regions) });
 }

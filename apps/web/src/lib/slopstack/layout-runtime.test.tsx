@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { createElement } from 'react';
+import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { defineLayout } from './define';
-import { renderLayout } from './layout-runtime';
+import { renderLayout, renderShell } from './layout-runtime';
 
 const layout = defineLayout({
   id: 'detail',
@@ -18,6 +18,17 @@ describe('layout runtime', () => {
   it('renders slot content in the layout', () => {
     const result = renderLayout(layout, { main: { kind: 'view', content: createElement('h1', null, 'Tasks') } });
     expect(renderToStaticMarkup(result)).toContain('<h1>Tasks</h1>');
+  });
+
+  it('keeps shell-owned persistent regions alongside route content', () => {
+    const shell = {
+      id: 'workspace', label: 'Workspace', navigation: [],
+      component: ({ children }: { children: ReactNode }) => createElement('div', null, children),
+      persistentRegions: [{ id: 'player', label: 'Player', component: () => createElement('aside', null, 'Now playing') }],
+    };
+    const result = renderShell(shell, createElement('h1', null, 'Route content'));
+    expect(renderToStaticMarkup(result)).toContain('Now playing');
+    expect(renderToStaticMarkup(result)).toContain('Route content');
   });
 
   it('rejects missing, unknown, incompatible, and repeated slot contents', () => {

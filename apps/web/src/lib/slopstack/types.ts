@@ -212,7 +212,14 @@ export type ShellDefinition = {
   label: string;
   navigation: readonly NavigationItem[];
   navigationStyles?: readonly ('sidebar' | 'topbar' | 'rail' | 'bottom')[];
+  persistentRegions?: readonly PersistentRegionDefinition[];
   component: ComponentType<{ children: ReactNode }>;
+};
+
+export type PersistentRegionDefinition = {
+  id: SlopstackId;
+  label: string;
+  component: ComponentType;
 };
 
 export type ActionContext<Input = unknown> = {
@@ -250,6 +257,12 @@ export type SearchProvider = {
   minQueryLength?: number;
 };
 
+export type SearchFallbackDefinition = ActionDefinition<string> & {
+  minQueryLength?: number;
+  whenNoResults?: boolean;
+  matches?: (query: string) => boolean;
+};
+
 export type ShortcutDefinition = {
   id: SlopstackId;
   keys: readonly string[];
@@ -265,6 +278,7 @@ export type PluginContext = {
   registerLayout: (layout: LayoutDefinition) => void;
   registerAction: (action: ActionDefinition) => void;
   registerSearchProvider: (provider: SearchProvider) => void;
+  registerSearchFallback: (fallback: SearchFallbackDefinition) => void;
   registerShortcut: (shortcut: ShortcutDefinition) => void;
 };
 
@@ -287,6 +301,7 @@ export type ApplicationDefinition = {
   layouts?: readonly LayoutDefinition[];
   actions?: readonly ActionDefinition[];
   searchProviders?: readonly SearchProvider[];
+  searchFallbacks?: readonly SearchFallbackDefinition[];
   shortcuts?: readonly ShortcutDefinition[];
   plugins?: readonly SlopstackPlugin[];
 };

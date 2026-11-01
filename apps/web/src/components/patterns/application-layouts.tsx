@@ -46,3 +46,13 @@ export function ManagementLayout({ toolbar, children, footer }: { toolbar?: Reac
 export function ImmersiveLayout({ children, onExit, exitLabel = 'Exit full screen' }: { children: ReactNode; onExit?: () => void; exitLabel?: string }) {
   return <main className="fixed inset-0 z-50 overflow-auto bg-background p-4 sm:p-8">{onExit && <button type="button" className="absolute right-4 top-4 rounded-md p-2 text-sm text-muted-foreground hover:bg-muted" onClick={onExit}>{exitLabel}</button>}<div className="mx-auto min-h-full max-w-7xl">{children}</div></main>;
 }
+
+export function PersistentRegion({ children, label, placement = 'bottom' }: { children: ReactNode; label: string; placement?: 'inline' | 'bottom' | 'top' | 'floating' }) {
+  const placementStyle = {
+    inline: '',
+    bottom: 'fixed inset-x-0 bottom-0 z-40 border-t bg-card shadow-lg',
+    top: 'fixed inset-x-0 top-0 z-40 border-b bg-card shadow-lg',
+    floating: 'fixed bottom-4 right-4 z-40 rounded-xl border bg-card shadow-xl',
+  }[placement];
+  return <aside aria-label={label} data-persistent-region className={placementStyle}>{children}</aside>;
+}

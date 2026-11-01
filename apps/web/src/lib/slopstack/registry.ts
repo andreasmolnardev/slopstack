@@ -4,6 +4,7 @@ import type {
   ApplicationDefinition,
   LayoutDefinition,
   SearchProvider,
+  SearchFallbackDefinition,
   ShortcutDefinition,
   SlopstackPlugin,
   ViewDefinition,
@@ -22,6 +23,7 @@ export class SlopstackRegistry {
   readonly layouts = new Map<string, LayoutDefinition>();
   readonly actions = new Map<string, ActionDefinition>();
   readonly searchProviders = new Map<string, SearchProvider>();
+  readonly searchFallbacks = new Map<string, SearchFallbackDefinition>();
   readonly shortcuts = new Map<string, ShortcutDefinition>();
   readonly plugins = new Map<string, SlopstackPlugin>();
 
@@ -43,6 +45,10 @@ export class SlopstackRegistry {
 
   registerSearchProvider(provider: SearchProvider) {
     addUnique(this.searchProviders, provider, 'search provider');
+  }
+
+  registerSearchFallback(fallback: SearchFallbackDefinition) {
+    addUnique(this.searchFallbacks, fallback, 'search fallback');
   }
 
   registerShortcut(shortcut: ShortcutDefinition) {
@@ -117,6 +123,11 @@ export class SlopstackRegistry {
         issues.push(`Navigation item "${item.id}" refers to missing view "${item.view}".`);
       }
     }
+    const regionIds = new Set<string>();
+    for (const region of application.shell?.persistentRegions ?? []) {
+      if (regionIds.has(region.id)) issues.push(`Shell has duplicate persistent region "${region.id}".`);
+      regionIds.add(region.id);
+    }
 
     if (issues.length) throw new Error(`Invalid Slopstack application:\n- ${issues.join('\n- ')}`);
   }
@@ -129,6 +140,7 @@ export function createSlopstackRegistry(application: ApplicationDefinition) {
   for (const view of application.views ?? []) registry.registerView(view);
   for (const action of application.actions ?? []) registry.registerAction(action);
   for (const provider of application.searchProviders ?? []) registry.registerSearchProvider(provider);
+  for (const fallback of application.searchFallbacks ?? []) registry.registerSearchFallback(fallback);
   for (const shortcut of application.shortcuts ?? []) registry.registerShortcut(shortcut);
   for (const plugin of application.plugins ?? []) registry.registerPlugin(plugin);
 
