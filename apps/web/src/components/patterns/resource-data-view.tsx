@@ -96,9 +96,15 @@ export function ResourceDataView<Row>({
         return (
           <div key={key} className="flex items-start gap-3 p-4">
             {selectable && <Checkbox aria-label={`Select row ${key}`} checked={selection.includes(key)} onCheckedChange={(checked) => toggleRow(key, checked === true)} />}
-            <Button variant="ghost" className="h-auto min-w-0 flex-1 justify-start p-0 text-left" onClick={() => onRowClick?.(row)}>
-              {renderItem ? renderItem(row) : <div className="grid min-w-0 gap-2 sm:grid-cols-2">{columns.map((column) => <div key={column.id} className="min-w-0"><div className="text-xs text-muted-foreground">{column.header}</div><div className="truncate text-sm">{column.cell(row)}</div></div>)}</div>}
-            </Button>
+            {onRowClick ? (
+              <Button variant="ghost" className="h-auto min-w-0 flex-1 justify-start p-0 text-left" onClick={() => onRowClick(row)}>
+                {renderItem ? renderItem(row) : <div className="grid min-w-0 gap-2 sm:grid-cols-2">{columns.map((column) => <div key={column.id} className="min-w-0"><div className="text-xs text-muted-foreground">{column.header}</div><div className="truncate text-sm">{column.cell(row)}</div></div>)}</div>}
+              </Button>
+            ) : (
+              <div className="min-w-0 flex-1">
+                {renderItem ? renderItem(row) : <div className="grid min-w-0 gap-2 sm:grid-cols-2">{columns.map((column) => <div key={column.id} className="min-w-0"><div className="text-xs text-muted-foreground">{column.header}</div><div className="truncate text-sm">{column.cell(row)}</div></div>)}</div>}
+              </div>
+            )}
           </div>
         );
       })}
