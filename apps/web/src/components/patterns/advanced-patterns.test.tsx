@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { CollectionView, CommentThread, DashboardWidget, EmptyState, InfiniteFeed, LoadingState } from './advanced-patterns';
+import { calculateVirtualWindow, CollectionView, CommentThread, DashboardWidget, EmptyState, InfiniteFeed, LoadingState } from './advanced-patterns';
 import { DetailLayout, FeedLayout, MasterDetailLayout } from './application-layouts';
 
 describe('application presentation patterns', () => {
@@ -26,6 +26,12 @@ describe('application presentation patterns', () => {
     expect(markup).toContain('A note');
     expect(markup).toContain('A reply');
     expect(markup).toContain('Load more');
+  });
+
+  it('calculates an overscanned window for fixed-height feeds', () => {
+    expect(calculateVirtualWindow(1000, 500, { height: 200, itemHeight: 50, overscan: 2 })).toEqual({
+      start: 8, end: 16, totalHeight: 50000,
+    });
   });
 
   it('renders composable content layouts', () => {

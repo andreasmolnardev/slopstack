@@ -103,6 +103,7 @@ export function InfiniteFeed<Item>({
   hasMore,
   loading,
   onLoadMore,
+  virtualization,
 }: {
   items: readonly Item[];
   getKey: (item: Item) => string;
@@ -110,10 +111,15 @@ export function InfiniteFeed<Item>({
   hasMore: boolean;
   loading: boolean;
   onLoadMore: () => void;
+  /** Enables fixed-height windowing for large feeds. Leave unset for variable-height content. */
+  virtualization?: { height: number; itemHeight: number; overscan?: number };
 }) {
   const sentinel = useRef<HTMLDivElement>(null);
   const requested = useRef(false);
+  const [scrollTop, setScrollTop] = useState(0);
   useEffect(() => { if (!loading) requested.current = false; }, [loading]);
+  const windowed = virtualization ? calculateVirtualWindow(items.length, scrollTop, virtualization) : undefined;
+  const visibleItems = windowed ? items.slice(windowed.start, windowed.end) : items;
   const loadMore = useCallback(() => {
     if (!hasMore || loading || requested.current) return;
     requested.current = true;
@@ -121,17 +127,47 @@ export function InfiniteFeed<Item>({
   }, [hasMore, loading, onLoadMore]);
   useEffect(() => {
     if (!hasMore || loading || !sentinel.current || typeof IntersectionObserver === 'undefined') return;
-    const observer = new IntersectionObserver(([entry]) => { if (entry.isIntersecting) loadMore(); }, { rootMargin: '160px' });
+    const root = virtualization ? sentinel.current?.closest('[data-feed-scroll]') : null;
+    const observer = new IntersectionObserver(([entry]) => { if (entry.isIntersecting) loadMore(); }, { root, rootMargin: '160px' });
     observer.observe(sentinel.current);
     return () => observer.disconnect();
-  }, [hasMore, loading, loadMore]);
+  }, [hasMore, loading, loadMore, virtualization]);
+  const content = windowed ? (
+    <div
+      data-feed-scroll
+      className="overflow-auto"
+      style={{ height: virtualization!.height }}
+      onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+    >
+      <div style={{ height: windowed.totalHeight, position: 'relative' }}>
+        {visibleItems.map((item, offset) => {
+          const index = windowed.start + offset;
+          return <div key={getKey(item)} style={{ position: 'absolute', insetInline: 0, height: virtualization!.itemHeight, transform: `translateY(${index * virtualization!.itemHeight}px)` }}>{renderItem(item)}</div>;
+        })}
+      </div>
+    </div>
+  ) : (
+    <div className="grid gap-4">{items.map((item) => <div key={getKey(item)}>{renderItem(item)}</div>)}</div>
+  );
   return (
     <div className="grid gap-4">
-      {items.map((item) => <div key={getKey(item)}>{renderItem(item)}</div>)}
+      {content}
       {loading && <LoadingState label="Loading more" rows={2} />}
       {hasMore && <div ref={sentinel} className="flex justify-center"><Button variant="outline" disabled={loading} onClick={loadMore}>{loading ? 'Loading…' : 'Load more'}</Button></div>}
     </div>
   );
+}
+
+export function calculateVirtualWindow(
+  itemCount: number,
+  scrollTop: number,
+  options: { height: number; itemHeight: number; overscan?: number },
+) {
+  const itemHeight = Math.max(1, options.itemHeight);
+  const overscan = Math.max(0, options.overscan ?? 3);
+  const start = Math.max(0, Math.floor(Math.max(0, scrollTop) / itemHeight) - overscan);
+  const end = Math.min(itemCount, Math.ceil((Math.max(0, scrollTop) + Math.max(1, options.height)) / itemHeight) + overscan);
+  return { start, end, totalHeight: itemCount * itemHeight };
 }
 
 export type ThreadComment = {

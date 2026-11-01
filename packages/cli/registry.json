@@ -236,9 +236,9 @@
     {
       "id": "infinite-feed",
       "category": "presentation",
-      "status": "partial",
+      "status": "implemented",
       "purpose": "Intersection-observer loading and accessible load-more control; virtualization is not included.",
-      "runtime": "InfiniteFeed"
+      "runtime": "InfiniteFeed / calculateVirtualWindow"
     },
     {
       "id": "comment-thread",

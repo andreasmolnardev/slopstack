@@ -27,6 +27,8 @@ Applications can declare typed `SettingsDefinition` entries in the manifest. `cr
 
 Background operations declare an async runner and receive an `AbortSignal` plus a progress callback. `createBackgroundOperationManager` tracks running, succeeded, failed, and cancelled work, exposes snapshots to persistent shell UI, and lets the app cancel or dismiss completed entries. For server-side jobs, have the operation adapter relay server progress and cancellation to these same callbacks.
 
+`InfiniteFeed` supports an optional fixed-height virtualization window with overscan for large uniform rows. Leave virtualization unset for variable-height cards and articles.
+
 The CLI generates frontend resource, view, and layout definitions plus a Go backend-plugin scaffold. The plugin scaffold leaves collections, endpoints, hooks, and jobs as explicit TODO slots, and the app still wires the plugin into bootstrap.
 
 ## Backend and authentication choices
