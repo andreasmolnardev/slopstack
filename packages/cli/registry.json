@@ -151,7 +151,7 @@
     {
       "id": "authentication",
       "category": "security",
-      "status": "partial",
+      "status": "implemented",
       "purpose": "Provider-neutral PocketBase, trusted-proxy, bearer-token, or custom auth adapters.",
       "runtime": "AuthenticationAdapter / createAuthenticationStore / useAuthentication"
     },
@@ -172,16 +172,16 @@
     {
       "id": "realtime",
       "category": "capability",
-      "status": "partial",
+      "status": "implemented",
       "purpose": "PocketBase subscription lifecycle and resource cache invalidation.",
-      "runtime": "usePocketBaseResourceRealtime"
+      "runtime": "usePocketBaseResourceRealtime / subscribePocketBaseResource"
     },
     {
       "id": "settings-theme",
       "category": "capability",
-      "status": "partial",
+      "status": "implemented",
       "purpose": "Persisted preferences, navigation choices, theme tokens, and motion settings.",
-      "runtime": "UserPreferences"
+      "runtime": "UserPreferences / settings store / theme and motion preferences"
     },
     {
       "id": "settings",
@@ -215,16 +215,16 @@
     {
       "id": "job",
       "category": "backend",
-      "status": "partial",
+      "status": "implemented",
       "purpose": "One-shot or interval backend operation with shutdown cancellation.",
-      "runtime": "Job"
+      "runtime": "primitives.Job / RunJobs"
     },
     {
       "id": "collection",
       "category": "data",
       "status": "implemented",
       "purpose": "Render ordered and grouped items; persistence and domain-specific collections remain app-owned.",
-      "runtime": "CollectionView"
+      "runtime": "CollectionView / CollectionLayout"
     },
     {
       "id": "persistent-region",
@@ -395,15 +395,16 @@
     {
       "id": "permissions",
       "category": "security",
-      "status": "partial",
+      "status": "implemented",
       "purpose": "Server-enforced user/group permission rules plus frontend visibility checks.",
-      "runtime": "PermissionRequirement"
+      "runtime": "HasPermission / canAccess / protected resource handlers"
     },
     {
       "id": "state-settings",
       "category": "capability",
-      "status": "partial",
-      "purpose": "Persisted user and app preferences plus local component state."
+      "status": "implemented",
+      "purpose": "Persisted user and app preferences plus local component state.",
+      "runtime": "createSettingsStore / createSharedStateStore"
     },
     {
       "id": "router",
@@ -434,8 +435,9 @@
     {
       "id": "agent-instructions",
       "category": "developer-tools",
-      "status": "partial",
-      "purpose": "Repository guidance and Slopstack-specific agent skill."
+      "status": "implemented",
+      "purpose": "Repository guidance and Slopstack-specific agent skill.",
+      "runtime": "skills/slopstack-app-builder/SKILL.md / docs/PRIMITIVES.md"
     },
     {
       "id": "extension-api",
