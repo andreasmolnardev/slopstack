@@ -20,6 +20,8 @@ Generated files go under `apps/web/src` by default: resources under `resources/`
 
 Scaffolding creates a starting definition; it does not edit a route table, register a collection migration, or generate domain-specific API handlers. Connect the new definition to the app registry and implement its backend source and permissions before exposing it to users. Backend primitive contracts are documented in [Backend extensions](backend-extensions.md).
 
+Relation fields accept preloaded options through `relationOptions`, or an abortable `loadRelationOptions(resourceId, query, signal)` callback for large or access-controlled collections. The callback lets the app use the same PocketBase or endpoint adapter chosen for that relation.
+
 The current CLI generates frontend resource, view, and layout definitions. It does not yet generate backend collection definitions, Huma endpoints, hooks, jobs, or plugin registration. Those contracts are implemented in the runtime and documented separately; wiring them into app bootstrap remains app-owned.
 
 ## Backend and authentication choices

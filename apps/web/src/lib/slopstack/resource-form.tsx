@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -34,6 +34,7 @@ export function ResourceForm({
   resource,
   initialValues,
   relationOptions = {},
+  loadRelationOptions,
   submitLabel = 'Save',
   onSubmit,
   onError,
@@ -41,6 +42,8 @@ export function ResourceForm({
   resource: ResourceFormDefinition;
   initialValues?: ResourceFormValues;
   relationOptions?: Readonly<Record<string, readonly RelationOption[]>>;
+  /** Optional remote lookup for large or access-controlled related resources. */
+  loadRelationOptions?: (resourceId: string, query: string, signal: AbortSignal) => Promise<readonly RelationOption[]>;
   submitLabel?: string;
   onSubmit: (values: ResourceFormValues) => void | Promise<void>;
   onError?: (error: unknown) => void;
@@ -82,6 +85,7 @@ export function ResourceForm({
             value={values[field.name]}
             error={errors[field.name]}
             options={field.kind === 'relation' ? relationOptions[field.resource] : undefined}
+            loadRelationOptions={loadRelationOptions}
             disabled={Boolean(field.readOnly || submitting)}
             setValue={(value) => setValue(field.name, value)}
           />
@@ -102,6 +106,7 @@ function ResourceField({
   value,
   error,
   options = [],
+  loadRelationOptions,
   disabled,
   setValue,
 }: {
@@ -109,9 +114,27 @@ function ResourceField({
   value: unknown;
   error?: string;
   options?: readonly RelationOption[];
+  loadRelationOptions?: (resourceId: string, query: string, signal: AbortSignal) => Promise<readonly RelationOption[]>;
   disabled: boolean;
   setValue: (value: unknown) => void;
 }) {
+  const [relationQuery, setRelationQuery] = useState('');
+  const [loadedRelationOptions, setLoadedRelationOptions] = useState<readonly RelationOption[]>([]);
+  const [loadingRelations, setLoadingRelations] = useState(false);
+  const [relationError, setRelationError] = useState('');
+  useEffect(() => {
+    if (field.kind !== 'relation' || !loadRelationOptions) return;
+    const controller = new AbortController();
+    setLoadingRelations(true);
+    setRelationError('');
+    loadRelationOptions(field.resource, relationQuery, controller.signal)
+      .then((nextOptions) => setLoadedRelationOptions(nextOptions))
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) setRelationError(error instanceof Error ? error.message : 'Could not load related items.');
+      })
+      .finally(() => { if (!controller.signal.aborted) setLoadingRelations(false); });
+    return () => controller.abort();
+  }, [field, loadRelationOptions, relationQuery]);
   const id = `resource-field-${field.name}`;
   const describedBy = [field.description ? `${id}-description` : '', error ? `${id}-error` : ''].filter(Boolean).join(' ') || undefined;
   let control;
@@ -161,23 +184,33 @@ function ResourceField({
       );
       break;
     case 'relation':
-      control = options.length ? (
-        <select
-          id={id}
-          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-          value={field.cardinality === 'many' ? (Array.isArray(value) ? value : []) as string[] : typeof value === 'string' ? value : ''}
-          multiple={field.cardinality === 'many'}
-          disabled={disabled}
-          aria-invalid={Boolean(error)}
-          aria-describedby={describedBy}
-          onChange={(event) => setValue(field.cardinality === 'many' ? Array.from(event.currentTarget.selectedOptions, (option) => option.value) : event.currentTarget.value)}
-        >
-          {field.cardinality === 'one' && <option value="">Select {field.label.toLowerCase()}</option>}
-          {options.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
-        </select>
-      ) : (
-        <Input id={id} value={typeof value === 'string' ? value : ''} disabled={disabled} aria-invalid={Boolean(error)} aria-describedby={describedBy} onChange={(event) => setValue(event.target.value)} />
-      );
+      {
+        const availableOptions = [...options, ...loadedRelationOptions].filter((option, index, all) => all.findIndex((candidate) => candidate.id === option.id) === index);
+        control = (
+          <div className="grid gap-2">
+            {loadRelationOptions && <Input aria-label={`Search ${field.label.toLowerCase()}`} placeholder="Search related items" value={relationQuery} disabled={disabled} onChange={(event) => setRelationQuery(event.target.value)} />}
+            {availableOptions.length || loadRelationOptions ? (
+              <select
+                id={id}
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                value={field.cardinality === 'many' ? (Array.isArray(value) ? value : []) as string[] : typeof value === 'string' ? value : ''}
+                multiple={field.cardinality === 'many'}
+                disabled={disabled || (loadingRelations && !availableOptions.length)}
+                aria-invalid={Boolean(error)}
+                aria-describedby={describedBy}
+                onChange={(event) => setValue(field.cardinality === 'many' ? Array.from(event.currentTarget.selectedOptions, (option) => option.value) : event.currentTarget.value)}
+              >
+                {field.cardinality === 'one' && <option value="">Select {field.label.toLowerCase()}</option>}
+                {availableOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+              </select>
+            ) : (
+              <Input id={id} value={typeof value === 'string' ? value : ''} disabled={disabled} aria-invalid={Boolean(error)} aria-describedby={describedBy} onChange={(event) => setValue(event.target.value)} />
+            )}
+            {loadingRelations && <p className="text-xs text-muted-foreground" role="status">Loading related items…</p>}
+            {relationError && <p className="text-xs text-destructive" role="alert">{relationError}</p>}
+          </div>
+        );
+      }
       break;
     case 'file':
       control = (
