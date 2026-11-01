@@ -23,7 +23,7 @@ Scaffolding creates a starting definition; it does not edit a route table, regis
 
 Relation fields accept preloaded options through `relationOptions`, or an abortable `loadRelationOptions(resourceId, query, signal)` callback for large or access-controlled collections. The callback lets the app use the same PocketBase or endpoint adapter chosen for that relation.
 
-File fields validate accepted MIME types/extensions, maximum file counts, and per-file size before submit. The form shows selected names and local image previews; endpoint resources encode `Blob` values as multipart form data. Upload progress remains adapter-specific.
+File fields validate accepted MIME types/extensions, maximum file counts, and per-file size before submit. The form shows selected names and local image previews; endpoint resources encode `Blob` values as multipart form data. Set `EndpointAdapterOptions.onUploadProgress` to receive loaded/total bytes and pass its percentage into `ResourceForm.uploadProgress` to display progress. The progress-enabled endpoint adapter uses browser XHR for multipart requests.
 
 Applications can declare typed `SettingsDefinition` entries in the manifest. `createSettingsStore` loads persisted values over declared defaults, publishes updates, and supports reset; connect it to a `SettingsAdapter` for a PocketBase/Huma preference endpoint or use `createLocalStorageSettingsAdapter` for local appearance preferences. This keeps persistence provider-specific while the settings schema and UI remain reusable.
 

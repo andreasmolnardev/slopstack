@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createEndpointResourceAdapter } from './endpoint-adapter';
 import { defineResource } from './define';
 
@@ -72,6 +72,38 @@ describe('endpoint resource adapter', () => {
     expect(calls[0].init?.body).toBeInstanceOf(FormData);
     expect((calls[0].init?.body as FormData).get('file')).toBeInstanceOf(Blob);
     expect(new Headers(calls[0].init?.headers).has('content-type')).toBe(false);
+  });
+
+  it('reports upload progress when configured', async () => {
+    class FakeXMLHttpRequest {
+      upload: { onprogress: ((event: ProgressEvent) => void) | null } = { onprogress: null };
+      status = 201;
+      responseText = JSON.stringify({ id: '2', label: 'Progress' });
+      withCredentials = false;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onabort: (() => void) | null = null;
+      open = vi.fn();
+      setRequestHeader = vi.fn();
+      abort = vi.fn(() => this.onabort?.());
+      send = vi.fn(() => {
+        this.upload.onprogress?.({ lengthComputable: true, loaded: 50, total: 100 } as ProgressEvent);
+        this.onload?.();
+      });
+    }
+    vi.stubGlobal('XMLHttpRequest', FakeXMLHttpRequest);
+    try {
+      const progress: number[] = [];
+      const uploadResource = defineResource<{ id: string; file: string }, { file: File }, never>({
+        id: 'upload-progress', label: 'Upload', source: { kind: 'endpoint', create: '/uploads' },
+        fields: [{ name: 'file', label: 'File', kind: 'file' }],
+      });
+      const uploader = createEndpointResourceAdapter(uploadResource, { onUploadProgress: ({ percentage }) => progress.push(percentage) });
+      await uploader.create?.({ file: new File(['data'], 'file.txt') });
+      expect(progress).toEqual([50]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('surfaces response failures and missing endpoint definitions', async () => {

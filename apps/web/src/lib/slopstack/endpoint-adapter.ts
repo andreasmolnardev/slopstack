@@ -5,6 +5,7 @@ export type EndpointAdapterOptions = {
   baseUrl?: string;
   fetcher?: typeof fetch;
   headers?: () => HeadersInit | Promise<HeadersInit>;
+  onUploadProgress?: (event: { loaded: number; total: number; percentage: number }) => void;
 };
 
 type ListEnvelope<RecordType> = {
@@ -70,10 +71,15 @@ export function createEndpointResourceAdapter<
   };
   const send = async <Result>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<Result> => {
     const upload = isUploadBody(body);
+    const target = new URL(path, options.baseUrl ?? (typeof window === 'undefined' ? 'http://localhost' : window.location.origin));
+    const encodedBody = body === undefined ? undefined : encodeBody(body);
+    if (upload && options.onUploadProgress && typeof XMLHttpRequest !== 'undefined' && encodedBody instanceof FormData) {
+      return sendWithUploadProgress<Result>(target, method, encodedBody, await headers(), options.onUploadProgress, signal);
+    }
     const response = await request(new URL(path, options.baseUrl ?? (typeof window === 'undefined' ? 'http://localhost' : window.location.origin)), {
       method,
       headers: await headers(body !== undefined && !upload),
-      ...(body === undefined ? {} : { body: encodeBody(body) }),
+      ...(body === undefined ? {} : { body: encodedBody }),
       signal,
       credentials: 'include',
     });
@@ -107,4 +113,47 @@ export function createEndpointResourceAdapter<
     update: async (id, input) => send('PATCH', endpoint('update').replace('{id}', encodeURIComponent(id)), input),
     delete: async (id) => { await send('DELETE', endpoint('delete').replace('{id}', encodeURIComponent(id))); },
   };
+}
+
+function sendWithUploadProgress<Result>(
+  target: URL,
+  method: string,
+  body: FormData,
+  headers: Headers,
+  onProgress: NonNullable<EndpointAdapterOptions['onUploadProgress']>,
+  signal?: AbortSignal,
+): Promise<Result> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, target.toString());
+    xhr.withCredentials = true;
+    headers.forEach((value, key) => xhr.setRequestHeader(key, value));
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress({
+        loaded: event.loaded,
+        total: event.total,
+        percentage: Math.round((event.loaded / event.total) * 100),
+      });
+    };
+    xhr.onload = () => {
+      if (xhr.status < 200 || xhr.status >= 300) {
+        reject(new Error(xhr.responseText || `Request failed with status ${xhr.status}.`));
+        return;
+      }
+      if (xhr.status === 204 || !xhr.responseText) {
+        resolve(undefined as Result);
+        return;
+      }
+      try { resolve(JSON.parse(xhr.responseText) as Result); }
+      catch { reject(new Error('Upload response was not valid JSON.')); }
+    };
+    xhr.onerror = () => reject(new Error('Upload request failed.'));
+    xhr.onabort = () => reject(new DOMException('Upload aborted.', 'AbortError'));
+    if (signal?.aborted) {
+      xhr.abort();
+      return;
+    }
+    signal?.addEventListener('abort', () => xhr.abort(), { once: true });
+    xhr.send(body);
+  });
 }

@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Progress } from '@/components/ui/progress';
 import {
   Select,
   SelectContent,
@@ -37,6 +38,7 @@ export function ResourceForm({
   loadRelationOptions,
   fieldRenderers = [],
   submitLabel = 'Save',
+  uploadProgress,
   onSubmit,
   onError,
 }: {
@@ -47,6 +49,7 @@ export function ResourceForm({
   loadRelationOptions?: (resourceId: string, query: string, signal: AbortSignal) => Promise<readonly RelationOption[]>;
   fieldRenderers?: readonly FieldRendererDefinition[];
   submitLabel?: string;
+  uploadProgress?: number;
   onSubmit: (values: ResourceFormValues) => void | Promise<void>;
   onError?: (error: unknown) => void;
 }) {
@@ -95,6 +98,12 @@ export function ResourceForm({
         ))}
       </div>
       {submitError && <p className="text-sm text-destructive" role="alert">{submitError}</p>}
+      {submitting && uploadProgress !== undefined && (
+        <div className="grid gap-2" role="status" aria-label="Upload progress">
+          <Progress value={Math.max(0, Math.min(100, uploadProgress))} />
+          <p className="text-xs text-muted-foreground">Uploading {Math.round(Math.max(0, Math.min(100, uploadProgress)))}%</p>
+        </div>
+      )}
       <div className="flex justify-end">
         <Button type="submit" disabled={submitting}>
           {submitting ? 'Saving…' : submitLabel}

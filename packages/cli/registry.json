@@ -108,9 +108,9 @@
     {
       "id": "upload",
       "category": "data",
-      "status": "partial",
+      "status": "implemented",
       "purpose": "File validation, selection, and multipart endpoint uploads.",
-      "runtime": "FileField"
+      "runtime": "FileField / multipart endpoint adapter / upload progress"
     },
     {
       "id": "dialog",
