@@ -442,8 +442,9 @@
     {
       "id": "extension-api",
       "category": "extension",
-      "status": "partial",
-      "purpose": "Frontend and backend extension contracts for custom renderers, fields, providers, and services."
+      "status": "implemented",
+      "purpose": "Frontend and backend extension contracts for custom renderers, fields, providers, and services.",
+      "runtime": "SlopstackPlugin / FieldRendererDefinition / BackendPlugin"
     }
   ]
 }

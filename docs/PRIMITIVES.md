@@ -33,6 +33,8 @@ Background operations declare an async runner and receive an `AbortSignal` plus 
 
 `InfiniteFeed` supports an optional fixed-height virtualization window with overscan for large uniform rows. Leave virtualization unset for variable-height cards and articles.
 
+Plugins may register `FieldRendererDefinition` components for `kind: 'custom'` resource fields. The registry checks that each custom field resolves to a renderer after app and plugin contributions are loaded; `ResourceForm` passes the field configuration, current value, validation error, disabled state, and an update callback to the renderer.
+
 `DataChart` composes the checked-in shadcn chart container with Recharts line, bar, and area views. Supply a category key and series labels/colors; query and aggregation logic stay app-owned.
 
 `ApplicationShell` composes responsive navigation with a route content area. Choose sidebar, icon rail, top bar, or mobile bottom navigation; each style includes mobile navigation and an optional account region.

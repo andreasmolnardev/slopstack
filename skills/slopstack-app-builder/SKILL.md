@@ -16,6 +16,7 @@ Use Slopstack's existing primitives and conventions to build the requested appli
 ## Choose the smallest fitting primitive
 
 - Define entities in typed resource modules with explicit fields, relationships, queries, operations, permissions, and a source. Use `createDefaultResourceClient` for PocketBase or endpoint sources, or provide an app-owned `ResourceAdapter` when the app uses another service.
+- For a field kind not covered by the built-in field definitions, define a custom field with a renderer ID and register its `FieldRendererDefinition` through the application registry or a plugin. Keep validation in the field definition or backend contract.
 - Compose data entry with `ResourceForm`, display with `ResourceDataView`, and search/filter/sort controls with `ResourceQueryControls`. Use `useResourceQueryState` when the URL should preserve query state. Use `useResourceQuery` and `useResourceMutations` when the screen should use TanStack Query.
 - Use `ActionDefinition` and `runAction` for reusable operations that need access checks, confirmation, notifications, and error handling. Use registered search providers, shortcuts, and `CommandPalette` for cross-view discovery and commands.
 - Use `defineView`, `resolveView`, `resolveAccessibleView`, `getAccessibleNavigation`, `defineLayout`, `renderLayout`, and `ShellDefinition` when a view or layout benefits from registry-driven composition. Keep app-specific routing or React composition when that is clearer; custom React is an intended extension point.

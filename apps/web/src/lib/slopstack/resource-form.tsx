@@ -13,7 +13,7 @@ import {
 import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
 import { validateResourceInput } from './resource-validation';
-import type { AnyResourceDefinition, FieldDefinition } from './types';
+import type { AnyResourceDefinition, FieldDefinition, FieldRendererDefinition } from './types';
 
 export type RelationOption = { id: string; label: string };
 export type ResourceFormValues = Record<string, unknown>;
@@ -35,6 +35,7 @@ export function ResourceForm({
   initialValues,
   relationOptions = {},
   loadRelationOptions,
+  fieldRenderers = [],
   submitLabel = 'Save',
   onSubmit,
   onError,
@@ -44,6 +45,7 @@ export function ResourceForm({
   relationOptions?: Readonly<Record<string, readonly RelationOption[]>>;
   /** Optional remote lookup for large or access-controlled related resources. */
   loadRelationOptions?: (resourceId: string, query: string, signal: AbortSignal) => Promise<readonly RelationOption[]>;
+  fieldRenderers?: readonly FieldRendererDefinition[];
   submitLabel?: string;
   onSubmit: (values: ResourceFormValues) => void | Promise<void>;
   onError?: (error: unknown) => void;
@@ -86,6 +88,7 @@ export function ResourceForm({
             error={errors[field.name]}
             options={field.kind === 'relation' ? relationOptions[field.resource] : undefined}
             loadRelationOptions={loadRelationOptions}
+            fieldRenderer={field.kind === 'custom' ? fieldRenderers.find((renderer) => renderer.id === field.renderer)?.component : undefined}
             disabled={Boolean(field.readOnly || submitting)}
             setValue={(value) => setValue(field.name, value)}
           />
@@ -107,6 +110,7 @@ function ResourceField({
   error,
   options = [],
   loadRelationOptions,
+  fieldRenderer: CustomRenderer,
   disabled,
   setValue,
 }: {
@@ -115,6 +119,7 @@ function ResourceField({
   error?: string;
   options?: readonly RelationOption[];
   loadRelationOptions?: (resourceId: string, query: string, signal: AbortSignal) => Promise<readonly RelationOption[]>;
+  fieldRenderer?: FieldRendererDefinition['component'];
   disabled: boolean;
   setValue: (value: unknown) => void;
 }) {
@@ -257,6 +262,11 @@ function ResourceField({
       ) : (
         <Input id={id} type={field.inputType ?? 'text'} value={String(value ?? '')} minLength={field.minLength} maxLength={field.maxLength} pattern={field.pattern} disabled={disabled} aria-invalid={Boolean(error)} aria-describedby={describedBy} onChange={(event) => setValue(event.target.value)} />
       );
+      break;
+    case 'custom':
+      control = CustomRenderer
+        ? <CustomRenderer field={field} value={value} error={error} disabled={disabled} onChange={setValue} />
+        : <p role="alert" className="text-sm text-destructive">Field renderer "{field.renderer}" is not registered.</p>;
       break;
   }
 

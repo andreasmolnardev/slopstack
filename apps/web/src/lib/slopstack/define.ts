@@ -1,6 +1,7 @@
 import type {
   ActionDefinition,
   BackgroundOperationDefinition,
+  FieldRendererDefinition,
   ApplicationDefinition,
   LayoutDefinition,
   ResourceDefinition,
@@ -54,6 +55,10 @@ export function defineSettings<const Definition extends SettingsDefinition>(defi
 }
 
 export function defineBackgroundOperation<const Definition extends BackgroundOperationDefinition>(definition: Definition) {
+  return definition;
+}
+
+export function defineFieldRenderer<const Definition extends FieldRendererDefinition>(definition: Definition) {
   return definition;
 }
 

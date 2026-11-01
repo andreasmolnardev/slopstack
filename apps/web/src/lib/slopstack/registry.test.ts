@@ -103,4 +103,22 @@ describe('Slopstack primitive registry', () => {
     };
     expect(() => createSlopstackRegistry(app)).toThrow(/conflicting route patterns/);
   });
+
+  it('accepts custom fields contributed by a frontend plugin and reports missing renderers', () => {
+    const resource: ResourceDefinition = {
+      ...todoResource,
+      fields: [{ name: 'color', label: 'Color', kind: 'custom', renderer: 'color-picker' }],
+    };
+    const app: ApplicationDefinition = {
+      id: 'custom-fields', name: 'Custom fields', resources: [resource],
+      plugins: [{
+        id: 'color-picker', version: '1.0.0', label: 'Color picker',
+        register(context) {
+          context.registerFieldRenderer({ id: 'color-picker', label: 'Color picker', component: () => null });
+        },
+      }],
+    };
+    expect(createSlopstackRegistry(app).registry.fieldRenderers.has('color-picker')).toBe(true);
+    expect(() => createSlopstackRegistry({ id: 'missing', name: 'Missing', resources: [resource] })).toThrow(/missing field renderer/);
+  });
 });

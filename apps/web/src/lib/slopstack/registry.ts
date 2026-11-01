@@ -1,6 +1,7 @@
 import type {
   ActionDefinition,
   BackgroundOperationDefinition,
+  FieldRendererDefinition,
   AnyResourceDefinition,
   ApplicationDefinition,
   AuthenticationDefinition,
@@ -29,6 +30,7 @@ export class SlopstackRegistry {
   readonly searchFallbacks = new Map<string, SearchFallbackDefinition>();
   readonly settings = new Map<string, SettingsDefinition>();
   readonly backgroundOperations = new Map<string, BackgroundOperationDefinition>();
+  readonly fieldRenderers = new Map<string, FieldRendererDefinition>();
   authentication: AuthenticationDefinition | undefined;
   readonly shortcuts = new Map<string, ShortcutDefinition>();
   readonly plugins = new Map<string, SlopstackPlugin>();
@@ -65,6 +67,10 @@ export class SlopstackRegistry {
     addUnique(this.backgroundOperations, operation, 'background operation');
   }
 
+  registerFieldRenderer(renderer: FieldRendererDefinition) {
+    addUnique(this.fieldRenderers, renderer, 'field renderer');
+  }
+
   registerShortcut(shortcut: ShortcutDefinition) {
     addUnique(this.shortcuts, shortcut, 'shortcut');
   }
@@ -73,7 +79,7 @@ export class SlopstackRegistry {
     addUnique(this.plugins, plugin, 'plugin');
   }
 
-  validate(application: ApplicationDefinition) {
+  validate(application: ApplicationDefinition, includePluginContributions = false) {
     const issues: string[] = [];
 
     for (const view of this.views.values()) {
@@ -110,6 +116,9 @@ export class SlopstackRegistry {
           } catch {
             issues.push(`Resource "${resource.id}" field "${field.name}" has an invalid pattern.`);
           }
+        }
+        if (includePluginContributions && field.kind === 'custom' && !this.fieldRenderers.has(field.renderer)) {
+          issues.push(`Resource "${resource.id}" field "${field.name}" refers to missing field renderer "${field.renderer}".`);
         }
       }
       for (const field of resource.query?.searchFields ?? []) {
@@ -158,6 +167,7 @@ export function createSlopstackRegistry(application: ApplicationDefinition) {
   for (const fallback of application.searchFallbacks ?? []) registry.registerSearchFallback(fallback);
   for (const settings of application.settings ?? []) registry.registerSettings(settings);
   for (const operation of application.backgroundOperations ?? []) registry.registerBackgroundOperation(operation);
+  for (const renderer of application.fieldRenderers ?? []) registry.registerFieldRenderer(renderer);
   for (const shortcut of application.shortcuts ?? []) registry.registerShortcut(shortcut);
   for (const plugin of application.plugins ?? []) registry.registerPlugin(plugin);
 
@@ -175,7 +185,7 @@ export function createSlopstackRegistry(application: ApplicationDefinition) {
       const dispose = plugin.register(registry);
       if (dispose) cleanup.push(dispose);
     }
-    registry.validate(application);
+    registry.validate(application, true);
   } catch (error) {
     dispose();
     throw error;

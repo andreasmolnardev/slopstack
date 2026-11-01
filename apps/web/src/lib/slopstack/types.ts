@@ -96,6 +96,11 @@ export type FileField = FieldBase<File | string | readonly (File | string)[], 'f
   accept?: readonly string[];
 };
 
+export type CustomField = FieldBase<unknown, 'custom'> & {
+  renderer: SlopstackId;
+  config?: Readonly<Record<string, unknown>>;
+};
+
 export type FieldDefinition =
   | TextField
   | NumberField
@@ -104,7 +109,22 @@ export type FieldDefinition =
   | DateField
   | SliderField
   | RelationField
-  | FileField;
+  | FileField
+  | CustomField;
+
+export type FieldRendererProps = {
+  field: CustomField;
+  value: unknown;
+  error?: string;
+  disabled: boolean;
+  onChange: (value: unknown) => void;
+};
+
+export type FieldRendererDefinition = {
+  id: SlopstackId;
+  label: string;
+  component: ComponentType<FieldRendererProps>;
+};
 
 export type FieldBase<Value, Kind extends string> = {
   name: string;
@@ -306,6 +326,7 @@ export type PluginContext = {
   registerSearchFallback: (fallback: SearchFallbackDefinition) => void;
   registerSettings: (settings: SettingsDefinition) => void;
   registerBackgroundOperation: (operation: BackgroundOperationDefinition) => void;
+  registerFieldRenderer: (renderer: FieldRendererDefinition) => void;
   registerShortcut: (shortcut: ShortcutDefinition) => void;
 };
 
@@ -331,6 +352,7 @@ export type ApplicationDefinition = {
   searchFallbacks?: readonly SearchFallbackDefinition[];
   settings?: readonly SettingsDefinition[];
   backgroundOperations?: readonly BackgroundOperationDefinition[];
+  fieldRenderers?: readonly FieldRendererDefinition[];
   shortcuts?: readonly ShortcutDefinition[];
   plugins?: readonly SlopstackPlugin[];
 };
