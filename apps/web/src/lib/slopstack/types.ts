@@ -10,6 +10,8 @@ export type PermissionRequirement = {
 
 export type TextField = FieldBase<string, 'text'> & {
   inputType?: 'text' | 'email' | 'password' | 'url' | 'tel';
+  multiline?: boolean;
+  rows?: number;
   minLength?: number;
   maxLength?: number;
   pattern?: string;
