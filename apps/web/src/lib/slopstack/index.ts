@@ -4,6 +4,7 @@ export * from './registry';
 export * from './resource-client';
 export * from './endpoint-adapter';
 export * from './auth-adapters';
+export * from './auth-runtime';
 export * from './pocketbase-adapter';
 export * from './resource-runtime';
 export * from './access-runtime';

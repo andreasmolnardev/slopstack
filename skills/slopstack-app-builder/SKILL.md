@@ -23,6 +23,7 @@ Use Slopstack's existing primitives and conventions to build the requested appli
 - Use `defineBackgroundOperation` and `createBackgroundOperationManager` for long-running work with progress, cancellation, status, and dismissal. Keep durable processing on the backend and adapt server progress into the operation manager.
 - Build from the checked-in shadcn components in `apps/web/src/components/ui` and composed patterns in `apps/web/src/components/patterns`. Keep new theme, motion, navigation, and preference choices compatible with persisted user settings.
 - Pick an auth adapter that fits the app: PocketBase, trusted proxy, bearer token, or an app-owned `AuthenticationAdapter`. The bearer adapter deliberately leaves token storage to the app. Protect data on the server; route visibility and client `canAccess` checks are not authorization.
+- Use `createAuthenticationStore` and `useAuthentication` for shared session lifecycle state. Keep provider-specific SSO exchange, token storage, identity verification, and server authorization in the selected adapter and backend.
 - For PocketBase backend extensions, group collections, Huma endpoints, hooks, and jobs into `BackendPlugin` definitions under `apps/server/internal/primitives`. Register them through `app.Register`. Keep shipped schema changes in `apps/server/pb_migrations`; plugin collection declarations only seed missing collections.
 
 ## Keep contracts and app data safe

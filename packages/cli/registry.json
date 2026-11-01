@@ -152,7 +152,7 @@
       "category": "security",
       "status": "partial",
       "purpose": "Provider-neutral PocketBase, trusted-proxy, bearer-token, or custom auth adapters.",
-      "runtime": "AuthenticationAdapter"
+      "runtime": "AuthenticationAdapter / createAuthenticationStore / useAuthentication"
     },
     {
       "id": "backend-adapter",

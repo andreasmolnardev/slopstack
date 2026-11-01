@@ -3,6 +3,7 @@ import type {
   BackgroundOperationDefinition,
   AnyResourceDefinition,
   ApplicationDefinition,
+  AuthenticationDefinition,
   LayoutDefinition,
   SearchProvider,
   SearchFallbackDefinition,
@@ -28,6 +29,7 @@ export class SlopstackRegistry {
   readonly searchFallbacks = new Map<string, SearchFallbackDefinition>();
   readonly settings = new Map<string, SettingsDefinition>();
   readonly backgroundOperations = new Map<string, BackgroundOperationDefinition>();
+  authentication: AuthenticationDefinition | undefined;
   readonly shortcuts = new Map<string, ShortcutDefinition>();
   readonly plugins = new Map<string, SlopstackPlugin>();
 
@@ -147,6 +149,7 @@ export class SlopstackRegistry {
 
 export function createSlopstackRegistry(application: ApplicationDefinition) {
   const registry = new SlopstackRegistry();
+  registry.authentication = application.authentication;
   for (const resource of application.resources ?? []) registry.registerResource(resource);
   for (const layout of application.layouts ?? []) registry.registerLayout(layout);
   for (const view of application.views ?? []) registry.registerView(view);
