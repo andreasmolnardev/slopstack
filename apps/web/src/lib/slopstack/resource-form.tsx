@@ -17,8 +17,9 @@ import type { FieldDefinition, ResourceDefinition } from './types';
 
 export type RelationOption = { id: string; label: string };
 export type ResourceFormValues = Record<string, unknown>;
+type ResourceFormDefinition = Omit<ResourceDefinition, 'identify' | 'types'>;
 
-function getDefaults(resource: ResourceDefinition, initialValues?: ResourceFormValues) {
+function getDefaults(resource: ResourceFormDefinition, initialValues?: ResourceFormValues) {
   const values: ResourceFormValues = {};
   for (const field of resource.fields) {
     const fallback = field.kind === 'boolean' ? false
@@ -37,7 +38,7 @@ export function ResourceForm({
   onSubmit,
   onError,
 }: {
-  resource: ResourceDefinition;
+  resource: ResourceFormDefinition;
   initialValues?: ResourceFormValues;
   relationOptions?: Readonly<Record<string, readonly RelationOption[]>>;
   submitLabel?: string;

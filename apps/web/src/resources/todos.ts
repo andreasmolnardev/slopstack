@@ -16,16 +16,16 @@ export const todoResource = defineResource<Todo, TodoWrite, TodoWrite>({
   },
   fields: [
     { name: 'title', label: 'Title', kind: 'text', required: true, maxLength: 240 },
-    { name: 'description', label: 'Description', kind: 'text', maxLength: 4000 },
+    { name: 'description', label: 'Description', kind: 'text', multiline: true, rows: 3, maxLength: 4000 },
     {
       name: 'priority',
       label: 'Priority',
       kind: 'select',
-      defaultValue: 'normal',
+      defaultValue: 'Medium',
       options: [
-        { label: 'Low', value: 'low' },
-        { label: 'Normal', value: 'normal' },
-        { label: 'High', value: 'high' },
+        { label: 'High', value: 'High' },
+        { label: 'Medium', value: 'Medium' },
+        { label: 'Low', value: 'Low' },
       ],
     },
     { name: 'completed', label: 'Completed', kind: 'boolean', defaultValue: false },

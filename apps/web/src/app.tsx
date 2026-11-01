@@ -110,11 +110,15 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import { ResourceForm, type ResourceFormValues } from '@/lib/slopstack/resource-form';
+import { todoResource } from '@/resources/todos';
 import { Switch } from '@/components/ui/switch';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { PageHeading } from '@/components/patterns/page-heading';
 import { NavigationLinks, type NavigationStyle } from '@/components/patterns/navigation-links';
 import { CommandPalette } from '@/components/patterns/command-palette';
+import { ResourceDataView, type ResourceDataViewMode } from '@/components/patterns/resource-data-view';
+import type { DataTableColumn } from '@/components/patterns/data-table';
 import { useTheme } from 'next-themes';
 import { pb } from './api/pocketbase';
 import { createTodoRecord, deleteTodoRecord, getTodos, updateTodoRecord } from './api/todos';
@@ -581,15 +585,14 @@ export function App() {
     setTaskDialogOpen(true);
   }
 
-  async function saveTask(event: FormEvent) {
-    event.preventDefault();
-    const title = newTask.title.trim();
+  async function saveTask(values: ResourceFormValues) {
+    const title = String(values.title ?? '').trim();
     if (!title) return;
     const input: TodoWrite = {
       title,
-      description: newTask.description.trim(),
-      due_date: newTask.dueDate,
-      priority: newTask.priority,
+      description: String(values.description ?? '').trim(),
+      due_date: String(values.due_date ?? ''),
+      priority: String(values.priority ?? 'Medium'),
     };
     setTaskSaving(true);
     setTaskError('');
@@ -984,9 +987,10 @@ export function App() {
         onOpenChange={setTaskDialogOpen}
         editing={Boolean(editingTask)}
         value={newTask}
-        onChange={setNewTask}
         onSubmit={saveTask}
         saving={taskSaving}
+        error={taskError}
+        onError={setTaskError}
       />
     </main>
   );
@@ -2271,6 +2275,33 @@ function TasksView({
   onFilter: (value: string) => void;
   onAdd: () => void;
 }) {
+  const [mode, setMode] = useState<ResourceDataViewMode>('list');
+  const [selection, setSelection] = useState<readonly string[]>([]);
+  useEffect(() => setSelection([]), [filter, search]);
+
+  const columns: DataTableColumn<Task>[] = [
+    {
+      id: 'title', header: 'Task',
+      cell: (task) => <div className="min-w-40"><span className={`font-medium ${task.completed ? 'text-muted-foreground line-through' : ''}`}>{task.title}</span><p className="mt-1 max-w-72 truncate text-xs text-muted-foreground">{task.description}</p></div>,
+    },
+    { id: 'priority', header: 'Priority', cell: (task) => <Badge variant="outline" className={priorityClass(task.priority)}>{task.priority}</Badge> },
+    { id: 'due', header: 'Due', cell: (task) => <span className="whitespace-nowrap text-sm text-muted-foreground">{formatDate(task.due_date)}</span> },
+    { id: 'status', header: 'Status', cell: (task) => <Badge variant={task.completed ? 'secondary' : 'outline'}>{task.completed ? 'Complete' : 'Active'}</Badge> },
+    {
+      id: 'actions', header: 'Actions',
+      cell: (task) => <div className="flex gap-1"><Button variant="ghost" size="sm" onClick={() => onEdit(task)}>Edit</Button><Button variant="ghost" size="sm" aria-label={`Delete ${task.title}`} onClick={() => onDelete(task.id)}><Trash2 className="size-4" /></Button></div>,
+    },
+  ];
+
+  const bulkComplete = () => {
+    for (const id of selection) onToggle(id, true);
+    setSelection([]);
+  };
+  const bulkDelete = () => {
+    for (const id of selection) onDelete(id);
+    setSelection([]);
+  };
+
   return (
     <>
       <PageHeading
@@ -2302,6 +2333,14 @@ function TasksView({
                 placeholder="Search tasks"
               />
             </div>
+            <Select value={mode} onValueChange={(value) => setMode(value as ResourceDataViewMode)}>
+              <SelectTrigger className="w-36" aria-label="Task display style"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="list">List view</SelectItem>
+                <SelectItem value="table">Table view</SelectItem>
+                <SelectItem value="cards">Card view</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -2312,24 +2351,44 @@ function TasksView({
               <TabsTrigger value="completed">Completed</TabsTrigger>
             </TabsList>
           </Tabs>
+          {selection.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/20 px-6 py-3">
+              <span className="text-sm text-muted-foreground">{selection.length} selected</span>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={bulkComplete}>Mark complete</Button>
+                <Button variant="destructive" size="sm" onClick={bulkDelete}>Delete selected</Button>
+                <Button variant="ghost" size="sm" onClick={() => setSelection([])}>Clear</Button>
+              </div>
+            </div>
+          )}
           {tasksLoading ? (
             <p className="p-10 text-center text-sm text-muted-foreground">Loading tasks…</p>
           ) : (
-            <div className="divide-y">
-              {tasks.map((task) => (
-                <TaskRow
-                  key={task.id}
-                  task={task}
-                  onToggle={onToggle}
-                  onDelete={onDelete}
-                  onEdit={onEdit}
-                />
-              ))}
-              {tasks.length === 0 && (
-                <div className="p-12 text-center text-sm text-muted-foreground">
-                  No tasks match current filter.
-                </div>
-              )}
+            <div className="p-4 sm:p-6">
+              <ResourceDataView
+                rows={tasks}
+                columns={columns}
+                getRowKey={(task) => task.id}
+                mode={mode}
+                selection={selection}
+                onSelectionChange={setSelection}
+                selectable
+                emptyMessage="No tasks match the current filters."
+                renderItem={(task) => (
+                  <div className="flex min-w-0 items-start gap-3">
+                    <Checkbox aria-label={`Complete ${task.title}`} checked={task.completed} onCheckedChange={(checked) => onToggle(task.id, checked === true)} />
+                    <div className="min-w-0 flex-1">
+                      <p className={`truncate text-sm font-medium ${task.completed ? 'text-muted-foreground line-through' : ''}`}>{task.title}</p>
+                      <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{task.description}</p>
+                      <div className="mt-3 flex flex-wrap items-center gap-2"><Badge variant="outline" className={priorityClass(task.priority)}>{task.priority}</Badge><span className="text-xs text-muted-foreground">{formatDate(task.due_date)}</span></div>
+                    </div>
+                    <div className="flex shrink-0 gap-1">
+                      <Button variant="ghost" size="icon" aria-label={`Edit ${task.title}`} onClick={() => onEdit(task)}><MoreHorizontal className="size-4" /></Button>
+                      <Button variant="ghost" size="icon" aria-label={`Delete ${task.title}`} onClick={() => onDelete(task.id)}><Trash2 className="size-4" /></Button>
+                    </div>
+                  </div>
+                )}
+              />
             </div>
           )}
         </CardContent>
@@ -2410,18 +2469,26 @@ function TaskEditorDialog({
   onOpenChange,
   editing,
   value,
-  onChange,
   onSubmit,
   saving,
+  error,
+  onError,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   editing: boolean;
   value: TaskEditorValue;
-  onChange: (value: TaskEditorValue) => void;
-  onSubmit: (event: FormEvent) => void;
+  onSubmit: (values: ResourceFormValues) => void | Promise<void>;
   saving: boolean;
+  error: string;
+  onError: (message: string) => void;
 }) {
+  const initialValues: ResourceFormValues = {
+    title: value.title,
+    description: value.description,
+    due_date: value.dueDate,
+    priority: value.priority,
+  };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -2431,63 +2498,18 @@ function TaskEditorDialog({
             Tasks are saved to your account and can be changed later.
           </DialogDescription>
         </DialogHeader>
-        <form id="task-editor-form" onSubmit={onSubmit} className="grid gap-4 py-2">
-          <div className="grid gap-2">
-            <Label htmlFor="task-title">Task name</Label>
-            <Input
-              id="task-title"
-              autoFocus
-              maxLength={200}
-              required
-              value={value.title}
-              onChange={(event) => onChange({ ...value, title: event.target.value })}
-              placeholder="Design homepage mockups"
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="task-description">Description</Label>
-            <Textarea
-              id="task-description"
-              maxLength={5000}
-              value={value.description}
-              onChange={(event) => onChange({ ...value, description: event.target.value })}
-              placeholder="What needs to happen?"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-2">
-              <Label htmlFor="task-due">Due date</Label>
-              <Input
-                id="task-due"
-                type="date"
-                value={value.dueDate}
-                onChange={(event) => onChange({ ...value, dueDate: event.target.value })}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="task-priority">Priority</Label>
-              <Select
-                value={value.priority}
-                onValueChange={(priority) => onChange({ ...value, priority: priority as Priority })}
-              >
-                <SelectTrigger id="task-priority">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="High">High</SelectItem>
-                  <SelectItem value="Medium">Medium</SelectItem>
-                  <SelectItem value="Low">Low</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </form>
+        {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+        {open && <ResourceForm
+          key={`${open}:${editing ? value.title : 'new'}`}
+          resource={todoResource}
+          initialValues={initialValues}
+          submitLabel={saving ? 'Saving…' : editing ? 'Save task' : 'Create task'}
+          onSubmit={onSubmit}
+          onError={(cause) => onError(cause instanceof Error ? cause.message : 'Could not save this task.')}
+        />}
         <DialogFooter>
           <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>
             Cancel
-          </Button>
-          <Button type="submit" form="task-editor-form" disabled={saving || !value.title.trim()}>
-            {saving ? 'Saving…' : editing ? 'Save task' : 'Create task'}
           </Button>
         </DialogFooter>
       </DialogContent>
