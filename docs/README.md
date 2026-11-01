@@ -12,6 +12,7 @@ Slopstack is a full-stack starter, not a task product. The task workspace in `ap
 - [Authentication](./AUTH.md)
 - [Development](./DEVELOPMENT.md)
 - [Deployment](./DEPLOYMENT.md)
+- [Backend extensions](./backend-extensions.md)
 
 ## Example module
 

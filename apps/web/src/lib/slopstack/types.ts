@@ -8,6 +8,27 @@ export type PermissionRequirement = {
   roles?: readonly string[];
 };
 
+export type AuthStrategy = 'pocketbase' | 'bearer' | 'trusted-proxy' | 'custom';
+
+export type AuthenticationDefinition = {
+  /** Adapter selected by the application runtime. */
+  provider: AuthStrategy;
+  /** External adapters can supply a session/profile endpoint without requiring PB collections. */
+  sessionEndpoint?: string;
+  signInPath?: string;
+  signOutPath?: string;
+  /** Identifies where authorization is actually enforced. Browser hints are never security boundaries. */
+  enforcement: 'pocketbase-rules' | 'server' | 'external';
+  routes?: { signIn?: string; signOut?: string; unauthorized?: string };
+};
+
+export type BackendDefinition = {
+  provider: 'pocketbase' | 'rest' | 'custom';
+  apiBaseUrl?: string;
+  /** Optional capability flags let a template avoid assuming a database or realtime service exists. */
+  capabilities?: Partial<Record<'database' | 'realtime' | 'uploads' | 'admin', boolean>>;
+};
+
 export type TextField = FieldBase<string, 'text'> & {
   inputType?: 'text' | 'email' | 'password' | 'url' | 'tel';
   multiline?: boolean;
@@ -233,6 +254,8 @@ export type SlopstackPlugin = {
 export type ApplicationDefinition = {
   id: SlopstackId;
   name: string;
+  backend?: BackendDefinition;
+  authentication?: AuthenticationDefinition;
   shell?: ShellDefinition;
   resources?: readonly ResourceDefinition[];
   views?: readonly ViewDefinition[];

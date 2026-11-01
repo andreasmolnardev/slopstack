@@ -9,9 +9,19 @@ import (
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/slopstack/slopstack/apps/server/internal/primitives"
 )
 
-func Register(pb *pocketbase.PocketBase, config Config, api huma.API) {
+func Register(pb *pocketbase.PocketBase, config Config, api huma.API, plugins ...primitives.BackendPlugin) error {
+	registry := primitives.NewRegistry()
+	for _, plugin := range plugins {
+		if err := registry.Register(plugin); err != nil {
+			return err
+		}
+	}
+	if err := registry.RegisterEndpoints(api); err != nil {
+		return err
+	}
 	pb.RootCmd.PersistentFlags().StringVar(&config.HTTPAddress, "http", config.HTTPAddress, "HTTP address")
 	registerTodoAPI(api)
 	registerPreferencesAPI(api)
@@ -22,12 +32,31 @@ func Register(pb *pocketbase.PocketBase, config Config, api huma.API) {
 		if err := EnsureCollections(e.App); err != nil {
 			return err
 		}
+		if err := registry.EnsureCollections(e.App); err != nil {
+			return err
+		}
+		if err := registry.BindHooks(e.App); err != nil {
+			return err
+		}
 		if err := ownership.RegisterRequestHooks(e.App, ownership.Policy{
 			Collection: "todos", OwnerField: "owner", ProtectedFields: []string{"created", "updated"}, AllowSuperusers: true,
 		}); err != nil {
 			return err
 		}
-		return e.App.RunAppMigrations()
+		if err := e.App.RunAppMigrations(); err != nil {
+			return err
+		}
+		stopJobs, err := registry.RunJobs(e.App)
+		if err != nil {
+			return err
+		}
+		if stopJobs != nil {
+			e.App.OnTerminate().BindFunc(func(_ *core.TerminateEvent) error {
+				stopJobs()
+				return nil
+			})
+		}
+		return nil
 	})
 	protectUserAdminFlag(pb)
 
@@ -35,6 +64,7 @@ func Register(pb *pocketbase.PocketBase, config Config, api huma.API) {
 		registerRoutes(e, config, api)
 		return e.Next()
 	})
+	return nil
 }
 
 func protectUserAdminFlag(pb *pocketbase.PocketBase) {

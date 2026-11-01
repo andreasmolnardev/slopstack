@@ -26,7 +26,10 @@ func main() {
 	}
 
 	api := newOpenAPI(config)
-	app.Register(pb, config, api)
+	if err := app.Register(pb, config, api); err != nil {
+		slog.Error("failed to register application primitives", "error", err)
+		os.Exit(1)
+	}
 	registerExportCommand(pb, api)
 
 	if err := pb.Start(); err != nil {
