@@ -5,6 +5,7 @@ import type {
   LayoutDefinition,
   SearchProvider,
   SearchFallbackDefinition,
+  SettingsDefinition,
   ShortcutDefinition,
   SlopstackPlugin,
   ViewDefinition,
@@ -24,6 +25,7 @@ export class SlopstackRegistry {
   readonly actions = new Map<string, ActionDefinition>();
   readonly searchProviders = new Map<string, SearchProvider>();
   readonly searchFallbacks = new Map<string, SearchFallbackDefinition>();
+  readonly settings = new Map<string, SettingsDefinition>();
   readonly shortcuts = new Map<string, ShortcutDefinition>();
   readonly plugins = new Map<string, SlopstackPlugin>();
 
@@ -49,6 +51,10 @@ export class SlopstackRegistry {
 
   registerSearchFallback(fallback: SearchFallbackDefinition) {
     addUnique(this.searchFallbacks, fallback, 'search fallback');
+  }
+
+  registerSettings(settings: SettingsDefinition) {
+    addUnique(this.settings, settings, 'settings definition');
   }
 
   registerShortcut(shortcut: ShortcutDefinition) {
@@ -141,6 +147,7 @@ export function createSlopstackRegistry(application: ApplicationDefinition) {
   for (const action of application.actions ?? []) registry.registerAction(action);
   for (const provider of application.searchProviders ?? []) registry.registerSearchProvider(provider);
   for (const fallback of application.searchFallbacks ?? []) registry.registerSearchFallback(fallback);
+  for (const settings of application.settings ?? []) registry.registerSettings(settings);
   for (const shortcut of application.shortcuts ?? []) registry.registerShortcut(shortcut);
   for (const plugin of application.plugins ?? []) registry.registerPlugin(plugin);
 

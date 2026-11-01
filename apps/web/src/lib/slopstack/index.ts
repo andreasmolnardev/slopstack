@@ -14,4 +14,5 @@ export * from './react-query';
 export * from './resource-validation';
 export * from './query-state';
 export * from './search-runtime';
+export * from './settings-runtime';
 export * from './types';

@@ -136,6 +136,15 @@ export type QueryDefinition = {
   filters?: readonly FilterDefinition[];
 };
 
+export type SettingsDefinition<Value extends Record<string, unknown> = Record<string, unknown>> = {
+  id: SlopstackId;
+  label: string;
+  description?: string;
+  scope: 'user' | 'application';
+  fields: readonly FieldDefinition[];
+  defaults: Value;
+};
+
 export type FilterDefinition = {
   id: string;
   label: string;
@@ -279,6 +288,7 @@ export type PluginContext = {
   registerAction: (action: ActionDefinition) => void;
   registerSearchProvider: (provider: SearchProvider) => void;
   registerSearchFallback: (fallback: SearchFallbackDefinition) => void;
+  registerSettings: (settings: SettingsDefinition) => void;
   registerShortcut: (shortcut: ShortcutDefinition) => void;
 };
 
@@ -302,6 +312,7 @@ export type ApplicationDefinition = {
   actions?: readonly ActionDefinition[];
   searchProviders?: readonly SearchProvider[];
   searchFallbacks?: readonly SearchFallbackDefinition[];
+  settings?: readonly SettingsDefinition[];
   shortcuts?: readonly ShortcutDefinition[];
   plugins?: readonly SlopstackPlugin[];
 };

@@ -183,6 +183,14 @@
       "runtime": "UserPreferences"
     },
     {
+      "id": "settings",
+      "category": "capability",
+      "status": "implemented",
+      "purpose": "Typed app or user preferences backed by a pluggable persistence adapter.",
+      "generator": null,
+      "runtime": "SettingsDefinition / createSettingsStore"
+    },
+    {
       "id": "collection-definition",
       "category": "backend",
       "status": "implemented",

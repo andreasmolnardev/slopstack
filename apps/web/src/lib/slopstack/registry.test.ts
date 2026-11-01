@@ -18,6 +18,7 @@ describe('Slopstack primitive registry', () => {
       id: 'example',
       name: 'Example',
       resources: [todoResource],
+      settings: [{ id: 'prefs', label: 'Preferences', scope: 'user', defaults: { locale: 'en' }, fields: [{ name: 'locale', label: 'Locale', kind: 'text' }] }],
       views: [{ id: 'todo-list', path: '/todos', label: 'Todos', component: () => null }],
       shell: {
         id: 'main',
@@ -37,6 +38,7 @@ describe('Slopstack primitive registry', () => {
 
     const { registry } = createSlopstackRegistry(app);
     expect(registry.resources.get('todos')).toBe(todoResource);
+    expect(registry.settings.has('prefs')).toBe(true);
     expect(registry.actions.has('refresh')).toBe(true);
   });
 

@@ -5,6 +5,7 @@ import type {
   ResourceDefinition,
   SearchProvider,
   SearchFallbackDefinition,
+  SettingsDefinition,
   ShellDefinition,
   ShortcutDefinition,
   SlopstackPlugin,
@@ -44,6 +45,10 @@ export function defineSearchFallback<const Definition extends SearchFallbackDefi
 }
 
 export function defineShell<const Definition extends ShellDefinition>(definition: Definition) {
+  return definition;
+}
+
+export function defineSettings<const Definition extends SettingsDefinition>(definition: Definition) {
   return definition;
 }
 

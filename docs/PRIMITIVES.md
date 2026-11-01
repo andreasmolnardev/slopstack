@@ -22,6 +22,8 @@ Scaffolding creates a starting definition; it does not edit a route table, regis
 
 Relation fields accept preloaded options through `relationOptions`, or an abortable `loadRelationOptions(resourceId, query, signal)` callback for large or access-controlled collections. The callback lets the app use the same PocketBase or endpoint adapter chosen for that relation.
 
+Applications can declare typed `SettingsDefinition` entries in the manifest. `createSettingsStore` loads persisted values over declared defaults, publishes updates, and supports reset; connect it to a `SettingsAdapter` for a PocketBase/Huma preference endpoint or use `createLocalStorageSettingsAdapter` for local appearance preferences. This keeps persistence provider-specific while the settings schema and UI remain reusable.
+
 The current CLI generates frontend resource, view, and layout definitions. It does not yet generate backend collection definitions, Huma endpoints, hooks, jobs, or plugin registration. Those contracts are implemented in the runtime and documented separately; wiring them into app bootstrap remains app-owned.
 
 ## Backend and authentication choices
