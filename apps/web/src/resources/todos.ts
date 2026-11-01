@@ -1,5 +1,5 @@
 import type { Todo, TodoWrite } from '@/api/generated/types.gen';
-import { defineResource } from '@/lib/slopstack';
+import { defineResource } from '@slopstack/core';
 
 export const todoResource = defineResource<Todo, TodoWrite, TodoWrite>({
   id: 'todos',

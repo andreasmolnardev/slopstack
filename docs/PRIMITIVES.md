@@ -1,6 +1,6 @@
 # Primitive registry and scaffolding
 
-`packages/cli/registry.json` is the machine-readable catalog of Slopstack primitives. It lists each primitive's role, implementation status, runtime contract, and generator when one exists. `implemented` means a reusable runtime is available, `partial` means a slice exists but more integration is needed, `contract` means only the typed definition exists, and `planned` means it is not implemented yet. The catalog does not register application resources or routes at runtime.
+`packages/cli/registry.json` is the machine-readable catalog of Slopstack primitives. The published runtime is split across `@slopstack/core`, `@slopstack/react`, `@slopstack/ui`, and the optional `@slopstack/pocketbase` package; see [frontend packages](frontend-packages.md). It lists each primitive's role, implementation status, runtime contract, and generator when one exists. `implemented` means a reusable runtime is available, `partial` means a slice exists but more integration is needed, `contract` means only the typed definition exists, and `planned` means it is not implemented yet. The catalog does not register application resources or routes at runtime.
 
 Use the CLI to inspect the catalog and scaffold the common definitions:
 
@@ -17,7 +17,7 @@ pnpm slopstack:primitive generate layout project-detail
 pnpm slopstack:primitive generate backend-plugin billing
 ```
 
-Frontend files go under `apps/web/src` by default: resources under `resources/`, views under `views/`, and layouts under `layouts/`. Backend plugin scaffolds go under `apps/server/internal/plugins/`. Choose another root with `--out <directory>`. Existing files are preserved unless `--force` is passed. The resource generator accepts `text`, `number`, `boolean`, `select`, `relation`, `date`, `datetime`, `time`, `slider`, and `file` field kinds. For example, use `--field description:text:multiline`, `--field status:select:open,closed`, `--field owner:relation:users:one`, or `--field score:slider:0,10,1`.
+The starter generator writes frontend files under `apps/web/src` by default: resources under `resources/`, views under `views/`, and layouts under `layouts/`. Backend plugin scaffolds go under `apps/server/internal/plugins/`. Choose another root with `--out <directory>`. Existing files are preserved unless `--force` is passed. The resource generator accepts `text`, `number`, `boolean`, `select`, `relation`, `date`, `datetime`, `time`, `slider`, and `file` field kinds. For example, use `--field description:text:multiline`, `--field status:select:open,closed`, `--field owner:relation:users:one`, or `--field score:slider:0,10,1`.
 
 Scaffolding creates a starting definition; it does not edit a route table, register a collection migration, or generate domain-specific API handlers. Connect the new definition to the app registry and implement its backend source and permissions before exposing it to users. Backend primitive contracts are documented in [Backend extensions](backend-extensions.md).
 
@@ -43,7 +43,7 @@ The CLI generates frontend resource, view, and layout definitions plus a Go back
 
 ## Backend and authentication choices
 
-Application manifests can declare `backend` and `authentication` without forcing the app to use PocketBase. Resource definitions can target PocketBase collections, custom endpoints, or custom adapters. `createEndpointResourceAdapter` implements endpoint resources and accepts a caller-provided `fetch` function and headers, so bearer-token APIs, cookie sessions, and test adapters can share the same resource and form primitives.
+Application manifests can declare `backend` and `authentication` without forcing the app to use PocketBase. Resource definitions can target PocketBase collections, custom endpoints, or custom adapters. `createEndpointResourceAdapter` in `@slopstack/core` implements endpoint resources and accepts a caller-provided `fetch` function and headers, so bearer-token APIs, cookie sessions, and test adapters can share the same resource and form primitives.
 
 For a direct PocketBase collection resource, `createPocketBaseResourceAdapter(pb, resource)` maps list, get, create, update, and delete to the PocketBase SDK and turns declared search/filter/sort options into parameterized PocketBase queries.
 

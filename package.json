@@ -7,14 +7,15 @@
     "dev": "concurrently -k -n server,web -c green,cyan \"pnpm dev:server\" \"pnpm dev:web\"",
     "dev:server": "sh -c 'cd apps/server && go run github.com/air-verse/air@latest -c .air.toml'",
     "dev:web": "pnpm --filter @slopstack/web dev",
-    "build": "pnpm -r build",
+    "build": "pnpm --filter @slopstack/core build && pnpm --filter @slopstack/ui build && pnpm --filter @slopstack/react build && pnpm --filter @slopstack/pocketbase build && pnpm --filter @slopstack/web build",
     "lint": "pnpm -r lint",
-    "test": "pnpm -r test",
+    "test": "pnpm --filter @slopstack/core build && pnpm --filter @slopstack/ui build && pnpm --filter @slopstack/react build && pnpm --filter @slopstack/pocketbase build && pnpm -r test",
     "generate:api": "go run ./apps/server/cmd/slopstack openapi export",
     "generate:client": "pnpm --filter @slopstack/web generate:client",
     "slopstack": "node scripts/slopstack.mjs",
     "slopstack:primitive": "node packages/cli/slopstack.mjs",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "verify:packages": "pnpm --filter @slopstack/core build && pnpm --filter @slopstack/ui build && pnpm --filter @slopstack/react build && pnpm --filter @slopstack/pocketbase build && node scripts/verify-package-consumer.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

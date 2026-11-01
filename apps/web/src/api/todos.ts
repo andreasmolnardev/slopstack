@@ -2,7 +2,7 @@ import { createTodo, deleteTodo, getTodo, listTodos, updateTodo } from './genera
 import { createClient } from './generated/client';
 import type { Todo, TodoWrite } from './generated/types.gen';
 import { pb } from './pocketbase';
-import { createResourceClient } from '@/lib/slopstack';
+import { createResourceClient } from '@slopstack/core';
 import { todoResource } from '@/resources/todos';
 
 const baseUrl = (import.meta.env.VITE_API_URL || window.location.origin).replace(/\/$/, '');

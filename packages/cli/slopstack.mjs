@@ -109,21 +109,21 @@ function render(kind, name, fields = []) {
     return {
       directory: 'resources',
       file: `${id}.ts`,
-      source: `import { defineResource } from '@/lib/slopstack';\n\nexport const ${variable}Resource = defineResource({\n  id: '${id}',\n  label: '${symbol}',\n  labelPlural: '${symbol.endsWith('s') ? symbol : `${symbol}s`}',\n  source: { kind: 'pocketbase', collection: '${id}' },\n  fields: [\n${fieldList}\n  ],\n  operations: { list: true, get: true, create: true, update: true, delete: true },\n  permissions: {\n    list: { authenticated: true },\n    get: { authenticated: true },\n    create: { authenticated: true },\n    update: { authenticated: true },\n    delete: { authenticated: true },\n  },\n  query: { pageSize: 25 },\n});\n`,
+      source: `import { defineResource } from '@slopstack/core';\n\nexport const ${variable}Resource = defineResource({\n  id: '${id}',\n  label: '${symbol}',\n  labelPlural: '${symbol.endsWith('s') ? symbol : `${symbol}s`}',\n  source: { kind: 'pocketbase', collection: '${id}' },\n  fields: [\n${fieldList}\n  ],\n  operations: { list: true, get: true, create: true, update: true, delete: true },\n  permissions: {\n    list: { authenticated: true },\n    get: { authenticated: true },\n    create: { authenticated: true },\n    update: { authenticated: true },\n    delete: { authenticated: true },\n  },\n  query: { pageSize: 25 },\n});\n`,
     };
   }
   if (kind === 'view') {
     return {
       directory: 'views',
       file: `${id}-view.tsx`,
-      source: `import type { ViewDefinition } from '@/lib/slopstack';\n\nexport const ${variable}View: ViewDefinition = {\n  id: '${id}',\n  path: '/${id}',\n  label: '${symbol}',\n  component: function ${symbol}View({ context }) {\n    return (\n      <section className="space-y-4">\n        <h1 className="text-2xl font-semibold">${symbol}</h1>\n        <p className="text-muted-foreground">Build this view. Route: {context.params['*'] ?? 'home'}.</p>\n      </section>\n    );\n  },\n};\n`,
+      source: `import type { ViewDefinition } from '@slopstack/core';\n\nexport const ${variable}View: ViewDefinition = {\n  id: '${id}',\n  path: '/${id}',\n  label: '${symbol}',\n  component: function ${symbol}View({ context }) {\n    return (\n      <section className="space-y-4">\n        <h1 className="text-2xl font-semibold">${symbol}</h1>\n        <p className="text-muted-foreground">Build this view. Route: {context.params['*'] ?? 'home'}.</p>\n      </section>\n    );\n  },\n};\n`,
     };
   }
   if (kind === 'layout') {
     return {
       directory: 'layouts',
       file: `${id}-layout.tsx`,
-      source: `import type { LayoutDefinition } from '@/lib/slopstack';\n\nexport const ${variable}Layout: LayoutDefinition = {\n  id: '${id}',\n  label: '${symbol}',\n  slots: [\n    { id: 'header', label: 'Header', accepts: ['component', 'action'] },\n    { id: 'main', label: 'Main content', accepts: ['view', 'component', 'resource'], required: true },\n    { id: 'aside', label: 'Aside', accepts: ['view', 'component', 'resource'] },\n  ],\n  component: ({ slots }) => (\n    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">\n      <main className="min-w-0 space-y-6">{slots.header}{slots.main}</main>\n      <aside>{slots.aside}</aside>\n    </div>\n  ),\n};\n`,
+      source: `import type { LayoutDefinition } from '@slopstack/core';\n\nexport const ${variable}Layout: LayoutDefinition = {\n  id: '${id}',\n  label: '${symbol}',\n  slots: [\n    { id: 'header', label: 'Header', accepts: ['component', 'action'] },\n    { id: 'main', label: 'Main content', accepts: ['view', 'component', 'resource'], required: true },\n    { id: 'aside', label: 'Aside', accepts: ['view', 'component', 'resource'] },\n  ],\n  component: ({ slots }) => (\n    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">\n      <main className="min-w-0 space-y-6">{slots.header}{slots.main}</main>\n      <aside>{slots.aside}</aside>\n    </div>\n  ),\n};\n`,
     };
   }
   if (kind === 'backend-plugin') {

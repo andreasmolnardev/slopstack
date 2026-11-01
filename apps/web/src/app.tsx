@@ -78,10 +78,10 @@ import {
   Zap,
   type LucideIcon,
 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@slopstack/ui/components/ui/badge';
+import { Button } from '@slopstack/ui/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@slopstack/ui/components/ui/card';
+import { Checkbox } from '@slopstack/ui/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -89,52 +89,52 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Progress } from '@/components/ui/progress';
-import { Separator } from '@/components/ui/separator';
+} from '@slopstack/ui/components/ui/dialog';
+import { Input } from '@slopstack/ui/components/ui/input';
+import { Label } from '@slopstack/ui/components/ui/label';
+import { Progress } from '@slopstack/ui/components/ui/progress';
+import { Separator } from '@slopstack/ui/components/ui/separator';
 import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from '@/components/ui/sheet';
+} from '@slopstack/ui/components/ui/sheet';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Textarea } from '@/components/ui/textarea';
-import { ResourceForm, type ResourceFormValues } from '@/lib/slopstack/resource-form';
-import { ResourceQueryControls } from '@/components/patterns/resource-query-controls';
-import type { ResourceQuery } from '@/lib/slopstack/resource-client';
-import { useResourceQueryState } from '@/lib/slopstack/query-state';
-import { subscribePocketBaseResource } from '@/lib/slopstack/react-query';
+} from '@slopstack/ui/components/ui/select';
+import { Tabs, TabsList, TabsTrigger } from '@slopstack/ui/components/ui/tabs';
+import { Textarea } from '@slopstack/ui/components/ui/textarea';
+import { ResourceForm, type ResourceFormValues } from '@slopstack/react/forms';
+import { ResourceQueryControls } from '@slopstack/ui/patterns/resource-query-controls';
+import type { ResourceQuery } from '@slopstack/core';
+import { useResourceQueryState } from '@slopstack/react/query-state';
+import { subscribePocketBaseResource } from '@slopstack/pocketbase/realtime';
 import primitiveCatalog from '../../../packages/cli/registry.json';
-import { CollectionView, CommentThread, DashboardWidget, EmptyState, InfiniteFeed, LoadingState, MediaViewer, type ThreadComment } from '@/components/patterns/advanced-patterns';
-import { FeedLayout, MasterDetailLayout } from '@/components/patterns/application-layouts';
+import { CollectionView, CommentThread, DashboardWidget, EmptyState, InfiniteFeed, LoadingState, MediaViewer, type ThreadComment } from '@slopstack/ui/patterns/advanced-patterns';
+import { FeedLayout, MasterDetailLayout } from '@slopstack/ui/patterns/application-layouts';
 import { todoResource } from '@/resources/todos';
-import { Switch } from '@/components/ui/switch';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { PageHeading } from '@/components/patterns/page-heading';
-import { NavigationLinks, type NavigationStyle } from '@/components/patterns/navigation-links';
-import { CommandPalette } from '@/components/patterns/command-palette';
-import { ResourceDataView, type ResourceDataViewMode } from '@/components/patterns/resource-data-view';
-import type { DataTableColumn } from '@/components/patterns/data-table';
+import { Switch } from '@slopstack/ui/components/ui/switch';
+import { Avatar, AvatarFallback } from '@slopstack/ui/components/ui/avatar';
+import { PageHeading } from '@slopstack/ui/patterns/page-heading';
+import { NavigationLinks, type NavigationStyle } from '@slopstack/ui/patterns/navigation-links';
+import { CommandPalette } from '@slopstack/ui/patterns/command-palette';
+import { ResourceDataView, type ResourceDataViewMode } from '@slopstack/ui/patterns/resource-data-view';
+import type { DataTableColumn } from '@slopstack/ui/patterns/data-table';
 import { useTheme } from 'next-themes';
 import { pb, pbAuth } from './api/pocketbase';
-import { createPocketBaseAuthAdapter } from '@/lib/slopstack/auth-adapters';
+import { createPocketBaseAuthAdapter } from '@slopstack/pocketbase/auth';
 import { createTodoRecord, deleteTodoRecord, getTodos, updateTodoRecord } from './api/todos';
 import { getPreferences, savePreferences } from './api/preferences';
 import type { Todo, TodoWrite } from './api/generated/types.gen';
 import type { UserPreferences, UserPreferencesPatchInputBodyWritable } from './api/generated/types.gen';
-import { installShortcutRegistry, ShortcutRegistry, type PaletteAction } from './lib/slopstack/search-runtime';
-import type { SearchFallbackDefinition, SearchProvider, SearchResult } from './lib/slopstack/types';
+import { installShortcutRegistry, ShortcutRegistry, type PaletteAction } from '@slopstack/core';
+import type { SearchFallbackDefinition, SearchProvider, SearchResult } from '@slopstack/core';
 
 type Priority = 'High' | 'Medium' | 'Low';
 type View = 'overview' | 'tasks' | 'schedule' | 'analytics' | 'components' | 'icons' | 'profile';

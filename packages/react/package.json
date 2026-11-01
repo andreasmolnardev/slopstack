@@ -1,0 +1,62 @@
+{
+  "name": "@slopstack/react",
+  "version": "0.1.0",
+  "description": "React providers, hooks, forms, and views for Slopstack",
+  "type": "module",
+  "license": "MIT",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./forms": {
+      "types": "./dist/resource-form.d.ts",
+      "import": "./dist/resource-form.js"
+    },
+    "./query-state": {
+      "types": "./dist/query-state.d.ts",
+      "import": "./dist/query-state.js"
+    },
+    "./query": {
+      "types": "./dist/react-query.d.ts",
+      "import": "./dist/react-query.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint src",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@slopstack/core": "workspace:^"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "@tanstack/react-query": ">=5",
+    "@slopstack/ui": "^0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@tanstack/react-query": {
+      "optional": true
+    },
+    "@slopstack/ui": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "@tanstack/react-query": "^5.90.12",
+    "react": "^19.2.4",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.16",
+    "@slopstack/ui": "workspace:^",
+    "react-dom": "^19.2.7"
+  }
+}

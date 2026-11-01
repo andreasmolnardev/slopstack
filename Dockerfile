@@ -11,10 +11,15 @@ FROM node:24-alpine AS web-build
 WORKDIR /src
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/package.json
+COPY packages/core/package.json packages/core/package.json
+COPY packages/react/package.json packages/react/package.json
+COPY packages/ui/package.json packages/ui/package.json
+COPY packages/pocketbase/package.json packages/pocketbase/package.json
 RUN corepack enable && pnpm install --frozen-lockfile --ignore-scripts && pnpm rebuild esbuild
 COPY apps/web apps/web
-COPY packages/cli/registry.json packages/cli/registry.json
+COPY packages packages
 COPY --from=server-build /src/openapi/openapi.json openapi/openapi.json
+RUN pnpm --filter @slopstack/core build && pnpm --filter @slopstack/ui build && pnpm --filter @slopstack/react build && pnpm --filter @slopstack/pocketbase build
 RUN pnpm --filter @slopstack/web generate:client
 RUN pnpm --filter @slopstack/web build
 

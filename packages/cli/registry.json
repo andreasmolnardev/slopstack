@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "name": "Slopstack primitive registry",
   "schemaVersion": 1,
-  "runtime": "apps/web/src/lib/slopstack/types.ts",
+  "runtime": "packages/core/src/types.ts",
   "primitives": [
     {
       "id": "resource",

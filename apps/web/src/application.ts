@@ -1,4 +1,4 @@
-import { createSlopstackRegistry, defineApplication, defineSettings } from '@/lib/slopstack';
+import { createSlopstackRegistry, defineApplication, defineSettings } from '@slopstack/core';
 import { todoResource } from '@/resources/todos';
 
 const userPreferences = defineSettings({

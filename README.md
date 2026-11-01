@@ -30,6 +30,8 @@ Go handlers use Huma and publish OpenAPI 3.1 documentation. The TypeScript clien
 
 Typed resources can drive schema-defined forms, tables/lists/cards, selection and bulk actions, search/filter/sort controls, URL query state, PocketBase realtime invalidation, and a cross-view command palette. Resource clients work with PocketBase collections, REST endpoints, or application-owned adapters. The reference Todo flow uses a registered resource, reusable form and data-view patterns, generated API methods, provider-neutral PocketBase auth, and persisted theme/motion settings. View and layout contracts plus route resolution are available for modules that want registry-driven composition.
 
+The frontend runtime is published as independently versioned `@slopstack/core`, `@slopstack/react`, `@slopstack/ui`, and optional `@slopstack/pocketbase` packages. External apps can install only core and their chosen React integrations, then use REST, cookie sessions, their existing router/query cache, and their own realtime transport. See [frontend package installation, adapter examples, and release guidance](docs/frontend-packages.md).
+
 ### Packaging, deployment, and upgrades
 
 The Go runtime can serve the built frontend, and Docker packages the app with persistent PocketBase data. CI and release workflows check builds and publish version-tagged container images. The Slopstack CLI can initialize a project and apply template upgrades with previews, checksums, conflict detection, snapshots, rollback, and validation.
@@ -86,6 +88,6 @@ The release workflow publishes `ghcr.io/<owner>/slopstack:<VERSION>` and `:lates
 
 The task workspace is in `apps/web/src/app.tsx`. Replace it without changing the backend infrastructure. Add modules through protected API routes, schemas, and generated client calls. Keep schema evolution in PocketBase migrations.
 
-The complete checked-in shadcn component set is under `apps/web/src/components/ui`; unused components stay out of the production bundle. Reusable composed patterns are under `apps/web/src/components/patterns`.
+The optional shadcn component set and reusable patterns are in `@slopstack/ui`. The starter imports these through public package exports, while apps can replace or customize them. See [frontend package guidance](docs/frontend-packages.md) and [component usage](docs/COMPONENTS.md).
 
 See [`docs/README.md`](docs/README.md) for UI, navigation, API, auth, data model, development, and deployment guidance.
