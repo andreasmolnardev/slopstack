@@ -39,4 +39,18 @@ describe('resource validation', () => {
     })).toEqual({ slug: 'This slug is reserved.' });
     expect(validateResourceInput(resource, { name: 'Launch Plan', status: 'active', budget: 0 })).toEqual({});
   });
+
+  it('validates accepted file types, file size, and file count', () => {
+    const uploads: ResourceDefinition = {
+      ...resource,
+      fields: [{ name: 'attachments', label: 'Attachments', kind: 'file', multiple: true, maxFiles: 1, maxSizeBytes: 8, accept: ['image/*'] }],
+    };
+    const image = new File(['small'], 'photo.png', { type: 'image/png' });
+    const text = new File(['small'], 'notes.txt', { type: 'text/plain' });
+    expect(validateResourceInput(uploads, { attachments: [image] })).toEqual({});
+    expect(validateResourceInput(uploads, { attachments: [image, image] }).attachments).toContain('no more than 1 file');
+    expect(validateResourceInput(uploads, { attachments: [text] }).attachments).toContain('unsupported file type');
+    const large = new File(['too large'], 'large.png', { type: 'image/png' });
+    expect(validateResourceInput(uploads, { attachments: [large] }).attachments).toContain('maximum file size');
+  });
 });

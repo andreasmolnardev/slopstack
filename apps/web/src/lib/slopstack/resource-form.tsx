@@ -214,19 +214,22 @@ function ResourceField({
       break;
     case 'file':
       control = (
-        <Input
-          id={id}
-          type="file"
-          multiple={field.multiple}
-          accept={field.accept?.join(',')}
-          disabled={disabled}
-          aria-invalid={Boolean(error)}
-          aria-describedby={describedBy}
-          onChange={(event) => {
-            const files = Array.from(event.target.files ?? []);
-            setValue(field.multiple ? files : files[0] ?? null);
-          }}
-        />
+        <div className="grid gap-2">
+          <Input
+            id={id}
+            type="file"
+            multiple={field.multiple}
+            accept={field.accept?.join(',')}
+            disabled={disabled}
+            aria-invalid={Boolean(error)}
+            aria-describedby={describedBy}
+            onChange={(event) => {
+              const files = Array.from(event.target.files ?? []);
+              setValue(field.multiple ? files : files[0] ?? null);
+            }}
+          />
+          <FilePreviews files={(Array.isArray(value) ? value : value ? [value] : []).filter((item): item is File => typeof File !== 'undefined' && item instanceof File)} />
+        </div>
       );
       break;
     case 'date':
@@ -264,5 +267,26 @@ function ResourceField({
       {field.description && <p id={`${id}-description`} className="text-xs text-muted-foreground">{field.description}</p>}
       {error && <p id={`${id}-error`} className="text-xs text-destructive" role="alert">{error}</p>}
     </div>
+  );
+}
+
+function FilePreviews({ files }: { files: readonly File[] }) {
+  const [previews, setPreviews] = useState<readonly { file: File; url: string }[]>([]);
+  useEffect(() => {
+    const next = files.map((file) => ({ file, url: URL.createObjectURL(file) }));
+    setPreviews(next);
+    return () => next.forEach(({ url }) => URL.revokeObjectURL(url));
+  }, [files]);
+  if (!files.length) return null;
+  return (
+    <ul className="flex flex-wrap gap-2" aria-label="Selected files">
+      {previews.map(({ file, url }) => (
+        <li key={url} className="grid max-w-32 gap-1 rounded-md border p-2 text-xs">
+          {file.type.startsWith('image/') && <img src={url} alt={file.name} className="h-16 w-full rounded object-cover" />}
+          <span className="truncate" title={file.name}>{file.name}</span>
+          <span className="text-muted-foreground">{Math.max(1, Math.round(file.size / 1024))} KB</span>
+        </li>
+      ))}
+    </ul>
   );
 }

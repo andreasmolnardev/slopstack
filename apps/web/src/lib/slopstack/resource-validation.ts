@@ -48,10 +48,20 @@ export function validateField(field: FieldDefinition, value: unknown, record: un
     return `${field.label} must use increments of ${field.step}.`;
   }
 
-  if (field.kind === 'file' && field.maxSizeBytes) {
+  if (field.kind === 'file') {
     const files = Array.isArray(value) ? value : [value];
-    if (typeof File !== 'undefined' && files.some((file) => file instanceof File && file.size > field.maxSizeBytes!)) {
+    if (field.multiple === false && files.length > 1) return `${field.label} accepts one file.`;
+    if (field.maxFiles !== undefined && files.length > field.maxFiles) return `${field.label} accepts no more than ${field.maxFiles} file${field.maxFiles === 1 ? '' : 's'}.`;
+    if (field.maxSizeBytes && typeof File !== 'undefined' && files.some((file) => file instanceof File && file.size > field.maxSizeBytes!)) {
       return `${field.label} exceeds the maximum file size.`;
+    }
+    if (field.accept?.length && typeof File !== 'undefined') {
+      const invalid = files.some((file) => file instanceof File && !field.accept?.some((accepted) => {
+        if (accepted.startsWith('.')) return file.name.toLocaleLowerCase().endsWith(accepted.toLocaleLowerCase());
+        if (accepted.endsWith('/*')) return file.type.startsWith(accepted.slice(0, -1));
+        return file.type === accepted;
+      }));
+      if (invalid) return `${field.label} contains an unsupported file type.`;
     }
   }
 

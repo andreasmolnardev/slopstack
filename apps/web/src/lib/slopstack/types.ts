@@ -92,6 +92,7 @@ export type RelationField = FieldBase<string | readonly string[], 'relation'> & 
 export type FileField = FieldBase<File | string | readonly (File | string)[], 'file'> & {
   multiple?: boolean;
   maxSizeBytes?: number;
+  maxFiles?: number;
   accept?: readonly string[];
 };
 
