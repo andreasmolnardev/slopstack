@@ -4,6 +4,8 @@
 
 :root {
   color-scheme: light;
+  --slopstack-motion-duration: 200ms;
+  --slopstack-motion-easing: cubic-bezier(0.2, 0, 0, 1);
   --background: #f3f3f3;
   --foreground: #333333;
   --card: #ffffff;
@@ -31,6 +33,42 @@
   --sidebar-accent-foreground: #333333;
   --sidebar-border: #d6d6d6;
   --sidebar-ring: #007acc;
+}
+
+[data-state="open"],
+[data-state="closed"] {
+  animation-duration: var(--slopstack-motion-duration) !important;
+  animation-timing-function: var(--slopstack-motion-easing) !important;
+  transition-duration: var(--slopstack-motion-duration) !important;
+  transition-timing-function: var(--slopstack-motion-easing) !important;
+}
+
+:root[data-motion-style="fade"] [data-state="open"] { animation-name: slopstack-fade-in !important; }
+:root[data-motion-style="fade"] [data-state="closed"] { animation-name: slopstack-fade-out !important; }
+:root[data-motion-style="scale"] [data-state="open"] { animation-name: slopstack-scale-in !important; }
+:root[data-motion-style="scale"] [data-state="closed"] { animation-name: slopstack-scale-out !important; }
+:root[data-motion-style="slide"] [data-state="open"] { animation-name: slopstack-slide-in !important; }
+:root[data-motion-style="slide"] [data-state="closed"] { animation-name: slopstack-slide-out !important; }
+:root[data-motion-style="none"] [data-state="open"],
+:root[data-motion-style="none"] [data-state="closed"] {
+  animation: none !important;
+  transition-duration: 0ms !important;
+}
+
+@keyframes slopstack-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slopstack-fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes slopstack-scale-in { from { opacity: 0; scale: 0.96; } to { opacity: 1; scale: 1; } }
+@keyframes slopstack-scale-out { from { opacity: 1; scale: 1; } to { opacity: 0; scale: 0.96; } }
+@keyframes slopstack-slide-in { from { opacity: 0; translate: 0 0.5rem; } to { opacity: 1; translate: 0 0; } }
+@keyframes slopstack-slide-out { from { opacity: 1; translate: 0 0; } to { opacity: 0; translate: 0 0.5rem; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 @theme inline {

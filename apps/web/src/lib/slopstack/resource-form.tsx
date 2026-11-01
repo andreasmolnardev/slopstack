@@ -21,7 +21,10 @@ export type ResourceFormValues = Record<string, unknown>;
 function getDefaults(resource: ResourceDefinition, initialValues?: ResourceFormValues) {
   const values: ResourceFormValues = {};
   for (const field of resource.fields) {
-    values[field.name] = initialValues?.[field.name] ?? field.defaultValue ?? (field.kind === 'boolean' ? false : '');
+    const fallback = field.kind === 'boolean' ? false
+      : (field.kind === 'relation' && field.cardinality === 'many') || (field.kind === 'select' && field.multiple) || (field.kind === 'file' && field.multiple) ? []
+        : '';
+    values[field.name] = initialValues?.[field.name] ?? field.defaultValue ?? fallback;
   }
   return values;
 }
@@ -32,16 +35,19 @@ export function ResourceForm({
   relationOptions = {},
   submitLabel = 'Save',
   onSubmit,
+  onError,
 }: {
   resource: ResourceDefinition;
   initialValues?: ResourceFormValues;
   relationOptions?: Readonly<Record<string, readonly RelationOption[]>>;
   submitLabel?: string;
   onSubmit: (values: ResourceFormValues) => void | Promise<void>;
+  onError?: (error: unknown) => void;
 }) {
   const [values, setValues] = useState(() => getDefaults(resource, initialValues));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
 
   const setValue = (name: string, value: unknown) => {
     setValues((current) => ({ ...current, [name]: value }));
@@ -54,8 +60,12 @@ export function ResourceForm({
     setErrors(validationErrors);
     if (Object.keys(validationErrors).length) return;
     setSubmitting(true);
+    setSubmitError('');
     try {
       await onSubmit(values);
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'Could not save these changes.');
+      onError?.(error);
     } finally {
       setSubmitting(false);
     }
@@ -76,6 +86,7 @@ export function ResourceForm({
           />
         ))}
       </div>
+      {submitError && <p className="text-sm text-destructive" role="alert">{submitError}</p>}
       <div className="flex justify-end">
         <Button type="submit" disabled={submitting}>
           {submitting ? 'Saving…' : submitLabel}
@@ -114,7 +125,20 @@ function ResourceField({
       );
       break;
     case 'select':
-      control = (
+      control = field.multiple ? (
+        <select
+          id={id}
+          className="min-h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          value={(Array.isArray(value) ? value : []) as string[]}
+          multiple
+          disabled={disabled}
+          aria-invalid={Boolean(error)}
+          aria-describedby={describedBy}
+          onChange={(event) => setValue(Array.from(event.currentTarget.selectedOptions, (option) => option.value))}
+        >
+          {field.options.map((option) => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}
+        </select>
+      ) : (
         <Select value={typeof value === 'string' ? value : ''} onValueChange={setValue} disabled={disabled}>
           <SelectTrigger id={id} aria-invalid={Boolean(error)} aria-describedby={describedBy}>
             <SelectValue placeholder={`Select ${field.label.toLowerCase()}`} />
@@ -166,10 +190,6 @@ function ResourceField({
           aria-describedby={describedBy}
           onChange={(event) => {
             const files = Array.from(event.target.files ?? []);
-            if (field.maxSizeBytes && files.some((file) => file.size > field.maxSizeBytes!)) {
-              setValue(files.filter((file) => file.size <= field.maxSizeBytes!));
-              return;
-            }
             setValue(field.multiple ? files : files[0] ?? null);
           }}
         />

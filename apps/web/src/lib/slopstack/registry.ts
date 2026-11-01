@@ -62,7 +62,40 @@ export class SlopstackRegistry {
       }
     }
 
+    const routes = new Map<string, string>();
+    for (const view of this.views.values()) {
+      const existing = routes.get(view.path);
+      if (existing) issues.push(`Views "${existing}" and "${view.id}" use the same path "${view.path}".`);
+      else routes.set(view.path, view.id);
+    }
+
+    for (const layout of this.layouts.values()) {
+      const slotIds = new Set<string>();
+      for (const slot of layout.slots) {
+        if (slotIds.has(slot.id)) issues.push(`Layout "${layout.id}" has duplicate slot "${slot.id}".`);
+        slotIds.add(slot.id);
+      }
+    }
+
     for (const resource of this.resources.values()) {
+      const fields = new Set<string>();
+      for (const field of resource.fields) {
+        if (fields.has(field.name)) issues.push(`Resource "${resource.id}" has duplicate field "${field.name}".`);
+        fields.add(field.name);
+        if (field.kind === 'text' && field.pattern) {
+          try {
+            new RegExp(field.pattern);
+          } catch {
+            issues.push(`Resource "${resource.id}" field "${field.name}" has an invalid pattern.`);
+          }
+        }
+      }
+      for (const field of resource.query?.searchFields ?? []) {
+        if (!fields.has(field)) issues.push(`Resource "${resource.id}" searches unknown field "${field}".`);
+      }
+      for (const filter of resource.query?.filters ?? []) {
+        if (!fields.has(filter.field)) issues.push(`Resource "${resource.id}" filter "${filter.id}" uses unknown field "${filter.field}".`);
+      }
       const relationships = [
         ...(resource.relations ?? []).map((relation) => relation.resource),
         ...resource.fields.filter((field) => field.kind === 'relation').map((field) => field.resource),

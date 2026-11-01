@@ -114,12 +114,15 @@ import { Switch } from '@/components/ui/switch';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { PageHeading } from '@/components/patterns/page-heading';
 import { NavigationLinks, type NavigationStyle } from '@/components/patterns/navigation-links';
+import { CommandPalette } from '@/components/patterns/command-palette';
 import { useTheme } from 'next-themes';
 import { pb } from './api/pocketbase';
 import { createTodoRecord, deleteTodoRecord, getTodos, updateTodoRecord } from './api/todos';
 import { getPreferences, savePreferences } from './api/preferences';
 import type { Todo, TodoWrite } from './api/generated/types.gen';
 import type { UserPreferences, UserPreferencesPatchInputBodyWritable } from './api/generated/types.gen';
+import { installShortcutRegistry, ShortcutRegistry, type PaletteAction } from './lib/slopstack/search-runtime';
+import type { SearchProvider, SearchResult } from './lib/slopstack/types';
 
 type Priority = 'High' | 'Medium' | 'Low';
 type View = 'overview' | 'tasks' | 'schedule' | 'analytics' | 'components' | 'icons' | 'profile';
@@ -140,6 +143,14 @@ const navItems: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'components', label: 'Components', icon: Blocks },
   { id: 'icons', label: 'Icons', icon: Shapes },
 ];
+
+const commandNavigation: SearchResult[] = navItems.map(({ id, label, icon }) => ({
+  id,
+  title: label,
+  href: `/app/${id}`,
+  icon,
+  keywords: ['workspace', 'view', id],
+}));
 
 const componentNames = [
   'Accordion',
@@ -355,6 +366,19 @@ function applyThemeTokens(tokens: UserPreferences['themeTokens']) {
   document.documentElement.style.setProperty('--radius', tokens.radius);
 }
 
+function applyMotionPreferences(motion: UserPreferences['motion']) {
+  const root = document.documentElement;
+  const duration = { fast: '120ms', normal: '200ms', slow: '360ms' }[motion.duration] ?? '200ms';
+  const easing = {
+    standard: 'cubic-bezier(0.2, 0, 0, 1)',
+    smooth: 'cubic-bezier(0.16, 1, 0.3, 1)',
+    snappy: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
+  }[motion.easing] ?? 'cubic-bezier(0.2, 0, 0, 1)';
+  root.dataset.motionStyle = motion.style;
+  root.style.setProperty('--slopstack-motion-duration', duration);
+  root.style.setProperty('--slopstack-motion-easing', easing);
+}
+
 export function App() {
   const { pathname, navigate } = useNavigation();
   const { setTheme } = useTheme();
@@ -379,6 +403,45 @@ export function App() {
   const authUserId = pb.authStore.record?.id ?? '';
   const isSuperuser = pb.authStore.record?.collectionName === '_superusers';
   const isAdmin = isSuperuser || pb.authStore.record?.isAdmin === true;
+  const openNewTask = useCallback(() => {
+    setEditingTask(null);
+    setNewTask({ title: '', description: '', dueDate: '', priority: 'Medium' });
+    setTaskDialogOpen(true);
+  }, []);
+  const searchProviders = useMemo<SearchProvider[]>(() => [{
+    id: 'todos',
+    label: 'Tasks',
+    minQueryLength: 2,
+    async search(query) {
+      const normalized = query.toLocaleLowerCase();
+      return tasks
+        .filter((task) => `${task.title} ${task.description}`.toLocaleLowerCase().includes(normalized))
+        .slice(0, 8)
+        .map((task) => ({
+          id: task.id,
+          title: task.title,
+          description: task.description || task.priority,
+          href: '/app/tasks',
+          keywords: [task.priority, task.completed ? 'completed' : 'active'],
+        }));
+    },
+  }], [tasks]);
+  const commandActions = useMemo<PaletteAction[]>(() => [{
+    id: 'create-task',
+    label: 'Create task',
+    description: 'Add a task to your workspace',
+    keywords: ['new', 'todo', 'add'],
+    shortcut: 'N',
+    access: { authenticated: true, permission: 'todos:create' },
+    execute: openNewTask,
+  }], [openNewTask]);
+
+  useEffect(() => {
+    const shortcuts = new ShortcutRegistry([{
+      id: 'create-task', keys: ['n'], label: 'Create task', access: { authenticated: true }, execute: openNewTask,
+    }]);
+    return installShortcutRegistry(shortcuts, { authorize: () => isAuthenticated });
+  }, [isAuthenticated, openNewTask]);
 
   useEffect(() => {
     if (!authUserId) {
@@ -391,6 +454,7 @@ export function App() {
       localStorage.setItem(`slopstack.preferences.${authUserId}`, JSON.stringify(preferences));
       setTheme(preferences.theme);
       applyThemeTokens(preferences.themeTokens);
+      applyMotionPreferences(preferences.motion);
       setNavigationStyle(preferences.navigation as NavigationStyle);
     }).catch(() => undefined);
     const onPreferencesChange = (event: Event) => {
@@ -398,6 +462,7 @@ export function App() {
       if (preferences.navigation) setNavigationStyle(preferences.navigation as NavigationStyle);
       if (preferences.theme) setTheme(preferences.theme);
       if (preferences.themeTokens) applyThemeTokens(preferences.themeTokens);
+      if (preferences.motion) applyMotionPreferences(preferences.motion);
     };
     window.addEventListener('slopstack:preferences', onPreferencesChange);
     return () => {
@@ -865,6 +930,16 @@ export function App() {
                 <NavigationLinks items={navItems} activeId={view} layout="topbar" label="Workspace navigation" onNavigate={(id) => navigate(`/app/${id}`)} />
               </div>
             )}
+            <div className="hidden shrink-0 sm:block">
+              <CommandPalette
+                navigation={commandNavigation}
+                providers={searchProviders}
+                actions={commandActions}
+                onNavigate={navigate}
+                canAccess={(requirement) => !requirement?.authenticated || isAuthenticated}
+                authorize={(requirement) => !requirement?.authenticated || isAuthenticated}
+              />
+            </div>
             <div className="ml-auto flex items-center gap-1 lg:hidden">
               <Button variant="ghost" size="icon" aria-label="Settings" onClick={() => navigate('/app/profile')}>
                 <Settings2 className="size-4" />
@@ -3005,6 +3080,7 @@ function SettingsView() {
   const [preferences, setPreferences] = useState<UserPreferences>({
     locale: 'en-US', timeZone: 'UTC', dateFormat: 'MMM d, yyyy', timeFormat: '12h', theme: 'light', navigation: 'sidebar',
     themeTokens: { primary: '#007acc', accent: '#dbeeff', radius: '0.75rem' },
+    motion: { style: 'scale', duration: 'normal', easing: 'standard' },
   });
   const [preferencesError, setPreferencesError] = useState('');
 
@@ -3026,6 +3102,7 @@ function SettingsView() {
       const userId = pb.authStore.record?.id;
       if (userId) localStorage.setItem(`slopstack.preferences.${userId}`, JSON.stringify(saved));
       applyThemeTokens(saved.themeTokens);
+      applyMotionPreferences(saved.motion);
       window.dispatchEvent(new CustomEvent('slopstack:preferences', { detail: saved }));
     }).catch(() => setPreferencesError('Could not save this preference.'));
   }
@@ -3151,6 +3228,27 @@ function SettingsView() {
                   value={preferences.navigation}
                   options={['sidebar', 'topbar', 'rail', 'bottom']}
                   onChange={(value) => updatePreference('navigation', value)}
+                />
+                <SettingsSelectRow
+                  label="Component opening and closing"
+                  description="Set the animation style for dialogs, menus, and popovers. Reduced-motion system settings are always respected."
+                  value={preferences.motion.style}
+                  options={['fade', 'scale', 'slide', 'none']}
+                  onChange={(value) => updatePreference('motion', { ...preferences.motion, style: value })}
+                />
+                <SettingsSelectRow
+                  label="Animation speed"
+                  description="Choose how quickly interface components open and close."
+                  value={preferences.motion.duration}
+                  options={['fast', 'normal', 'slow']}
+                  onChange={(value) => updatePreference('motion', { ...preferences.motion, duration: value })}
+                />
+                <SettingsSelectRow
+                  label="Animation easing"
+                  description="Choose the timing curve used by component transitions."
+                  value={preferences.motion.easing}
+                  options={['standard', 'smooth', 'snappy']}
+                  onChange={(value) => updatePreference('motion', { ...preferences.motion, easing: value })}
                 />
                 {preferencesError && <p className="text-sm text-destructive" role="alert">{preferencesError}</p>}
               </div>

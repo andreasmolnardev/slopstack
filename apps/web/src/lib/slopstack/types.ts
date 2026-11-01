@@ -47,7 +47,7 @@ export type RelationField = FieldBase<string | readonly string[], 'relation'> & 
   displayField?: string;
 };
 
-export type FileField = FieldBase<string | readonly string[], 'file'> & {
+export type FileField = FieldBase<File | string | readonly (File | string)[], 'file'> & {
   multiple?: boolean;
   maxSizeBytes?: number;
   accept?: readonly string[];
@@ -179,6 +179,8 @@ export type ActionDefinition<Input = unknown, Output = unknown> = {
   id: SlopstackId;
   label: string;
   description?: string;
+  keywords?: readonly string[];
+  shortcut?: string;
   icon?: ComponentType<{ className?: string }>;
   access?: PermissionRequirement;
   confirm?: { title: string; description?: string; confirmLabel?: string; destructive?: boolean };

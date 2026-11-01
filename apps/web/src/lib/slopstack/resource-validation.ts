@@ -25,14 +25,34 @@ export function validateField(field: FieldDefinition, value: unknown, record: un
     if (field.max !== undefined && value > field.max) return `${field.label} must be no more than ${field.max}.`;
   }
 
-  if (field.kind === 'select' && typeof value === 'string' && !field.options.some((option) => option.value === value)) {
-    return `${field.label} has an invalid selection.`;
+  if (field.kind === 'select') {
+    const selected = Array.isArray(value) ? value : [value];
+    if (field.multiple && !Array.isArray(value)) return `${field.label} must contain a list of selections.`;
+    if (selected.some((item) => typeof item !== 'string' || !field.options.some((option) => option.value === item))) {
+      return `${field.label} has an invalid selection.`;
+    }
   }
 
   if (field.kind === 'relation') {
     const values = Array.isArray(value) ? value : [value];
     if (field.cardinality === 'one' && values.length > 1) return `${field.label} accepts one related item.`;
     if (values.some((item) => typeof item !== 'string')) return `${field.label} contains an invalid relationship.`;
+  }
+
+  if ((field.kind === 'date' || field.kind === 'datetime' || field.kind === 'time') && typeof value === 'string') {
+    if (field.min && value < field.min) return `${field.label} must be on or after ${field.min}.`;
+    if (field.max && value > field.max) return `${field.label} must be on or before ${field.max}.`;
+  }
+
+  if (field.kind === 'slider' && typeof value === 'number' && field.step && (value - field.min) % field.step !== 0) {
+    return `${field.label} must use increments of ${field.step}.`;
+  }
+
+  if (field.kind === 'file' && field.maxSizeBytes) {
+    const files = Array.isArray(value) ? value : [value];
+    if (typeof File !== 'undefined' && files.some((file) => file instanceof File && file.size > field.maxSizeBytes!)) {
+      return `${field.label} exceeds the maximum file size.`;
+    }
   }
 
   const validate = field.validate as ((input: unknown, record: unknown) => string | undefined) | undefined;

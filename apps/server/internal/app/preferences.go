@@ -13,13 +13,14 @@ import (
 )
 
 type UserPreferences struct {
-	Locale      string      `json:"locale"`
-	TimeZone    string      `json:"timeZone"`
-	DateFormat  string      `json:"dateFormat"`
-	TimeFormat  string      `json:"timeFormat"`
-	Theme       string      `json:"theme"`
-	Navigation  string      `json:"navigation"`
-	ThemeTokens ThemeTokens `json:"themeTokens"`
+	Locale      string            `json:"locale"`
+	TimeZone    string            `json:"timeZone"`
+	DateFormat  string            `json:"dateFormat"`
+	TimeFormat  string            `json:"timeFormat"`
+	Theme       string            `json:"theme"`
+	Navigation  string            `json:"navigation"`
+	ThemeTokens ThemeTokens       `json:"themeTokens"`
+	Motion      MotionPreferences `json:"motion"`
 }
 
 type ThemeTokens struct {
@@ -28,15 +29,22 @@ type ThemeTokens struct {
 	Radius  string `json:"radius"`
 }
 
+type MotionPreferences struct {
+	Style    string `json:"style"`
+	Duration string `json:"duration"`
+	Easing   string `json:"easing"`
+}
+
 type userPreferencesPatchInput struct {
 	Body struct {
-		Locale      *string      `json:"locale,omitempty"`
-		TimeZone    *string      `json:"timeZone,omitempty"`
-		DateFormat  *string      `json:"dateFormat,omitempty"`
-		TimeFormat  *string      `json:"timeFormat,omitempty"`
-		Theme       *string      `json:"theme,omitempty"`
-		Navigation  *string      `json:"navigation,omitempty"`
-		ThemeTokens *ThemeTokens `json:"themeTokens,omitempty"`
+		Locale      *string            `json:"locale,omitempty"`
+		TimeZone    *string            `json:"timeZone,omitempty"`
+		DateFormat  *string            `json:"dateFormat,omitempty"`
+		TimeFormat  *string            `json:"timeFormat,omitempty"`
+		Theme       *string            `json:"theme,omitempty"`
+		Navigation  *string            `json:"navigation,omitempty"`
+		ThemeTokens *ThemeTokens       `json:"themeTokens,omitempty"`
+		Motion      *MotionPreferences `json:"motion,omitempty"`
 	} `json:"body"`
 }
 type userPreferencesOutput struct{ Body UserPreferences }
@@ -60,7 +68,7 @@ func registerPreferencesRoutes(e *core.ServeEvent) {
 }
 
 func defaultUserPreferences() UserPreferences {
-	return UserPreferences{Locale: "en-US", TimeZone: "UTC", DateFormat: "MMM d, yyyy", TimeFormat: "12h", Theme: "light", Navigation: "sidebar", ThemeTokens: ThemeTokens{Primary: "#007acc", Accent: "#dbeeff", Radius: "0.75rem"}}
+	return UserPreferences{Locale: "en-US", TimeZone: "UTC", DateFormat: "MMM d, yyyy", TimeFormat: "12h", Theme: "light", Navigation: "sidebar", ThemeTokens: ThemeTokens{Primary: "#007acc", Accent: "#dbeeff", Radius: "0.75rem"}, Motion: MotionPreferences{Style: "scale", Duration: "normal", Easing: "standard"}}
 }
 
 func getMyPreferencesRoute(event *core.RequestEvent) error {
@@ -101,6 +109,9 @@ func patchMyPreferencesRoute(event *core.RequestEvent) error {
 	}
 	if patch.Body.ThemeTokens != nil {
 		prefs.ThemeTokens = *patch.Body.ThemeTokens
+	}
+	if patch.Body.Motion != nil {
+		prefs.Motion = *patch.Body.Motion
 	}
 	if err := validateUserPreferences(prefs); err != nil {
 		return event.BadRequestError("invalid preferences", err)
@@ -147,6 +158,15 @@ func validateUserPreferences(p UserPreferences) error {
 	}
 	if p.ThemeTokens.Radius != "0.5rem" && p.ThemeTokens.Radius != "0.75rem" && p.ThemeTokens.Radius != "1rem" {
 		return fmt.Errorf("unsupported theme radius")
+	}
+	if p.Motion.Style != "fade" && p.Motion.Style != "scale" && p.Motion.Style != "slide" && p.Motion.Style != "none" {
+		return fmt.Errorf("unsupported motion style")
+	}
+	if p.Motion.Duration != "fast" && p.Motion.Duration != "normal" && p.Motion.Duration != "slow" {
+		return fmt.Errorf("unsupported motion duration")
+	}
+	if p.Motion.Easing != "standard" && p.Motion.Easing != "smooth" && p.Motion.Easing != "snappy" {
+		return fmt.Errorf("unsupported motion easing")
 	}
 	if _, err := time.LoadLocation(p.TimeZone); err != nil {
 		return fmt.Errorf("timeZone must be a valid IANA time zone")

@@ -6,4 +6,5 @@ export * from './resource-form';
 export * from './react-query';
 export * from './resource-validation';
 export * from './query-state';
+export * from './search-runtime';
 export * from './types';

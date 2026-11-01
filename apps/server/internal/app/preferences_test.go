@@ -24,4 +24,10 @@ func TestValidateUserPreferences(t *testing.T) {
 	if err := validateUserPreferences(prefs); err == nil {
 		t.Fatal("unsafe theme values should fail validation")
 	}
+
+	prefs = defaultUserPreferences()
+	prefs.Motion.Style = "bounce-forever"
+	if err := validateUserPreferences(prefs); err == nil {
+		t.Fatal("unsupported motion style should fail validation")
+	}
 }

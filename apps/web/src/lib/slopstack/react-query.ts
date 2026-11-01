@@ -7,7 +7,7 @@ export function useResourceQuery<RecordType extends object, CreateType extends o
   client: ResourceClient<RecordType, CreateType, UpdateType>,
   query: ResourceQuery = {},
 ) {
-  const { signal: _signal, ...keyQuery } = query;
+  const keyQuery = Object.fromEntries(Object.entries(query).filter(([key]) => key !== 'signal'));
   const result = useQuery({
     queryKey: [...resourceQueryKey(client.definition.id), keyQuery],
     queryFn: ({ signal }) => client.list({ ...query, signal }),
