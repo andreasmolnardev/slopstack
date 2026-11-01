@@ -61,6 +61,29 @@ export function filterSearchFallbacks(
     && canAccess(fallback.access));
 }
 
+export function defineSearchAction(options: {
+  id: string;
+  label: string;
+  viewPath: string;
+  queryParameter?: string;
+  description?: string;
+  keywords?: readonly string[];
+  access?: PermissionRequirement;
+}): ActionDefinition<string> {
+  return {
+    id: options.id,
+    label: options.label,
+    description: options.description,
+    keywords: options.keywords,
+    access: options.access,
+    execute({ input, navigate }) {
+      const target = new URL(options.viewPath, 'http://slopstack.local');
+      target.searchParams.set(options.queryParameter ?? 'q', input.trim());
+      navigate(target.pathname + target.search + target.hash);
+    },
+  };
+}
+
 export function normalizeShortcutKeys(keys: readonly string[]) {
   return keys.map((key) => {
     const value = key.toLocaleLowerCase();

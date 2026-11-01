@@ -62,4 +62,6 @@ defineApplication({
 
 Search providers, actions, shortcuts, and `SearchFallbackDefinition` can all register in the app manifest or a frontend plugin. A fallback action receives the current query and appears when its minimum length and visibility rules match but the palette has no result.
 
+`defineSearchAction` creates an action that sends its input to a target view as a URL query parameter while preserving any existing target parameters and hash.
+
 Views use router-independent `resolveView` path matching with named parameters and wildcards. `resolveAccessibleView` applies client-side visibility rules and returns the configured unauthorized destination, while `getAccessibleNavigation` filters shell navigation with the same access context. `resolveApplicationRoute` composes matching, access, the view layout, and shell into a rendered route result that can be returned by React Router, TanStack Router, or an app-owned router. Client checks only shape navigation and rendering. PocketBase rules or server handlers remain responsible for authorization.

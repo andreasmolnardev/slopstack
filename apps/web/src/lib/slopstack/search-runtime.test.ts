@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { filterPaletteActions, filterSearchFallbacks, matchesShortcut, normalizeShortcutKeys, searchProviders, ShortcutRegistry } from './search-runtime';
+import { defineSearchAction, filterPaletteActions, filterSearchFallbacks, matchesShortcut, normalizeShortcutKeys, searchProviders, ShortcutRegistry } from './search-runtime';
 import type { SearchFallbackDefinition, SearchProvider, ShortcutDefinition } from './types';
 
 describe('search providers', () => {
@@ -49,6 +49,15 @@ describe('command actions and shortcuts', () => {
     ];
     expect(filterPaletteActions(actions, 'transaction')).toEqual([actions[1]]);
     expect(filterPaletteActions(actions, '')).toEqual(actions);
+  });
+
+  it('creates a search action that carries the query into a target view', async () => {
+    const action = defineSearchAction({
+      id: 'search-transactions', label: 'Search transactions', viewPath: '/transactions?sort=date#results',
+    });
+    const navigate = vi.fn();
+    await action.execute({ input: '  coffee & lunch  ', navigate, notify: vi.fn() });
+    expect(navigate).toHaveBeenCalledWith('/transactions?sort=date&q=coffee+%26+lunch#results');
   });
 
   it('offers search fallbacks only for eligible queries with no matching results', () => {

@@ -278,8 +278,9 @@
     {
       "id": "search-action",
       "category": "discovery",
-      "status": "partial",
-      "purpose": "Actions that apply a search query to a specific resource view."
+      "status": "implemented",
+      "purpose": "Actions that apply a search query to a specific resource view.",
+      "runtime": "defineSearchAction / ActionDefinition"
     },
     {
       "id": "search-fallback",
