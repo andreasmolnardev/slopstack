@@ -13,6 +13,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/package.json
 RUN corepack enable && pnpm install --frozen-lockfile --ignore-scripts && pnpm rebuild esbuild
 COPY apps/web apps/web
+COPY packages/cli/registry.json packages/cli/registry.json
 COPY --from=server-build /src/openapi/openapi.json openapi/openapi.json
 RUN pnpm --filter @slopstack/web generate:client
 RUN pnpm --filter @slopstack/web build
