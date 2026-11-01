@@ -4,6 +4,8 @@ import type {
   LayoutDefinition,
   ResourceDefinition,
   SearchProvider,
+  SearchFallbackDefinition,
+  ShellDefinition,
   ShortcutDefinition,
   SlopstackPlugin,
   ViewDefinition,
@@ -34,6 +36,14 @@ export function defineAction<Input = unknown, Output = unknown>(definition: Acti
 }
 
 export function defineSearchProvider<const Definition extends SearchProvider>(definition: Definition) {
+  return definition;
+}
+
+export function defineSearchFallback<const Definition extends SearchFallbackDefinition>(definition: Definition) {
+  return definition;
+}
+
+export function defineShell<const Definition extends ShellDefinition>(definition: Definition) {
   return definition;
 }
 

@@ -45,9 +45,9 @@
     {
       "id": "route-access",
       "category": "security",
-      "status": "contract",
-      "purpose": "Client route visibility hints paired with mandatory server authorization.",
-      "runtime": "PermissionRequirement"
+      "status": "implemented",
+      "purpose": "Client-side access evaluation for views and actions; protected backend operations still enforce authorization independently.",
+      "runtime": "PermissionRequirement / canAccess"
     },
     {
       "id": "action",
