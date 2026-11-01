@@ -163,6 +163,9 @@ export type ResourceDefinition<
   types?: { record?: RecordType; create?: CreateType; update?: UpdateType };
 };
 
+/** Erases record generics where only a resource's declarative schema is needed. */
+export type AnyResourceDefinition = Omit<ResourceDefinition, 'identify' | 'types'>;
+
 export type ViewContext = {
   params: Record<string, string>;
   search: URLSearchParams;
@@ -257,7 +260,7 @@ export type ShortcutDefinition = {
 };
 
 export type PluginContext = {
-  registerResource: (resource: ResourceDefinition) => void;
+  registerResource: (resource: AnyResourceDefinition) => void;
   registerView: (view: ViewDefinition) => void;
   registerLayout: (layout: LayoutDefinition) => void;
   registerAction: (action: ActionDefinition) => void;
@@ -279,7 +282,7 @@ export type ApplicationDefinition = {
   backend?: BackendDefinition;
   authentication?: AuthenticationDefinition;
   shell?: ShellDefinition;
-  resources?: readonly ResourceDefinition[];
+  resources?: readonly AnyResourceDefinition[];
   views?: readonly ViewDefinition[];
   layouts?: readonly LayoutDefinition[];
   actions?: readonly ActionDefinition[];

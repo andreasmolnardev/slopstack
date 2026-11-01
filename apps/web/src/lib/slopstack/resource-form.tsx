@@ -13,11 +13,11 @@ import {
 import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
 import { validateResourceInput } from './resource-validation';
-import type { FieldDefinition, ResourceDefinition } from './types';
+import type { AnyResourceDefinition, FieldDefinition } from './types';
 
 export type RelationOption = { id: string; label: string };
 export type ResourceFormValues = Record<string, unknown>;
-type ResourceFormDefinition = Omit<ResourceDefinition, 'identify' | 'types'>;
+type ResourceFormDefinition = AnyResourceDefinition;
 
 function getDefaults(resource: ResourceFormDefinition, initialValues?: ResourceFormValues) {
   const values: ResourceFormValues = {};

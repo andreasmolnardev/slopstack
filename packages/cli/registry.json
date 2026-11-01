@@ -4,22 +4,417 @@
   "schemaVersion": 1,
   "runtime": "apps/web/src/lib/slopstack/types.ts",
   "primitives": [
-    { "id": "resource", "category": "data", "purpose": "Typed data entity, fields, relationships, queries, CRUD source, and permissions.", "generator": "resource", "runtime": "ResourceDefinition" },
-    { "id": "view", "category": "application", "purpose": "Routed screen with typed route context and access requirements.", "generator": "view", "runtime": "ViewDefinition" },
-    { "id": "layout", "category": "presentation", "purpose": "Composable arrangement of named slots for views and components.", "generator": "layout", "runtime": "LayoutDefinition" },
-    { "id": "shell", "category": "application", "purpose": "Application frame with navigation and global UI.", "runtime": "ShellDefinition" },
-    { "id": "navigation", "category": "application", "purpose": "Links views into sidebar, top bar, rail, and bottom navigation.", "runtime": "NavigationItem" },
-    { "id": "action", "category": "interaction", "purpose": "Reusable operation with permissions, confirmation, notification, and loading lifecycle.", "runtime": "ActionDefinition" },
-    { "id": "field", "category": "data", "purpose": "Typed input definition for forms, including relations and files.", "runtime": "FieldDefinition" },
-    { "id": "form", "category": "interaction", "purpose": "Schema-driven fields, validation, defaults, and submission.", "runtime": "ResourceForm" },
-    { "id": "data-view", "category": "data", "purpose": "Resource display as a table, list, or card collection with selection.", "runtime": "ResourceDataView" },
-    { "id": "query", "category": "data", "purpose": "Search, filtering, sorting, pagination, and URL-synchronized state.", "runtime": "QueryDefinition" },
-    { "id": "search-provider", "category": "discovery", "purpose": "Search registered application resources and return ranked results.", "runtime": "SearchProvider" },
-    { "id": "command-palette", "category": "discovery", "purpose": "Unified search, navigation, and action interface with keyboard shortcut.", "runtime": "CommandPalette" },
-    { "id": "plugin", "category": "extension", "purpose": "Register resources, views, layouts, actions, search providers, and shortcuts.", "runtime": "SlopstackPlugin" },
-    { "id": "collection-definition", "category": "backend", "purpose": "PocketBase collection schema and migration declaration.", "runtime": "CollectionDefinition" },
-    { "id": "endpoint", "category": "backend", "purpose": "Custom typed Go/Huma API route.", "runtime": "Endpoint" },
-    { "id": "hook", "category": "backend", "purpose": "Backend lifecycle hook.", "runtime": "Hook" },
-    { "id": "job", "category": "backend", "purpose": "Scheduled or background backend operation.", "runtime": "Job" }
+    {
+      "id": "resource",
+      "category": "data",
+      "status": "implemented",
+      "purpose": "Typed data entity, fields, relationships, queries, CRUD source, and permissions.",
+      "generator": "resource",
+      "runtime": "ResourceDefinition"
+    },
+    {
+      "id": "view",
+      "category": "application",
+      "status": "partial",
+      "purpose": "Routed screen with typed route context, path resolution, and access requirements.",
+      "generator": "view",
+      "runtime": "ViewDefinition"
+    },
+    {
+      "id": "layout",
+      "category": "presentation",
+      "status": "implemented",
+      "purpose": "Composable arrangement of validated named slots for views and components.",
+      "generator": "layout",
+      "runtime": "LayoutDefinition"
+    },
+    {
+      "id": "shell",
+      "category": "application",
+      "status": "partial",
+      "purpose": "Application frame with global UI and configurable navigation styles.",
+      "runtime": "ShellDefinition"
+    },
+    {
+      "id": "navigation",
+      "category": "application",
+      "status": "partial",
+      "purpose": "Responsive sidebar, top bar, rail, and bottom navigation patterns.",
+      "runtime": "NavigationItem"
+    },
+    {
+      "id": "route-access",
+      "category": "security",
+      "status": "contract",
+      "purpose": "Client route visibility hints paired with mandatory server authorization.",
+      "runtime": "PermissionRequirement"
+    },
+    {
+      "id": "action",
+      "category": "interaction",
+      "status": "implemented",
+      "purpose": "Reusable operation with access checks, confirmation, notifications, and error handling.",
+      "runtime": "ActionDefinition"
+    },
+    {
+      "id": "field",
+      "category": "data",
+      "status": "implemented",
+      "purpose": "Typed inputs including text, selection, dates, relations, sliders, and files.",
+      "runtime": "FieldDefinition"
+    },
+    {
+      "id": "form",
+      "category": "interaction",
+      "status": "implemented",
+      "purpose": "Schema-driven fields, validation, defaults, and submission.",
+      "runtime": "ResourceForm"
+    },
+    {
+      "id": "data-view",
+      "category": "data",
+      "status": "implemented",
+      "purpose": "Resource display as a table, list, or card collection with row selection.",
+      "runtime": "ResourceDataView"
+    },
+    {
+      "id": "query",
+      "category": "data",
+      "status": "implemented",
+      "purpose": "Search, filtering, sorting, pagination state, and URL synchronization.",
+      "runtime": "QueryDefinition"
+    },
+    {
+      "id": "filter",
+      "category": "data",
+      "status": "partial",
+      "purpose": "Reusable URL-backed filter definitions and generated controls.",
+      "runtime": "FilterDefinition"
+    },
+    {
+      "id": "relationship",
+      "category": "data",
+      "status": "partial",
+      "purpose": "Typed one-to-one and one-to-many resource references and selectors.",
+      "runtime": "RelationField"
+    },
+    {
+      "id": "selection",
+      "category": "interaction",
+      "status": "implemented",
+      "purpose": "Single and multiple selection for data views and bulk operations.",
+      "runtime": "ResourceDataView"
+    },
+    {
+      "id": "upload",
+      "category": "data",
+      "status": "partial",
+      "purpose": "File validation, selection, and multipart endpoint uploads.",
+      "runtime": "FileField"
+    },
+    {
+      "id": "dialog",
+      "category": "interaction",
+      "status": "implemented",
+      "purpose": "Composable shadcn dialogs, sheets, drawers, and confirmations.",
+      "runtime": "Dialog"
+    },
+    {
+      "id": "search-provider",
+      "category": "discovery",
+      "status": "implemented",
+      "purpose": "Search providers with cancellation, result ranking, and deduplication.",
+      "runtime": "SearchProvider"
+    },
+    {
+      "id": "command-palette",
+      "category": "discovery",
+      "status": "implemented",
+      "purpose": "Unified search, navigation, actions, and keyboard shortcuts.",
+      "runtime": "CommandPalette"
+    },
+    {
+      "id": "shortcut",
+      "category": "discovery",
+      "status": "implemented",
+      "purpose": "Registered keyboard shortcuts with access checks and conflict validation.",
+      "runtime": "ShortcutDefinition"
+    },
+    {
+      "id": "plugin",
+      "category": "extension",
+      "status": "partial",
+      "purpose": "Register frontend capabilities or backend collections, endpoints, hooks, and jobs.",
+      "runtime": "SlopstackPlugin / BackendPlugin"
+    },
+    {
+      "id": "authentication",
+      "category": "security",
+      "status": "partial",
+      "purpose": "Provider-neutral PocketBase, trusted-proxy, bearer-token, or custom auth adapters.",
+      "runtime": "AuthenticationAdapter"
+    },
+    {
+      "id": "backend-adapter",
+      "category": "data",
+      "status": "implemented",
+      "purpose": "Source-selected PocketBase and fetch endpoint clients with custom adapter support.",
+      "runtime": "createDefaultResourceClient"
+    },
+    {
+      "id": "cache",
+      "category": "capability",
+      "status": "implemented",
+      "purpose": "TanStack Query fetching, cache invalidation, optimistic updates, and rollback.",
+      "runtime": "useResourceQuery"
+    },
+    {
+      "id": "realtime",
+      "category": "capability",
+      "status": "partial",
+      "purpose": "PocketBase subscription lifecycle and resource cache invalidation.",
+      "runtime": "usePocketBaseResourceRealtime"
+    },
+    {
+      "id": "settings-theme",
+      "category": "capability",
+      "status": "partial",
+      "purpose": "Persisted preferences, navigation choices, theme tokens, and motion settings.",
+      "runtime": "UserPreferences"
+    },
+    {
+      "id": "collection-definition",
+      "category": "backend",
+      "status": "implemented",
+      "purpose": "PocketBase schema seed that creates missing collections without schema mutation.",
+      "runtime": "CollectionDefinition"
+    },
+    {
+      "id": "endpoint",
+      "category": "backend",
+      "status": "implemented",
+      "purpose": "Custom typed Go/Huma API route contributing to OpenAPI generation.",
+      "runtime": "Endpoint"
+    },
+    {
+      "id": "hook",
+      "category": "backend",
+      "status": "implemented",
+      "purpose": "PocketBase backend lifecycle hook registered by a backend plugin.",
+      "runtime": "Hook"
+    },
+    {
+      "id": "job",
+      "category": "backend",
+      "status": "partial",
+      "purpose": "One-shot or interval backend operation with shutdown cancellation.",
+      "runtime": "Job"
+    },
+    {
+      "id": "collection",
+      "category": "data",
+      "status": "planned",
+      "purpose": "Ordered or grouped resource collections such as playlists or saved sets."
+    },
+    {
+      "id": "persistent-region",
+      "category": "presentation",
+      "status": "planned",
+      "purpose": "UI that persists across route changes, such as a mini player."
+    },
+    {
+      "id": "infinite-feed",
+      "category": "presentation",
+      "status": "planned",
+      "purpose": "Virtualized infinite scrolling for large feeds."
+    },
+    {
+      "id": "comment-thread",
+      "category": "presentation",
+      "status": "planned",
+      "purpose": "Threaded discussions and reply interfaces."
+    },
+    {
+      "id": "media-viewer",
+      "category": "presentation",
+      "status": "planned",
+      "purpose": "Images, video, audio, and fullscreen media controls."
+    },
+    {
+      "id": "dashboard-widget",
+      "category": "presentation",
+      "status": "partial",
+      "purpose": "Composable dashboard cards and chart content; app screens currently compose them directly."
+    },
+    {
+      "id": "agent-registry",
+      "category": "developer-tools",
+      "status": "partial",
+      "purpose": "Machine-readable primitive catalog and scaffolding generators.",
+      "runtime": "packages/cli/registry.json"
+    },
+    {
+      "id": "search-trigger",
+      "category": "discovery",
+      "status": "implemented",
+      "purpose": "Button and keyboard entry points that open the command palette.",
+      "runtime": "CommandPalette"
+    },
+    {
+      "id": "search-action",
+      "category": "discovery",
+      "status": "partial",
+      "purpose": "Actions that apply a search query to a specific resource view."
+    },
+    {
+      "id": "search-fallback",
+      "category": "discovery",
+      "status": "planned",
+      "purpose": "Fallback from inline search to a dedicated results view."
+    },
+    {
+      "id": "page-layout",
+      "category": "presentation",
+      "status": "partial",
+      "purpose": "Standard page heading, content region, and actions pattern.",
+      "runtime": "PageHeading"
+    },
+    {
+      "id": "feed-layout",
+      "category": "presentation",
+      "status": "planned",
+      "purpose": "Responsive feed or grid layout with optional infinite scrolling."
+    },
+    {
+      "id": "detail-layout",
+      "category": "presentation",
+      "status": "partial",
+      "purpose": "Primary details and related information arranged through layout slots."
+    },
+    {
+      "id": "master-detail-layout",
+      "category": "presentation",
+      "status": "planned",
+      "purpose": "List and selected record displayed together."
+    },
+    {
+      "id": "collection-layout",
+      "category": "presentation",
+      "status": "planned",
+      "purpose": "Collection metadata and ordered child resources."
+    },
+    {
+      "id": "settings-layout",
+      "category": "presentation",
+      "status": "partial",
+      "purpose": "Account and application preference screens with persisted settings."
+    },
+    {
+      "id": "management-layout",
+      "category": "presentation",
+      "status": "partial",
+      "purpose": "Admin table, filter, and toolbar patterns."
+    },
+    {
+      "id": "immersive-layout",
+      "category": "presentation",
+      "status": "planned",
+      "purpose": "Fullscreen or distraction-free content shell."
+    },
+    {
+      "id": "slot",
+      "category": "presentation",
+      "status": "implemented",
+      "purpose": "Named layout area with accepted content kinds and cardinality.",
+      "runtime": "LayoutSlot"
+    },
+    {
+      "id": "tabs",
+      "category": "presentation",
+      "status": "implemented",
+      "purpose": "shadcn tab primitives for nested views and settings sections."
+    },
+    {
+      "id": "card-item-renderer",
+      "category": "presentation",
+      "status": "partial",
+      "purpose": "Reusable card and item renderers for resource data views."
+    },
+    {
+      "id": "menu-toolbar",
+      "category": "presentation",
+      "status": "implemented",
+      "purpose": "shadcn context menus, dropdowns, menus, and action toolbars."
+    },
+    {
+      "id": "notification",
+      "category": "interaction",
+      "status": "implemented",
+      "purpose": "Toast, alert, and action feedback primitives.",
+      "runtime": "Sonner"
+    },
+    {
+      "id": "empty-loading-state",
+      "category": "presentation",
+      "status": "partial",
+      "purpose": "Reusable empty, loading, skeleton, and error recovery patterns."
+    },
+    {
+      "id": "chart",
+      "category": "presentation",
+      "status": "partial",
+      "purpose": "Charts are available through Recharts, but not yet resource-generated."
+    },
+    {
+      "id": "permissions",
+      "category": "security",
+      "status": "partial",
+      "purpose": "Server-enforced user/group permission rules plus frontend visibility checks.",
+      "runtime": "PermissionRequirement"
+    },
+    {
+      "id": "state-settings",
+      "category": "capability",
+      "status": "partial",
+      "purpose": "Persisted user and app preferences plus local component state."
+    },
+    {
+      "id": "router",
+      "category": "application",
+      "status": "partial",
+      "purpose": "Reference route handling and typed view path resolution.",
+      "runtime": "resolveView"
+    },
+    {
+      "id": "api",
+      "category": "backend",
+      "status": "implemented",
+      "purpose": "Huma OpenAPI and generated TypeScript API client."
+    },
+    {
+      "id": "background-operation",
+      "category": "backend",
+      "status": "partial",
+      "purpose": "One-shot and interval jobs; durable queued jobs and progress UI are not included.",
+      "runtime": "Job"
+    },
+    {
+      "id": "type-generation",
+      "category": "developer-tools",
+      "status": "implemented",
+      "purpose": "Generate typed frontend clients from the Huma OpenAPI contract."
+    },
+    {
+      "id": "agent-instructions",
+      "category": "developer-tools",
+      "status": "partial",
+      "purpose": "Repository guidance and Slopstack-specific agent skill."
+    },
+    {
+      "id": "extension-api",
+      "category": "extension",
+      "status": "partial",
+      "purpose": "Frontend and backend extension contracts for custom renderers, fields, providers, and services."
+    }
   ]
 }

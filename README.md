@@ -26,6 +26,10 @@ Personal settings are stored with the user account and include locale, time zone
 
 Go handlers use Huma and publish OpenAPI 3.1 documentation. The TypeScript client is generated from that contract, keeping frontend calls typed against the API. PocketBase remains available for auth and collection-backed data.
 
+### Application primitives
+
+Typed resources can drive schema-defined forms, tables/lists/cards, selection and bulk actions, search/filter/sort controls, URL query state, PocketBase realtime invalidation, and a cross-view command palette. Resource clients work with PocketBase collections, REST endpoints, or application-owned adapters. The reference Todo flow uses a registered resource, reusable form and data-view patterns, generated API methods, provider-neutral PocketBase auth, and persisted theme/motion settings. View and layout contracts plus route resolution are available for modules that want registry-driven composition.
+
 ### Packaging, deployment, and upgrades
 
 The Go runtime can serve the built frontend, and Docker packages the app with persistent PocketBase data. CI and release workflows check builds and publish version-tagged container images. The Slopstack CLI can initialize a project and apply template upgrades with previews, checksums, conflict detection, snapshots, rollback, and validation.
@@ -33,14 +37,14 @@ The Go runtime can serve the built frontend, and Docker packages the app with pe
 ## What the template includes
 
 - **Frontend:** React, TypeScript, Vite, route handling, account screens, responsive app shell, and the reference task workspace with overview, tasks, schedule, analytics, and component showcase screens.
-- **UI library:** the full checked-in shadcn component set, color/theme tokens, and reusable table, form-dialog, page-heading, and navigation patterns.
+- **UI library:** the full checked-in shadcn component set, color/theme tokens, and reusable resource form/data-view/query, table, form-dialog, page-heading, and navigation patterns.
 - **Backend:** Go server, Huma API routes, embedded PocketBase, SQLite, migrations, owner-scoped Todo CRUD, preferences, and permission enforcement.
 - **Authentication and administration:** PocketBase account flows, OAuth provider configuration, protected user/group administration, memberships, permission rules, and optional organizations.
 - **API workflow:** OpenAPI export, served API docs, and generated TypeScript client.
-- **Developer tooling:** Go and web development commands, tests, lint/build scripts, project initialization, and safe template upgrade/rollback commands.
+- **Developer tooling:** Go and web development commands, tests, lint/build scripts, project initialization, primitive discovery/generation, and safe template upgrade/rollback commands.
 - **Delivery:** Docker image and Compose setup, environment examples, CI checks, centralized app version, and a container publishing workflow.
 
-This is the current template scope, not every possible Slopstack integration. PocketBase is currently the built-in auth and data backend. External OIDC or proxy authentication, non-PocketBase backends, and an interactive `create` wizard are not implemented yet; apps can replace or extend the existing patterns themselves.
+This is the current template scope, not every possible Slopstack integration. PocketBase is the complete built-in auth/data stack. Provider-neutral auth contracts include PocketBase and trusted-proxy adapters; bearer or other identity flows can implement the same adapter and provide request headers. Endpoint resources can use REST backends without PocketBase. External identity systems still require an app-owned server session/authorization integration. See the implementation status in the primitive catalog.
 
 ## Installation
 
@@ -54,6 +58,8 @@ pnpm dev
 
 `pnpm dev` starts the backend and frontend together. The backend uses `air` for hot reload and serves on `0.0.0.0:8090`; the Vite app proxies `/api` there.
 If `8090` is busy, set `SLOPSTACK_HTTP_ADDRESS=127.0.0.1:18090` before running `pnpm dev`.
+
+To scaffold a separate application, run `pnpm slopstack create` for an interactive directory prompt or `pnpm slopstack create ./my-app` for non-interactive initialization.
 
 ## Development
 

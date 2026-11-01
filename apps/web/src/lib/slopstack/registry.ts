@@ -1,8 +1,8 @@
 import type {
   ActionDefinition,
+  AnyResourceDefinition,
   ApplicationDefinition,
   LayoutDefinition,
-  ResourceDefinition,
   SearchProvider,
   ShortcutDefinition,
   SlopstackPlugin,
@@ -17,7 +17,7 @@ function addUnique<T extends Identified>(items: Map<string, T>, item: T, kind: s
 }
 
 export class SlopstackRegistry {
-  readonly resources = new Map<string, ResourceDefinition>();
+  readonly resources = new Map<string, AnyResourceDefinition>();
   readonly views = new Map<string, ViewDefinition>();
   readonly layouts = new Map<string, LayoutDefinition>();
   readonly actions = new Map<string, ActionDefinition>();
@@ -25,7 +25,7 @@ export class SlopstackRegistry {
   readonly shortcuts = new Map<string, ShortcutDefinition>();
   readonly plugins = new Map<string, SlopstackPlugin>();
 
-  registerResource(resource: ResourceDefinition) {
+  registerResource(resource: AnyResourceDefinition) {
     addUnique(this.resources, resource, 'resource');
   }
 
@@ -64,9 +64,11 @@ export class SlopstackRegistry {
 
     const routes = new Map<string, string>();
     for (const view of this.views.values()) {
-      const existing = routes.get(view.path);
-      if (existing) issues.push(`Views "${existing}" and "${view.id}" use the same path "${view.path}".`);
-      else routes.set(view.path, view.id);
+      if (!view.path.startsWith('/')) issues.push(`View "${view.id}" path must start with /.`);
+      const signature = view.path.replace(/:[A-Za-z][A-Za-z0-9_]*/g, ':param').replace(/\/+$/, '') || '/';
+      const existing = routes.get(signature);
+      if (existing) issues.push(`Views "${existing}" and "${view.id}" have conflicting route patterns "${view.path}".`);
+      else routes.set(signature, view.id);
     }
 
     for (const layout of this.layouts.values()) {
@@ -107,7 +109,10 @@ export class SlopstackRegistry {
       }
     }
 
+    const navigationIds = new Set<string>();
     for (const item of application.shell?.navigation ?? []) {
+      if (navigationIds.has(item.id)) issues.push(`Shell navigation has duplicate item "${item.id}".`);
+      navigationIds.add(item.id);
       if (!this.views.has(item.view)) {
         issues.push(`Navigation item "${item.id}" refers to missing view "${item.view}".`);
       }

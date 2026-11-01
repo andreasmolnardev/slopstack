@@ -20,7 +20,11 @@ function usage() {
 }
 
 function pascalCase(value) {
-  return value.split(/[^a-zA-Z0-9]+/).filter(Boolean).map((part) => part[0].toUpperCase() + part.slice(1)).join('');
+  return value
+    .split(/[^a-zA-Z0-9]+/)
+    .filter(Boolean)
+    .map((part) => part[0].toUpperCase() + part.slice(1))
+    .join('');
 }
 
 function camelCase(value) {
@@ -29,7 +33,11 @@ function camelCase(value) {
 }
 
 function slug(value) {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
 }
 
 function parseArgs(args) {
@@ -46,13 +54,23 @@ function parseArgs(args) {
 function fieldSource(field) {
   const [name, kind, extra] = field.split(':');
   if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(name ?? '')) throw new Error(`Invalid field name: ${name}`);
-  const supported = new Set(['text', 'number', 'boolean', 'date', 'datetime', 'time', 'slider', 'file']);
+  const supported = new Set([
+    'text',
+    'number',
+    'boolean',
+    'date',
+    'datetime',
+    'time',
+    'slider',
+    'file',
+  ]);
   if (!supported.has(kind)) throw new Error(`Unsupported field kind "${kind}" for ${name}.`);
   const label = name.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
   let definition = `{ name: '${name}', label: '${label}', kind: '${kind}'`;
   if (kind === 'slider') {
     const [min = '0', max = '100', step = '1'] = (extra ?? '').split(',');
-    if (![min, max, step].every((value) => /^-?\d+(\.\d+)?$/.test(value))) throw new Error(`Invalid slider range for ${name}; use name:slider:min,max,step.`);
+    if (![min, max, step].every((value) => /^-?\d+(\.\d+)?$/.test(value)))
+      throw new Error(`Invalid slider range for ${name}; use name:slider:min,max,step.`);
     definition += `, min: ${min}, max: ${max}, step: ${step}`;
   }
   return `${definition} }`;
@@ -64,7 +82,12 @@ function render(kind, name, fields = []) {
   const variable = camelCase(name);
   if (!id || !symbol) throw new Error('Choose a name with letters or numbers.');
   if (kind === 'resource') {
-    const fieldList = fields.length ? fields.map(fieldSource).map((field) => `    ${field},`).join('\n') : '    { name: \'name\', label: \'Name\', kind: \'text\', required: true },';
+    const fieldList = fields.length
+      ? fields
+          .map(fieldSource)
+          .map((field) => `    ${field},`)
+          .join('\n')
+      : "    { name: 'name', label: 'Name', kind: 'text', required: true },";
     return {
       directory: 'resources',
       file: `${id}.ts`,
@@ -91,19 +114,31 @@ function render(kind, name, fields = []) {
 function main() {
   const [command, ...args] = process.argv.slice(2);
   if (command === 'list') {
-    console.log(args.includes('--json') ? JSON.stringify(registry, null, 2) : registry.primitives.map((item) => `${item.id.padEnd(22)} ${item.purpose}`).join('\n'));
+    console.log(
+      args.includes('--json')
+        ? JSON.stringify(registry, null, 2)
+        : registry.primitives
+            .map(
+              (item) =>
+                `${item.id.padEnd(22)} ${(item.status ?? 'planned').padEnd(11)} ${item.purpose}`,
+            )
+            .join('\n'),
+    );
     return;
   }
   if (command !== 'generate') return usage();
   const [kind, name, ...rawOptions] = args;
-  if (!['resource', 'view', 'layout'].includes(kind)) throw new Error('Generate resource, view, or layout.');
+  if (!['resource', 'view', 'layout'].includes(kind))
+    throw new Error('Generate resource, view, or layout.');
   if (!name) throw new Error('Provide a name for the primitive.');
   const options = parseArgs(rawOptions);
   const rendered = render(kind, name, options.fields);
   const targetRoot = path.resolve(root, options.output);
   const destination = path.resolve(targetRoot, rendered.directory, rendered.file);
-  if (!destination.startsWith(`${targetRoot}${path.sep}`)) throw new Error('Output path escapes the selected directory.');
-  if (existsSync(destination) && !options.force) throw new Error(`${path.relative(root, destination)} exists. Use --force to replace it.`);
+  if (!destination.startsWith(`${targetRoot}${path.sep}`))
+    throw new Error('Output path escapes the selected directory.');
+  if (existsSync(destination) && !options.force)
+    throw new Error(`${path.relative(root, destination)} exists. Use --force to replace it.`);
   mkdirSync(path.dirname(destination), { recursive: true });
   writeFileSync(destination, rendered.source);
   console.log(`Generated ${kind}: ${path.relative(root, destination)}`);

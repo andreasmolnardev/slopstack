@@ -89,4 +89,16 @@ describe('Slopstack primitive registry', () => {
     expect(secondDispose).toHaveBeenCalledOnce();
     expect(firstDispose).toHaveBeenCalledOnce();
   });
+
+  it('detects route collisions that differ only by parameter names', () => {
+    const app: ApplicationDefinition = {
+      id: 'routes',
+      name: 'Routes',
+      views: [
+        { id: 'project', path: '/projects/:projectId', label: 'Project', component: () => null },
+        { id: 'other-project', path: '/projects/:id', label: 'Other project', component: () => null },
+      ],
+    };
+    expect(() => createSlopstackRegistry(app)).toThrow(/conflicting route patterns/);
+  });
 });

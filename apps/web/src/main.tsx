@@ -4,9 +4,11 @@ import { createRoot } from 'react-dom/client';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Toaster } from './components/ui/sonner';
 import { App } from './app';
+import { slopstackRuntime } from './application';
 import './styles.css';
 
 const queryClient = new QueryClient();
+void slopstackRuntime.registry;
 
 createRoot(document.getElementById('root')!).render(
   <QueryClientProvider client={queryClient}>

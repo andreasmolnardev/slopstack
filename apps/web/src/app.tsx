@@ -114,6 +114,8 @@ import { ResourceForm, type ResourceFormValues } from '@/lib/slopstack/resource-
 import { ResourceQueryControls } from '@/components/patterns/resource-query-controls';
 import type { ResourceQuery } from '@/lib/slopstack/resource-client';
 import { useResourceQueryState } from '@/lib/slopstack/query-state';
+import { subscribePocketBaseResource } from '@/lib/slopstack/react-query';
+import primitiveCatalog from '../../../packages/cli/registry.json';
 import { todoResource } from '@/resources/todos';
 import { Switch } from '@/components/ui/switch';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -513,6 +515,19 @@ export function App() {
       active = false;
     };
   }, [authRevision, authUserId]);
+
+  useEffect(() => {
+    if (!authUserId) return;
+    let active = true;
+    const stop = subscribePocketBaseResource(pb, 'todos', () => {
+      void getTodos().then((records) => {
+        if (active) setTasks(records as Task[]);
+      }).catch(() => {
+        if (active) setTaskError('Could not sync your tasks. Please try again.');
+      });
+    });
+    return () => { active = false; stop(); };
+  }, [authUserId]);
 
   const completed = tasks.filter((task) => task.completed).length;
   const visibleTasks = useMemo(
@@ -2957,6 +2972,30 @@ function ComponentsView({ userInitials, userName }: { userInitials: string; user
           </Card>
         ))}
       </div>
+      <section className="mt-12 space-y-5">
+        <PageHeading
+          eyebrow="Slopstack runtime"
+          title="Application primitives"
+          description="Typed building blocks for composing app data, screens, interactions, discovery, and backend extensions. Status marks what is ready, partial, contract-only, or planned."
+        />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {primitiveCatalog.primitives.map((primitive) => (
+            <Card key={primitive.id}>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="text-sm">{primitive.id}</CardTitle>
+                  <Badge variant={primitive.status === 'implemented' ? 'secondary' : 'outline'}>{primitive.status}</Badge>
+                </div>
+                <CardDescription>{primitive.category}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm text-muted-foreground">
+                <p>{primitive.purpose}</p>
+                {'runtime' in primitive && primitive.runtime && <code className="block truncate text-xs">{primitive.runtime}</code>}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </section>
     </>
   );
 }
