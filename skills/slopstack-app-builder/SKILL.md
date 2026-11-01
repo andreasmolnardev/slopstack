@@ -36,6 +36,6 @@ Use Slopstack's existing primitives and conventions to build the requested appli
 ## Scaffold and validate
 
 - Create a separate app with `pnpm slopstack create` for an interactive destination prompt or `pnpm slopstack create <directory>` for non-interactive setup.
-- Inspect or generate primitive starters with `pnpm slopstack:primitive list` and `pnpm slopstack:primitive generate <kind> <name>` where kind is `resource`, `view`, or `layout`. Review generated files before wiring them into runtime code.
+- Inspect or generate primitive starters with `pnpm slopstack:primitive list` and `pnpm slopstack:primitive generate <kind> <name>` where kind is `resource`, `view`, `layout`, or `backend-plugin`. Review generated files before wiring them into runtime code; backend plugin scaffolds still require explicit app bootstrap registration.
 - Run the checks relevant to the changes and the project instructions. For frontend work, use lint, TypeScript build, tests, and production build as appropriate. For backend work, run focused Go tests and regenerate API artifacts when needed. Avoid unrelated formatting or generated changes.
 - Summarize which primitives the app uses, which pieces remain app-owned, the validation performed, and any partial or planned capabilities that affect the requested behavior.

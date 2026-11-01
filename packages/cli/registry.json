@@ -145,7 +145,8 @@
       "category": "extension",
       "status": "partial",
       "purpose": "Register frontend capabilities or backend collections, endpoints, hooks, and jobs.",
-      "runtime": "SlopstackPlugin / BackendPlugin"
+      "runtime": "SlopstackPlugin / BackendPlugin",
+      "generator": "backend-plugin"
     },
     {
       "id": "authentication",

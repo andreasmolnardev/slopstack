@@ -14,9 +14,10 @@ pnpm slopstack:primitive generate resource projects \
   --field archived:boolean
 pnpm slopstack:primitive generate view projects
 pnpm slopstack:primitive generate layout project-detail
+pnpm slopstack:primitive generate backend-plugin billing
 ```
 
-Generated files go under `apps/web/src` by default: resources under `resources/`, views under `views/`, and layouts under `layouts/`. Choose another root with `--out <directory>`. Existing files are preserved unless `--force` is passed. The resource generator accepts `text`, `number`, `boolean`, `select`, `relation`, `date`, `datetime`, `time`, `slider`, and `file` field kinds. For example, use `--field description:text:multiline`, `--field status:select:open,closed`, `--field owner:relation:users:one`, or `--field score:slider:0,10,1`.
+Frontend files go under `apps/web/src` by default: resources under `resources/`, views under `views/`, and layouts under `layouts/`. Backend plugin scaffolds go under `apps/server/internal/plugins/`. Choose another root with `--out <directory>`. Existing files are preserved unless `--force` is passed. The resource generator accepts `text`, `number`, `boolean`, `select`, `relation`, `date`, `datetime`, `time`, `slider`, and `file` field kinds. For example, use `--field description:text:multiline`, `--field status:select:open,closed`, `--field owner:relation:users:one`, or `--field score:slider:0,10,1`.
 
 Scaffolding creates a starting definition; it does not edit a route table, register a collection migration, or generate domain-specific API handlers. Connect the new definition to the app registry and implement its backend source and permissions before exposing it to users. Backend primitive contracts are documented in [Backend extensions](backend-extensions.md).
 
@@ -26,7 +27,7 @@ Applications can declare typed `SettingsDefinition` entries in the manifest. `cr
 
 Background operations declare an async runner and receive an `AbortSignal` plus a progress callback. `createBackgroundOperationManager` tracks running, succeeded, failed, and cancelled work, exposes snapshots to persistent shell UI, and lets the app cancel or dismiss completed entries. For server-side jobs, have the operation adapter relay server progress and cancellation to these same callbacks.
 
-The current CLI generates frontend resource, view, and layout definitions. It does not yet generate backend collection definitions, Huma endpoints, hooks, jobs, or plugin registration. Those contracts are implemented in the runtime and documented separately; wiring them into app bootstrap remains app-owned.
+The CLI generates frontend resource, view, and layout definitions plus a Go backend-plugin scaffold. The plugin scaffold leaves collections, endpoints, hooks, and jobs as explicit TODO slots, and the app still wires the plugin into bootstrap.
 
 ## Backend and authentication choices
 

@@ -13,6 +13,7 @@ function usage() {
   node packages/cli/slopstack.mjs generate resource <name> [--field <name>:<kind>]...
   node packages/cli/slopstack.mjs generate view <name>
   node packages/cli/slopstack.mjs generate layout <name>
+  node packages/cli/slopstack.mjs generate backend-plugin <name>
 
   Kinds: text, number, boolean, select, relation, date, datetime, time, slider, file
   Options: --out <directory> (default: apps/web/src), --force
@@ -41,7 +42,7 @@ function slug(value) {
 }
 
 function parseArgs(args) {
-  const options = { fields: [], output: 'apps/web/src', force: false };
+  const options = { fields: [], output: undefined, force: false };
   for (let i = 0; i < args.length; i += 1) {
     if (args[i] === '--field') options.fields.push(args[++i] ?? '');
     else if (args[i] === '--out') options.output = args[++i] ?? '';
@@ -96,6 +97,8 @@ function render(kind, name, fields = []) {
   const symbol = pascalCase(name);
   const variable = camelCase(name);
   if (!id || !symbol) throw new Error('Choose a name with letters or numbers.');
+  if (kind === 'backend-plugin' && !/^[a-z]/.test(id))
+    throw new Error('Backend plugin names must start with a letter.');
   if (kind === 'resource') {
     const fieldList = fields.length
       ? fields
@@ -123,6 +126,29 @@ function render(kind, name, fields = []) {
       source: `import type { LayoutDefinition } from '@/lib/slopstack';\n\nexport const ${variable}Layout: LayoutDefinition = {\n  id: '${id}',\n  label: '${symbol}',\n  slots: [\n    { id: 'header', label: 'Header', accepts: ['component', 'action'] },\n    { id: 'main', label: 'Main content', accepts: ['view', 'component', 'resource'], required: true },\n    { id: 'aside', label: 'Aside', accepts: ['view', 'component', 'resource'] },\n  ],\n  component: ({ slots }) => (\n    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">\n      <main className="min-w-0 space-y-6">{slots.header}{slots.main}</main>\n      <aside>{slots.aside}</aside>\n    </div>\n  ),\n};\n`,
     };
   }
+  if (kind === 'backend-plugin') {
+    const packageName = id.replaceAll('-', '_');
+    return {
+      directory: path.join('plugins', id),
+      file: 'plugin.go',
+      source: `package ${packageName}
+
+import "github.com/slopstack/slopstack/apps/server/internal/primitives"
+
+// Definition returns the backend extension contract. Register it from the app composition point.
+func Definition() primitives.BackendPlugin {
+	return primitives.BackendPlugin{
+		Name:        "${id.replaceAll('-', '_')}",
+		Description: "${symbol} backend extension",
+		Collections: []primitives.CollectionDefinition{},
+		Endpoints:   []primitives.Endpoint{},
+		Hooks:       []primitives.Hook{},
+		Jobs:        []primitives.Job{},
+	}
+}
+`,
+    };
+  }
   throw new Error(`Unsupported generator: ${kind}`);
 }
 
@@ -143,12 +169,13 @@ function main() {
   }
   if (command !== 'generate') return usage();
   const [kind, name, ...rawOptions] = args;
-  if (!['resource', 'view', 'layout'].includes(kind))
-    throw new Error('Generate resource, view, or layout.');
+  if (!['resource', 'view', 'layout', 'backend-plugin'].includes(kind))
+    throw new Error('Generate resource, view, layout, or backend-plugin.');
   if (!name) throw new Error('Provide a name for the primitive.');
   const options = parseArgs(rawOptions);
   const rendered = render(kind, name, options.fields);
-  const targetRoot = path.resolve(root, options.output);
+  const defaultOutput = kind === 'backend-plugin' ? 'apps/server/internal' : 'apps/web/src';
+  const targetRoot = path.resolve(root, options.output ?? defaultOutput);
   const destination = path.resolve(targetRoot, rendered.directory, rendered.file);
   if (!destination.startsWith(`${targetRoot}${path.sep}`))
     throw new Error('Output path escapes the selected directory.');
