@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -69,20 +72,22 @@ func Register(pb *pocketbase.PocketBase, config Config, api huma.API, plugins ..
 	protectUserAdminFlag(pb, config)
 
 	pb.OnServe().BindFunc(func(e *core.ServeEvent) error {
-		e.Router.BindFunc(func(event *core.RequestEvent) error {
-			if event.Auth == nil || event.Auth.Collection().Name != "users" {
-				return event.Next()
-			}
-			latest, err := event.App.FindRecordById("users", event.Auth.Id)
-			if err != nil || latest.GetBool("disabled") {
-				return event.UnauthorizedError("account is disabled", err)
-			}
-			return event.Next()
-		})
+		e.Router.BindFunc(rejectDisabledUser)
 		registerRoutes(e, config, api)
 		return e.Next()
 	})
 	return nil
+}
+
+func rejectDisabledUser(event *core.RequestEvent) error {
+	if event.Auth == nil || event.Auth.Collection().Name != "users" {
+		return event.Next()
+	}
+	latest, err := event.App.FindRecordById("users", event.Auth.Id)
+	if err != nil || latest.GetBool("disabled") {
+		return event.UnauthorizedError("account is disabled", err)
+	}
+	return event.Next()
 }
 
 func protectUserAdminFlag(pb *pocketbase.PocketBase, config Config) {
@@ -120,20 +125,18 @@ func protectUserAdminFlag(pb *pocketbase.PocketBase, config Config) {
 		}
 		return e.Next()
 	})
+	pb.OnRecordAfterUpdateSuccess("users").BindFunc(func(e *core.RecordEvent) error {
+		if e.Record.GetBool("disabled") && !e.Record.Original().GetBool("disabled") {
+			revokeDisabledRealtimeClients(e.App, e.Record.Id)
+		}
+		return e.Next()
+	})
+	pb.OnRecordDeleteRequest(core.CollectionNameExternalAuths).BindFunc(func(e *core.RecordRequestEvent) error {
+		return protectLastExternalAuth(e)
+	})
 	pb.OnRecordAuthWithOAuth2Request().BindFunc(func(e *core.RecordAuthWithOAuth2RequestEvent) error {
-		if !publicOAuthSignupAllowed(config, e.IsNewRecord, e.HasSuperuserAuth()) {
-			return e.ForbiddenError("registration is disabled", nil)
-		}
-		// OAuth linking must never silently replace the currently authenticated
-		// account when this provider identity already belongs to another record.
-		if e.Auth != nil && e.Auth.Collection().Name == "users" && e.Record != nil && e.Record.Id != e.Auth.Id {
-			return e.ForbiddenError("this identity is linked to another account", nil)
-		}
-		if e.Auth != nil && e.Auth.Collection().Name == "users" {
-			intent := e.Request.Header.Get("X-Slopstack-Link-Intent")
-			if !consumeSsoLinkIntent(e.App, e.Auth.Id, intent) {
-				return e.ForbiddenError("reauthenticate and confirm linking before adding an identity", nil)
-			}
+		if err := validateOAuthAssociation(e, config); err != nil {
+			return err
 		}
 		return e.Next()
 	})
@@ -163,6 +166,83 @@ func protectUserAdminFlag(pb *pocketbase.PocketBase, config Config) {
 	})
 }
 
+func protectLastExternalAuth(e *core.RecordRequestEvent) error {
+	if e.HasSuperuserAuth() {
+		return e.Next()
+	}
+	user, err := e.App.FindRecordById("users", e.Record.GetString("recordRef"))
+	if err != nil {
+		return e.ForbiddenError("cannot remove the last connected sign-in identity", nil)
+	}
+	identities, err := e.App.FindAllExternalAuthsByRecord(user)
+	if err != nil {
+		return e.InternalServerError("could not check connected identities", err)
+	}
+	if len(identities) <= 1 {
+		return e.ForbiddenError("cannot remove the last connected sign-in identity", nil)
+	}
+	return e.Next()
+}
+
+func revokeDisabledRealtimeClients(app core.App, userID string) int {
+	revoked := 0
+	broker := app.SubscriptionsBroker()
+	for _, client := range broker.Clients() {
+		authRecord, _ := client.Get(apis.RealtimeClientAuthKey).(*core.Record)
+		if authRecord != nil && authRecord.Collection().Name == "users" && authRecord.Id == userID {
+			broker.Unregister(client.Id())
+			revoked++
+		}
+	}
+	return revoked
+}
+
+func validateOAuthAssociation(e *core.RecordAuthWithOAuth2RequestEvent, config Config) error {
+	if !publicOAuthSignupAllowed(config, e.IsNewRecord, e.HasSuperuserAuth()) {
+		return e.ForbiddenError("registration is disabled", nil)
+	}
+	if config.RequireVerifiedEmail && e.IsNewRecord && (e.OAuth2User == nil || e.OAuth2User.Email == "") {
+		return e.ForbiddenError("the identity provider did not return a verified email address", nil)
+	}
+
+	userAuth := e.Auth != nil && e.Auth.Collection().Name == "users"
+	if userAuth {
+		// Never allow the provider callback to switch the current session to an
+		// account that already owns this identity.
+		if e.Record != nil && e.Record.Id != e.Auth.Id {
+			return e.ForbiddenError("this identity is linked to another account", nil)
+		}
+		intent := e.Request.Header.Get("X-Slopstack-Link-Intent")
+		if !consumeSsoLinkIntent(e.App, e.Auth.Id, intent) {
+			return e.ForbiddenError("reauthenticate and confirm linking before adding an identity", nil)
+		}
+		return nil
+	}
+
+	if e.Record == nil {
+		return nil
+	}
+
+	// PocketBase falls back to a user with a matching email when the provider
+	// identity has not been linked before. That implicit association is unsafe:
+	// email equality alone is not proof that the user intended to link accounts.
+	if e.OAuth2User == nil {
+		return e.ForbiddenError("could not validate the provider identity", nil)
+	}
+	externalAuth, err := e.App.FindFirstExternalAuthByExpr(dbx.HashExp{
+		"collectionRef": e.Collection.Id,
+		"provider":      e.ProviderName,
+		"providerId":    e.OAuth2User.Id,
+	})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return e.InternalServerError("could not validate the provider identity", err)
+	}
+	if externalAuth == nil || externalAuth.RecordRef() != e.Record.Id {
+		return e.ForbiddenError("sign in to the existing account and explicitly link this identity", nil)
+	}
+	return nil
+}
+
 func userEmailCollision(app core.App, record *core.Record) (bool, error) {
 	email := strings.TrimSpace(record.Email())
 	if email == "" {
@@ -190,6 +270,8 @@ func ssoOnlyBlocksPassword(config Config, oauthEnabled bool, providerCount int) 
 
 func registerRoutes(e *core.ServeEvent, config Config, api huma.API) {
 	e.Router.POST("/api/me/sso/link-intent", createSsoLinkIntent)
+	e.Router.GET("/api/admin/sso", getSsoSettings)
+	e.Router.PATCH("/api/admin/sso", updateSsoSettings)
 	e.Router.GET("/api/auth/policy", func(event *core.RequestEvent) error {
 		return event.JSON(http.StatusOK, map[string]any{"registrationEnabled": config.RegistrationEnabled, "requireVerifiedEmail": config.RequireVerifiedEmail})
 	})
@@ -207,6 +289,75 @@ func registerRoutes(e *core.ServeEvent, config Config, api huma.API) {
 	registerTodoRoutes(e, config)
 	registerPreferencesRoutes(e)
 	registerStaticFrontend(e, config)
+}
+
+func getSsoSettings(event *core.RequestEvent) error {
+	if !event.HasSuperuserAuth() {
+		return event.ForbiddenError("superuser access required", nil)
+	}
+	collection, err := event.App.FindCollectionByNameOrId("users")
+	if err != nil {
+		return event.InternalServerError("could not load SSO settings", err)
+	}
+	providers := make([]map[string]any, 0, len(collection.OAuth2.Providers))
+	for _, provider := range collection.OAuth2.Providers {
+		secretConfigured := provider.ClientSecret != ""
+		provider.ClientSecret = ""
+		encoded, _ := json.Marshal(provider)
+		var safe map[string]any
+		_ = json.Unmarshal(encoded, &safe)
+		safe["hasClientSecret"] = secretConfigured
+		providers = append(providers, safe)
+	}
+	return event.JSON(http.StatusOK, map[string]any{"enabled": collection.OAuth2.Enabled, "providers": providers})
+}
+
+func updateSsoSettings(event *core.RequestEvent) error {
+	if !event.HasSuperuserAuth() {
+		return event.ForbiddenError("superuser access required", nil)
+	}
+	var input struct {
+		Enabled   bool                        `json:"enabled"`
+		Providers []core.OAuth2ProviderConfig `json:"providers"`
+	}
+	if err := json.NewDecoder(event.Request.Body).Decode(&input); err != nil {
+		return event.BadRequestError("invalid SSO settings", err)
+	}
+	collection, err := event.App.FindCollectionByNameOrId("users")
+	if err != nil {
+		return event.InternalServerError("could not load SSO settings", err)
+	}
+	previousSecrets := make(map[string]string, len(collection.OAuth2.Providers))
+	for _, provider := range collection.OAuth2.Providers {
+		previousSecrets[provider.Name] = provider.ClientSecret
+	}
+	for i := range input.Providers {
+		provider := &input.Providers[i]
+		if provider.ClientSecret == "" {
+			provider.ClientSecret = previousSecrets[provider.Name]
+		}
+		if provider.Name == "oidc2" {
+			issuer, _ := provider.Extra["issuers"].([]any)
+			jwksURL, _ := provider.Extra["jwksURL"].(string)
+			if len(issuer) == 0 || jwksURL == "" || provider.UserInfoURL != "" {
+				return event.BadRequestError("custom OIDC requires an issuer and JWKS URL, and must use signed ID-token claims", nil)
+			}
+			for _, value := range []string{fmt.Sprint(issuer[0]), jwksURL, provider.AuthURL, provider.TokenURL} {
+				parsed, parseErr := url.Parse(value)
+				if parseErr != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Hostname() != "localhost") {
+					return event.BadRequestError("custom OIDC issuer, JWKS, authorization, and token URLs must use HTTPS", nil)
+				}
+			}
+			pkce := true
+			provider.PKCE = &pkce
+		}
+	}
+	collection.OAuth2.Enabled = input.Enabled
+	collection.OAuth2.Providers = input.Providers
+	if err := event.App.Save(collection); err != nil {
+		return event.BadRequestError("could not save SSO settings", err)
+	}
+	return getSsoSettings(event)
 }
 
 type ssoLinkIntent struct {

@@ -1297,6 +1297,7 @@ type SsoProvider = {
   enabled: boolean;
   clientId: string;
   clientSecret: string;
+  hasClientSecret?: boolean;
   authURL?: string;
   tokenURL?: string;
   userInfoURL?: string;
@@ -2029,6 +2030,7 @@ function AdminGroupsView() {
 function AdminSsoView() {
   const [enabled, setEnabled] = useState(false);
   const [providers, setProviders] = useState(ssoProviderDefaults);
+  const [otherProviders, setOtherProviders] = useState<Array<{ name: string; clientId?: string; authURL?: string; tokenURL?: string; userInfoURL?: string; displayName?: string; extra?: Record<string, unknown>; pkce?: boolean }>>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -2037,21 +2039,22 @@ function AdminSsoView() {
   useEffect(() => {
     async function loadSettings() {
       try {
-        const collection = (await pb.send('/api/collections/users', { method: 'GET' })) as {
-          oauth2?: {
+        const oauth2 = (await pb.send('/api/admin/sso', { method: 'GET' })) as {
             enabled?: boolean;
             providers?: Array<{
               name: string;
               clientId?: string;
+              hasClientSecret?: boolean;
               authURL?: string;
               tokenURL?: string;
               userInfoURL?: string;
+              displayName?: string;
               extra?: Record<string, unknown>;
+              pkce?: boolean;
             }>;
-          };
         };
-        const oauth2 = collection.oauth2;
         setEnabled(Boolean(oauth2?.enabled));
+        setOtherProviders((oauth2?.providers ?? []).filter((item) => !ssoProviderDefaults.some((provider) => provider.id === item.name)));
         setProviders(
           ssoProviderDefaults.map((provider) => {
             const configured = oauth2?.providers?.find((item) => item.name === provider.id);
@@ -2059,6 +2062,7 @@ function AdminSsoView() {
               ...provider,
               enabled: Boolean(configured),
               clientId: configured?.clientId ?? '',
+              hasClientSecret: Boolean(configured?.hasClientSecret),
               authURL: configured?.authURL ?? provider.authURL,
               tokenURL: configured?.tokenURL ?? provider.tokenURL,
               userInfoURL: configured?.userInfoURL ?? provider.userInfoURL,
@@ -2081,12 +2085,24 @@ function AdminSsoView() {
     setError('');
     setMessage('');
     try {
-      await pb.send('/api/collections/users', {
+      const oidc = providers.find((provider) => provider.id === 'oidc2');
+      if (oidc?.enabled) {
+        const issuer = oidc.issuer?.trim() ?? '';
+        const jwksURL = oidc.jwksURL?.trim() ?? '';
+        if (!issuer || !jwksURL) throw new Error('Custom OIDC requires both an issuer and a JWKS URL for token validation.');
+        for (const value of [issuer, jwksURL, oidc.authURL ?? '', oidc.tokenURL ?? '']) {
+          if (!value) throw new Error('Custom OIDC requires authorization and token endpoints.');
+          const url = new URL(value);
+          if (url.protocol !== 'https:' && url.hostname !== 'localhost') throw new Error('Custom OIDC issuer and JWKS URLs must use HTTPS.');
+        }
+      }
+      const saved = await pb.send('/api/admin/sso', {
         method: 'PATCH',
         body: {
-          oauth2: {
             enabled,
-            providers: providers
+            providers: [
+              ...otherProviders,
+              ...providers
               .filter((provider) => provider.enabled)
               .map(({ id, clientId, clientSecret, authURL, tokenURL, userInfoURL, issuer, jwksURL }) => ({
                 name: id,
@@ -2094,12 +2110,18 @@ function AdminSsoView() {
                 ...(clientSecret ? { clientSecret } : {}),
                 ...(authURL ? { authURL } : {}),
                 ...(tokenURL ? { tokenURL } : {}),
-                ...(userInfoURL ? { userInfoURL } : {}),
-                ...(id === 'oidc2' ? { extra: { ...(issuer ? { issuers: [issuer] } : {}), ...(jwksURL ? { jwksURL } : {}) } } : {}),
+                ...(id === 'oidc2' ? {
+                  // Empty userInfoURL makes PocketBase validate the signed
+                  // ID token, including its issuer and JWKS signature.
+                  pkce: true,
+                  extra: { issuers: [issuer?.trim()], jwksURL: jwksURL?.trim() },
+                } : { ...(userInfoURL ? { userInfoURL } : {}) }),
               })),
-          },
+            ],
         },
-      });
+      }) as { providers: Array<{ name: string; hasClientSecret?: boolean }> };
+      setProviders((current) => current.map((provider) => ({ ...provider, clientSecret: '', hasClientSecret: Boolean(saved.providers?.find((item) => item.name === provider.id)?.hasClientSecret) })));
+      setOtherProviders(saved.providers.filter((item) => !ssoProviderDefaults.some((provider) => provider.id === item.name)));
       setMessage('SSO settings saved.');
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Unable to save SSO settings.');
@@ -2125,7 +2147,7 @@ function AdminSsoView() {
         issuer: metadata.issuer || issuer,
         authURL: metadata.authorization_endpoint,
         tokenURL: metadata.token_endpoint,
-        userInfoURL: metadata.userinfo_endpoint || '',
+        userInfoURL: '',
         jwksURL: metadata.jwks_uri || provider.jwksURL,
       });
     } catch (discoveryError) {
@@ -2216,7 +2238,7 @@ function AdminSsoView() {
                   onChange={(event: ChangeEvent<HTMLInputElement>) =>
                     updateProvider(provider.id, { clientSecret: event.target.value })
                   }
-                  placeholder="OAuth client secret"
+                  placeholder={provider.hasClientSecret ? 'Saved; enter a new secret to replace' : 'OAuth client secret'}
                 />
               </div>
               {provider.id === 'oidc2' && (
@@ -2250,7 +2272,7 @@ function AdminSsoView() {
                       placeholder="https://idp.example.com/token"
                     />
                   </div>
-                  <div className="grid gap-2">
+                  {provider.id !== 'oidc2' && <div className="grid gap-2">
                     <Label htmlFor={`${provider.id}-userinfo-url`}>User info URL</Label>
                     <Input
                       id={`${provider.id}-userinfo-url`}
@@ -2261,11 +2283,12 @@ function AdminSsoView() {
                       }
                       placeholder="https://idp.example.com/userinfo"
                     />
-                  </div>
+                  </div>}
                   <div className="grid gap-2">
-                    <Label htmlFor="oidc-jwks-url">JWKS URL (optional)</Label>
+                    <Label htmlFor="oidc-jwks-url">JWKS URL (required)</Label>
                     <Input id="oidc-jwks-url" type="url" value={provider.jwksURL ?? ''} onChange={(event: ChangeEvent<HTMLInputElement>) => updateProvider(provider.id, { jwksURL: event.target.value })} placeholder="https://auth.example.com/.well-known/jwks.json" />
                   </div>
+                  {provider.id === 'oidc2' && <p className="text-sm text-muted-foreground">Custom OIDC reads claims from the signed ID token so PocketBase can validate its issuer and signature using JWKS.</p>}
                 </>
               )}
             </CardContent>

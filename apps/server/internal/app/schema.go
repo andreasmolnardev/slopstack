@@ -28,8 +28,17 @@ func EnsureCollections(app core.App) error {
 	for _, definition := range collections {
 		collection, err := app.FindCollectionByNameOrId(definition.Name)
 		if err == nil {
-			if definition.Name == "users" && collection.Fields.GetByName("isAdmin") == nil {
-				collection.Fields.Add(&core.BoolField{Name: "isAdmin"})
+			changed := false
+			for _, field := range definition.Fields {
+				if collection.Fields.GetByName(field.Name) != nil {
+					continue
+				}
+				if err := addSchemaField(collection, field); err != nil {
+					return err
+				}
+				changed = true
+			}
+			if changed {
 				if err := app.Save(collection); err != nil {
 					return err
 				}
@@ -41,22 +50,29 @@ func EnsureCollections(app core.App) error {
 			collection = core.NewAuthCollection(definition.Name)
 		}
 		for _, field := range definition.Fields {
-			switch field.Type {
-			case "text":
-				collection.Fields.Add(&core.TextField{Name: field.Name, Required: field.Required})
-			case "bool":
-				collection.Fields.Add(&core.BoolField{Name: field.Name})
-			case "json":
-				collection.Fields.Add(&core.JSONField{Name: field.Name})
-			case "date":
-				collection.Fields.Add(&core.DateField{Name: field.Name})
-			default:
-				return fmt.Errorf("unsupported schema field type %q", field.Type)
+			if err := addSchemaField(collection, field); err != nil {
+				return err
 			}
 		}
 		if err := app.Save(collection); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func addSchemaField(collection *core.Collection, field schemaField) error {
+	switch field.Type {
+	case "text":
+		collection.Fields.Add(&core.TextField{Name: field.Name, Required: field.Required})
+	case "bool":
+		collection.Fields.Add(&core.BoolField{Name: field.Name})
+	case "json":
+		collection.Fields.Add(&core.JSONField{Name: field.Name})
+	case "date":
+		collection.Fields.Add(&core.DateField{Name: field.Name})
+	default:
+		return fmt.Errorf("unsupported schema field type %q", field.Type)
 	}
 	return nil
 }
