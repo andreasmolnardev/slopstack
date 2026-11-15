@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { type ChangeEvent, type FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   Archive,
@@ -131,6 +131,7 @@ import { pb, pbAuth } from './api/pocketbase';
 import { createPocketBaseAuthAdapter } from '@slopstack/pocketbase/auth';
 import { createTodoRecord, deleteTodoRecord, getTodos, updateTodoRecord } from './api/todos';
 import { getPreferences, savePreferences } from './api/preferences';
+import { enabledSsoProviders } from './auth-policy';
 import type { Todo, TodoWrite } from './api/generated/types.gen';
 import type { UserPreferences, UserPreferencesPatchInputBodyWritable } from './api/generated/types.gen';
 import { installShortcutRegistry, ShortcutRegistry, type PaletteAction } from '@slopstack/core';
@@ -758,7 +759,7 @@ export function App() {
                     <Input
                       className="w-full pl-9 sm:w-52"
                       value={search}
-                      onChange={(event) => setSearch(event.target.value)}
+                      onChange={(event: ChangeEvent<HTMLInputElement>) => setSearch(event.target.value)}
                       placeholder="Search tasks"
                     />
                   </div>
@@ -1047,6 +1048,9 @@ function AuthPage({
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [ssoLoading, setSsoLoading] = useState(false);
+  const [ssoProviders, setSsoProviders] = useState<Array<{ name: string; displayName?: string }>>([]);
+  const [registrationEnabled, setRegistrationEnabled] = useState(true);
+  const [requireVerifiedEmail, setRequireVerifiedEmail] = useState(false);
   const queryRedirect = new URLSearchParams(window.location.search).get('redirect');
   const isRegister = mode === 'register';
   const isForgotPassword = mode === 'forgot-password';
@@ -1058,6 +1062,23 @@ function AuthPage({
       ? requestedDestination
       : fallbackDestination;
   const collection = isAdminLogin ? '_superusers' : 'users';
+
+  useEffect(() => {
+    if (isAdminLogin || isForgotPassword) return;
+    let active = true;
+    void Promise.all([
+      pb.collection('users').listAuthMethods(),
+      fetch(`${pb.baseURL}/api/auth/policy`).then((response) => response.ok ? response.json() as Promise<{ registrationEnabled: boolean; requireVerifiedEmail: boolean }> : null),
+    ]).then(([methods, policy]) => {
+      if (!active) return;
+      setSsoProviders(enabledSsoProviders(methods));
+      if (policy) {
+        setRegistrationEnabled(policy.registrationEnabled);
+        setRequireVerifiedEmail(policy.requireVerifiedEmail);
+      }
+    }).catch(() => { if (active) setSsoProviders([]); });
+    return () => { active = false; };
+  }, [isAdminLogin, isForgotPassword]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -1078,6 +1099,11 @@ function AuthPage({
           password,
           passwordConfirm: password,
         });
+        if (requireVerifiedEmail) {
+          await pb.collection('users').requestVerification(email.trim());
+          setMessage('Account created. Check your email to verify it before signing in.');
+          return;
+        }
       }
 
       await createPocketBaseAuthAdapter(pb, collection).signIn({ identity: email.trim(), password });
@@ -1089,7 +1115,7 @@ function AuthPage({
     }
   }
 
-  async function signInWithSso(provider: 'google' | 'github') {
+  async function signInWithSso(provider: string) {
     setError('');
     setSsoLoading(true);
     try {
@@ -1136,7 +1162,7 @@ function AuthPage({
                 : isForgotPassword
                   ? 'Enter your email and we will send reset instructions.'
                   : isRegister
-                    ? 'Create an account to access your workspace.'
+                    ? requireVerifiedEmail ? 'Create an account and verify your email before signing in.' : 'Create an account to access your workspace.'
                     : 'Sign in to continue to your workspace.'}
             </CardDescription>
           </CardHeader>
@@ -1149,7 +1175,7 @@ function AuthPage({
                     id="auth-name"
                     autoComplete="name"
                     value={name}
-                    onChange={(event) => setName(event.target.value)}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => setName(event.target.value)}
                     placeholder="Your name"
                     required
                   />
@@ -1162,7 +1188,7 @@ function AuthPage({
                   type="email"
                   autoComplete="email"
                   value={email}
-                  onChange={(event) => setEmail(event.target.value)}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) => setEmail(event.target.value)}
                   placeholder="you@example.com"
                   required
                 />
@@ -1175,7 +1201,7 @@ function AuthPage({
                     type="password"
                     autoComplete={isRegister ? 'new-password' : 'current-password'}
                     value={password}
-                    onChange={(event) => setPassword(event.target.value)}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => setPassword(event.target.value)}
                     placeholder="At least 8 characters"
                     minLength={8}
                     required
@@ -1187,31 +1213,16 @@ function AuthPage({
               <Button type="submit">
                 {isForgotPassword ? 'Send reset link' : isRegister ? 'Create account' : 'Sign in'}
               </Button>
-              {!isAdminLogin && !isRegister && !isForgotPassword && (
+      {!isAdminLogin && !isForgotPassword && (
                 <>
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                  {ssoProviders.length > 0 && <div className="flex items-center gap-3 text-xs text-muted-foreground">
                     <Separator className="flex-1" />
                     <span>or continue with SSO</span>
                     <Separator className="flex-1" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={ssoLoading}
-                      onClick={() => void signInWithSso('google')}
-                    >
-                      Google
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={ssoLoading}
-                      onClick={() => void signInWithSso('github')}
-                    >
-                      GitHub
-                    </Button>
-                  </div>
+                  </div>}
+                  {ssoProviders.length > 0 && <div className="grid grid-cols-2 gap-2">
+                    {ssoProviders.map((provider) => <Button key={provider.name} type="button" variant="outline" disabled={ssoLoading} onClick={() => void signInWithSso(provider.name)}>{provider.displayName || provider.name}</Button>)}
+                  </div>}
                 </>
               )}
             </form>
@@ -1245,6 +1256,8 @@ function AuthPage({
                     Sign in
                   </Button>
                 </p>
+              ) : !registrationEnabled ? (
+                <p>Registration is closed. Ask a workspace administrator for access.</p>
               ) : (
                 <p>
                   Need an account?{' '}
@@ -1287,6 +1300,8 @@ type SsoProvider = {
   authURL?: string;
   tokenURL?: string;
   userInfoURL?: string;
+  issuer?: string;
+  jwksURL?: string;
 };
 
 const ssoProviderDefaults: SsoProvider[] = [
@@ -1324,6 +1339,8 @@ const ssoProviderDefaults: SsoProvider[] = [
     authURL: '',
     tokenURL: '',
     userInfoURL: '',
+    issuer: '',
+    jwksURL: '',
   },
 ];
 
@@ -1641,7 +1658,7 @@ function AdminUsersView() {
                 <Input
                   className="w-full pl-9 sm:w-64"
                   value={search}
-                  onChange={(event) => setSearch(event.target.value)}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) => setSearch(event.target.value)}
                   placeholder="Search users"
                 />
               </div>
@@ -1741,7 +1758,7 @@ function AdminUsersView() {
               <Input
                 id="admin-user-name"
                 value={newUser.name}
-                onChange={(event) => setNewUser({ ...newUser, name: event.target.value })}
+                onChange={(event: ChangeEvent<HTMLInputElement>) => setNewUser({ ...newUser, name: event.target.value })}
                 required
               />
             </div>
@@ -1751,7 +1768,7 @@ function AdminUsersView() {
                 id="admin-user-email"
                 type="email"
                 value={newUser.email}
-                onChange={(event) => setNewUser({ ...newUser, email: event.target.value })}
+                onChange={(event: ChangeEvent<HTMLInputElement>) => setNewUser({ ...newUser, email: event.target.value })}
                 required
               />
             </div>
@@ -1762,7 +1779,7 @@ function AdminUsersView() {
                 type="password"
                 minLength={8}
                 value={newUser.password}
-                onChange={(event) => setNewUser({ ...newUser, password: event.target.value })}
+                onChange={(event: ChangeEvent<HTMLInputElement>) => setNewUser({ ...newUser, password: event.target.value })}
                 required
               />
             </div>
@@ -1927,8 +1944,8 @@ function AdminGroupsView() {
       <Card>
         <CardHeader><CardTitle>Organizations</CardTitle><CardDescription>Optional tenant scope. Single-user apps can leave this empty.</CardDescription></CardHeader>
         <CardContent className="grid gap-4">
-          <form className="grid gap-3 sm:grid-cols-[1fr_auto]" onSubmit={(event) => void createOrganization(event)}>
-            <Input aria-label="Organization name" placeholder="Organization name" value={organizationName} onChange={(event) => setOrganizationName(event.target.value)} required />
+          <form className="grid gap-3 sm:grid-cols-[1fr_auto]" onSubmit={(event: FormEvent<HTMLFormElement>) => void createOrganization(event)}>
+            <Input aria-label="Organization name" placeholder="Organization name" value={organizationName} onChange={(event: ChangeEvent<HTMLInputElement>) => setOrganizationName(event.target.value)} required />
             <Button type="submit">Create organization</Button>
           </form>
           <div className="flex flex-wrap gap-2">{organizations.map((item) => <Badge key={item.id} variant="outline">{item.name}</Badge>)}</div>
@@ -1937,10 +1954,10 @@ function AdminGroupsView() {
       <Card>
         <CardHeader><CardTitle>Create a group</CardTitle><CardDescription>Groups can receive shared permissions.</CardDescription></CardHeader>
         <CardContent>
-          <form className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_2fr_1fr_auto]" onSubmit={(event) => void createGroup(event)}>
-            <Input aria-label="Group name" placeholder="Group name" value={name} onChange={(event) => setName(event.target.value)} required />
-            <Input aria-label="Description" placeholder="Description" value={description} onChange={(event) => setDescription(event.target.value)} />
-            <select className="h-10 rounded-xl border bg-background px-3 text-sm" aria-label="Organization scope" value={organization} onChange={(event) => setOrganization(event.target.value)}>
+          <form className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_2fr_1fr_auto]" onSubmit={(event: FormEvent<HTMLFormElement>) => void createGroup(event)}>
+            <Input aria-label="Group name" placeholder="Group name" value={name} onChange={(event: ChangeEvent<HTMLInputElement>) => setName(event.target.value)} required />
+            <Input aria-label="Description" placeholder="Description" value={description} onChange={(event: ChangeEvent<HTMLInputElement>) => setDescription(event.target.value)} />
+            <select className="h-10 rounded-xl border bg-background px-3 text-sm" aria-label="Organization scope" value={organization} onChange={(event: ChangeEvent<HTMLSelectElement>) => setOrganization(event.target.value)}>
               <option value="">No organization</option>
               {organizations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
             </select>
@@ -1951,9 +1968,9 @@ function AdminGroupsView() {
       <Card>
         <CardHeader><CardTitle>Permission catalog</CardTitle><CardDescription>Define named permissions that group rules can grant or deny.</CardDescription></CardHeader>
         <CardContent>
-          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]" onSubmit={(event) => void createPermission(event)}>
-            <Input aria-label="Permission name" placeholder="todos.read" value={permissionName} onChange={(event) => setPermissionName(event.target.value)} required />
-            <Input aria-label="Permission category" placeholder="Todos" value={permissionCategory} onChange={(event) => setPermissionCategory(event.target.value)} />
+          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]" onSubmit={(event: FormEvent<HTMLFormElement>) => void createPermission(event)}>
+            <Input aria-label="Permission name" placeholder="todos.read" value={permissionName} onChange={(event: ChangeEvent<HTMLInputElement>) => setPermissionName(event.target.value)} required />
+            <Input aria-label="Permission category" placeholder="Todos" value={permissionCategory} onChange={(event: ChangeEvent<HTMLInputElement>) => setPermissionCategory(event.target.value)} />
             <Button type="submit">Add permission</Button>
           </form>
           <div className="mt-4 flex flex-wrap gap-2">{permissions.map((permission) => <Badge key={permission.id} variant="secondary">{permission.name}</Badge>)}</div>
@@ -2029,6 +2046,7 @@ function AdminSsoView() {
               authURL?: string;
               tokenURL?: string;
               userInfoURL?: string;
+              extra?: Record<string, unknown>;
             }>;
           };
         };
@@ -2044,6 +2062,8 @@ function AdminSsoView() {
               authURL: configured?.authURL ?? provider.authURL,
               tokenURL: configured?.tokenURL ?? provider.tokenURL,
               userInfoURL: configured?.userInfoURL ?? provider.userInfoURL,
+              issuer: String(configured?.extra?.issuers instanceof Array ? configured.extra.issuers[0] ?? '' : ''),
+              jwksURL: String(configured?.extra?.jwksURL ?? ''),
             };
           }),
         );
@@ -2068,13 +2088,14 @@ function AdminSsoView() {
             enabled,
             providers: providers
               .filter((provider) => provider.enabled)
-              .map(({ id, clientId, clientSecret, authURL, tokenURL, userInfoURL }) => ({
+              .map(({ id, clientId, clientSecret, authURL, tokenURL, userInfoURL, issuer, jwksURL }) => ({
                 name: id,
                 clientId,
                 ...(clientSecret ? { clientSecret } : {}),
                 ...(authURL ? { authURL } : {}),
                 ...(tokenURL ? { tokenURL } : {}),
                 ...(userInfoURL ? { userInfoURL } : {}),
+                ...(id === 'oidc2' ? { extra: { ...(issuer ? { issuers: [issuer] } : {}), ...(jwksURL ? { jwksURL } : {}) } } : {}),
               })),
           },
         },
@@ -2084,6 +2105,31 @@ function AdminSsoView() {
       setError(saveError instanceof Error ? saveError.message : 'Unable to save SSO settings.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function discoverOidc(provider: SsoProvider) {
+    const issuer = provider.issuer?.trim().replace(/\/$/, '');
+    if (!issuer) return;
+    try {
+      const issuerUrl = new URL(issuer);
+      if (issuerUrl.protocol !== 'https:' && issuerUrl.hostname !== 'localhost') throw new Error('Issuer must use HTTPS.');
+      const candidates = [`${issuer}/.well-known/openid-configuration`, `${issuerUrl.origin}/.well-known/openid-configuration${issuerUrl.pathname}`];
+      let metadata: Record<string, string> | undefined;
+      for (const url of [...new Set(candidates)]) {
+        const response = await fetch(url);
+        if (response.ok) { metadata = await response.json() as Record<string, string>; break; }
+      }
+      if (!metadata?.authorization_endpoint || !metadata.token_endpoint) throw new Error('Issuer discovery did not return authorization and token endpoints.');
+      updateProvider(provider.id, {
+        issuer: metadata.issuer || issuer,
+        authURL: metadata.authorization_endpoint,
+        tokenURL: metadata.token_endpoint,
+        userInfoURL: metadata.userinfo_endpoint || '',
+        jwksURL: metadata.jwks_uri || provider.jwksURL,
+      });
+    } catch (discoveryError) {
+      setError(discoveryError instanceof Error ? discoveryError.message : 'Could not load OIDC discovery metadata.');
     }
   }
 
@@ -2155,7 +2201,7 @@ function AdminSsoView() {
                 <Input
                   id={`${provider.id}-client-id`}
                   value={provider.clientId}
-                  onChange={(event) =>
+                  onChange={(event: ChangeEvent<HTMLInputElement>) =>
                     updateProvider(provider.id, { clientId: event.target.value })
                   }
                   placeholder="OAuth client ID"
@@ -2167,7 +2213,7 @@ function AdminSsoView() {
                   id={`${provider.id}-client-secret`}
                   type="password"
                   value={provider.clientSecret}
-                  onChange={(event) =>
+                  onChange={(event: ChangeEvent<HTMLInputElement>) =>
                     updateProvider(provider.id, { clientSecret: event.target.value })
                   }
                   placeholder="OAuth client secret"
@@ -2176,12 +2222,17 @@ function AdminSsoView() {
               {provider.id === 'oidc2' && (
                 <>
                   <div className="grid gap-2">
+                    <Label htmlFor="oidc-issuer">Issuer (optional)</Label>
+                    <Input id="oidc-issuer" type="url" value={provider.issuer ?? ''} onChange={(event: ChangeEvent<HTMLInputElement>) => updateProvider(provider.id, { issuer: event.target.value })} placeholder="https://auth.example.com/application/o/myapp/" />
+                    <Button type="button" variant="outline" onClick={() => void discoverOidc(provider)} disabled={!provider.issuer}>Load discovery metadata</Button>
+                  </div>
+                  <div className="grid gap-2">
                     <Label htmlFor={`${provider.id}-auth-url`}>Authorization URL</Label>
                     <Input
                       id={`${provider.id}-auth-url`}
                       type="url"
                       value={provider.authURL ?? ''}
-                      onChange={(event) =>
+                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
                         updateProvider(provider.id, { authURL: event.target.value })
                       }
                       placeholder="https://idp.example.com/authorize"
@@ -2193,7 +2244,7 @@ function AdminSsoView() {
                       id={`${provider.id}-token-url`}
                       type="url"
                       value={provider.tokenURL ?? ''}
-                      onChange={(event) =>
+                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
                         updateProvider(provider.id, { tokenURL: event.target.value })
                       }
                       placeholder="https://idp.example.com/token"
@@ -2205,11 +2256,15 @@ function AdminSsoView() {
                       id={`${provider.id}-userinfo-url`}
                       type="url"
                       value={provider.userInfoURL ?? ''}
-                      onChange={(event) =>
+                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
                         updateProvider(provider.id, { userInfoURL: event.target.value })
                       }
                       placeholder="https://idp.example.com/userinfo"
                     />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="oidc-jwks-url">JWKS URL (optional)</Label>
+                    <Input id="oidc-jwks-url" type="url" value={provider.jwksURL ?? ''} onChange={(event: ChangeEvent<HTMLInputElement>) => updateProvider(provider.id, { jwksURL: event.target.value })} placeholder="https://auth.example.com/.well-known/jwks.json" />
                   </div>
                 </>
               )}
@@ -2224,7 +2279,7 @@ function AdminSsoView() {
         </CardHeader>
         <CardContent>
           <code className="block rounded-lg bg-muted p-3 text-sm">
-            {window.location.origin}/api/oauth2-redirect
+            {pb.baseURL}/api/oauth2-redirect
           </code>
         </CardContent>
       </Card>
@@ -2380,16 +2435,16 @@ function TasksView({
             </div>
             <div className="min-w-0 flex-1 sm:max-w-3xl">
               <ResourceQueryControls
-                resource={todoResource}
+                resource={{ ...todoResource, labelPlural: todoResource.labelPlural ?? 'Todos' }}
                 value={query}
-                onChange={(next) => {
+                onChange={(next: { search?: string; filters?: Record<string, unknown>; sort?: string }) => {
                   onSearch(next.search ?? '');
                   onFilter(String(next.filters?.status ?? 'all'));
                   onSort(next.sort ?? todoResource.query?.defaultSort ?? '');
                 }}
               />
             </div>
-            <Select value={mode} onValueChange={(value) => setMode(value as ResourceDataViewMode)}>
+            <Select value={mode} onValueChange={(value: string) => setMode(value as ResourceDataViewMode)}>
               <SelectTrigger className="w-36" aria-label="Task display style"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="list">List view</SelectItem>
@@ -2425,7 +2480,7 @@ function TasksView({
                 emptyMessage="No tasks match the current filters."
                 renderItem={(task) => (
                   <div className="flex min-w-0 items-start gap-3">
-                    <Checkbox aria-label={`Complete ${task.title}`} checked={task.completed} onCheckedChange={(checked) => onToggle(task.id, checked === true)} />
+                    <Checkbox aria-label={`Complete ${task.title}`} checked={task.completed} onCheckedChange={(checked: boolean | 'indeterminate') => onToggle(task.id, checked === true)} />
                     <div className="min-w-0 flex-1">
                       <p className={`truncate text-sm font-medium ${task.completed ? 'text-muted-foreground line-through' : ''}`}>{task.title}</p>
                       <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{task.description}</p>
@@ -2462,7 +2517,7 @@ function TaskRow({
       <Checkbox
         id={task.id}
         checked={task.completed}
-        onCheckedChange={(checked) => onToggle(task.id, checked === true)}
+        onCheckedChange={(checked: boolean | 'indeterminate') => onToggle(task.id, checked === true)}
         className="mt-1"
       />
       <div className="min-w-0 flex-1">
@@ -2618,7 +2673,7 @@ function ScheduleView({
               </div>
               <Checkbox
                 checked={task.completed}
-                onCheckedChange={(checked) => onToggle(task.id, checked === true)}
+                onCheckedChange={(checked: boolean | 'indeterminate') => onToggle(task.id, checked === true)}
               />
             </CardContent>
           </Card>
@@ -2813,13 +2868,13 @@ function IconsView() {
                   id="icon-search"
                   className="pl-9"
                   value={query}
-                  onChange={(event) => setQuery(event.target.value)}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)}
                   placeholder="Search icons"
                   aria-label="Search Lucide icons"
                 />
               </div>
             </div>
-            <Tabs value={category} onValueChange={(value) => setCategory(value as (typeof iconCategories)[number])}>
+            <Tabs value={category} onValueChange={(value: string) => setCategory(value as (typeof iconCategories)[number])}>
               <TabsList className="mt-3 max-w-full overflow-x-auto">
                 {iconCategories.map((item) => (
                   <TabsTrigger key={item} value={item}>
@@ -2866,7 +2921,7 @@ function IconsView() {
                           size="icon-xs"
                           className="shrink-0 opacity-60 group-hover:opacity-100"
                           aria-label={`Copy ${entry.name} import`}
-                          onClick={(event) => {
+                          onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
                             event.stopPropagation();
                             void copyValue(`import { ${entry.name} } from 'lucide-react';`, entry.name);
                           }}
@@ -3220,6 +3275,11 @@ function SettingsView() {
     motion: { style: 'scale', duration: 'normal', easing: 'standard' },
   });
   const [preferencesError, setPreferencesError] = useState('');
+  const [linkedProviders, setLinkedProviders] = useState<Array<{ provider: string; id: string }>>([]);
+  const [connectableProviders, setConnectableProviders] = useState<Array<{ name: string; displayName?: string }>>([]);
+  const [identityError, setIdentityError] = useState('');
+  const [linkPassword, setLinkPassword] = useState('');
+  const [recoverySent, setRecoverySent] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -3228,6 +3288,62 @@ function SettingsView() {
     });
     return () => { active = false; };
   }, []);
+
+  const refreshIdentities = useCallback(async () => {
+    const userId = pb.authStore.record?.id;
+    if (!userId) return;
+    const [linked, methods] = await Promise.all([
+      pb.collection('users').listExternalAuths(userId),
+      pb.collection('users').listAuthMethods(),
+    ]);
+    setLinkedProviders(linked.map((identity) => ({ provider: String(identity.provider), id: identity.id })));
+    setConnectableProviders(enabledSsoProviders(methods));
+  }, []);
+
+  useEffect(() => { void refreshIdentities().catch(() => setIdentityError('Could not load connected sign-in methods.')); }, [refreshIdentities]);
+
+  async function connectIdentity(provider: string) {
+    setIdentityError('');
+    try {
+      const { intent } = await pb.send('/api/me/sso/link-intent', { method: 'POST', body: { password: linkPassword } }) as { intent: string };
+      await pb.collection('users').authWithOAuth2({ provider, headers: { 'X-Slopstack-Link-Intent': intent } });
+      setLinkPassword('');
+      await refreshIdentities();
+    } catch (error) {
+      setIdentityError(error instanceof Error ? error.message : 'Could not connect this identity.');
+    }
+  }
+
+  async function disconnectIdentity(provider: string) {
+    if (linkedProviders.length <= 1) {
+      setIdentityError('Keep at least one connected SSO identity. Add another sign-in method before removing this one.');
+      return;
+    }
+    const userId = pb.authStore.record?.id;
+    if (!userId) return;
+    setIdentityError('');
+    try {
+      await pb.collection('users').unlinkExternalAuth(userId, provider);
+      await refreshIdentities();
+    } catch (error) {
+      setIdentityError(error instanceof Error ? error.message : 'Could not disconnect this identity.');
+    }
+  }
+
+  async function sendPasswordRecovery() {
+    const email = String(pb.authStore.record?.email ?? '');
+    if (!email) {
+      setIdentityError('This account has no email address for password recovery.');
+      return;
+    }
+    setIdentityError('');
+    try {
+      await pb.collection('users').requestPasswordReset(email);
+      setRecoverySent(true);
+    } catch (error) {
+      setIdentityError(error instanceof Error ? error.message : 'Could not send password recovery email.');
+    }
+  }
 
   function updatePreference<K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) {
     const patch = { [key]: value } as UserPreferencesPatchInputBodyWritable;
@@ -3251,6 +3367,17 @@ function SettingsView() {
   return (
     <div className="min-w-0">
       <div className="mx-auto max-w-[1080px]">
+            <SettingsSectionTitle title="Connected sign-in methods" />
+            <div className="mb-8 grid gap-3">
+              {identityError && <p role="alert" className="text-sm text-destructive">{identityError}</p>}
+              {linkedProviders.length === 0 && <p className="text-sm text-muted-foreground">No SSO identities are connected.</p>}
+              {linkedProviders.map((identity) => <div key={identity.id} className="flex items-center justify-between rounded-lg border p-3"><span>{identity.provider}</span><Button type="button" size="sm" variant="outline" disabled={linkedProviders.length <= 1} onClick={() => void disconnectIdentity(identity.provider)}>Disconnect</Button></div>)}
+              {connectableProviders.some((provider) => !linkedProviders.some((linked) => linked.provider === provider.name)) && <Input type="password" autoComplete="current-password" aria-label="Current password to authorize linking" placeholder="Enter your current password to connect an identity" value={linkPassword} onChange={(event: ChangeEvent<HTMLInputElement>) => setLinkPassword(event.target.value)} />}
+              {connectableProviders.some((provider) => !linkedProviders.some((linked) => linked.provider === provider.name)) && <Button type="button" variant="link" className="w-fit" onClick={() => void sendPasswordRecovery()}>Set or reset my password</Button>}
+              {recoverySent && <p className="text-sm text-emerald-600">Password recovery email sent. Set a password, then return to connect an identity.</p>}
+              {connectableProviders.filter((provider) => !linkedProviders.some((linked) => linked.provider === provider.name)).map((provider) => <Button key={provider.name} type="button" variant="outline" onClick={() => void connectIdentity(provider.name)}>Connect {provider.displayName || provider.name}</Button>)}
+              <p className="text-xs text-muted-foreground">Connecting requires your current password and a five-minute server ticket. If your account has no password yet, use password recovery to set one first. An identity already owned by another account cannot be linked. Keep at least one SSO identity connected before removing another.</p>
+            </div>
             <SettingsSectionTitle title="My Notifications" />
         <div className="flex flex-col gap-5">
           <div className="flex flex-col justify-between gap-3 sm:flex-row sm:gap-6">
@@ -3430,7 +3557,7 @@ function NotificationCheckbox({
     <label className="flex cursor-pointer items-center gap-2">
       <Checkbox
         checked={checked}
-        onCheckedChange={(value) => onCheckedChange(value === true)}
+        onCheckedChange={(value: boolean | 'indeterminate') => onCheckedChange(value === true)}
         className="size-[22px] rounded-md border-input data-[state=checked]:border-primary data-[state=checked]:bg-primary"
       />
       <span>{label}</span>

@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/json"
+	"fmt"
 
 	"github.com/pocketbase/pocketbase/core"
 )
@@ -12,17 +12,17 @@ func EnsureCollections(app core.App) error {
 	collections := []struct {
 		Name   string
 		Auth   bool
-		Fields []map[string]any
+		Fields []schemaField
 	}{
-		{"users", true, []map[string]any{{"name": "display_name", "type": "text"}, {"name": "disabled", "type": "bool"}, {"name": "isAdmin", "type": "bool"}, {"name": "preferences", "type": "json"}}},
-		{"organizations", false, []map[string]any{{"name": "name", "type": "text", "required": true}, {"name": "owner", "type": "text"}, {"name": "settings", "type": "json"}}},
-		{"groups", false, []map[string]any{{"name": "name", "type": "text", "required": true}, {"name": "description", "type": "text"}, {"name": "organization", "type": "text"}}},
-		{"permissions", false, []map[string]any{{"name": "name", "type": "text", "required": true}, {"name": "category", "type": "text"}}},
-		{"group_permissions", false, []map[string]any{{"name": "group", "type": "text", "required": true}, {"name": "permission", "type": "text", "required": true}, {"name": "denied", "type": "bool"}}},
-		{"user_permissions", false, []map[string]any{{"name": "user", "type": "text", "required": true}, {"name": "permission", "type": "text", "required": true}, {"name": "denied", "type": "bool"}}},
-		{"group_members", false, []map[string]any{{"name": "group", "type": "text", "required": true}, {"name": "user", "type": "text", "required": true}}},
-		{"todos", false, []map[string]any{{"name": "owner", "type": "text", "required": true}, {"name": "title", "type": "text", "required": true}, {"name": "description", "type": "text"}, {"name": "priority", "type": "text"}, {"name": "completed", "type": "bool"}, {"name": "due_date", "type": "date"}}},
-		{"audit_logs", false, []map[string]any{{"name": "actor", "type": "text"}, {"name": "action", "type": "text", "required": true}, {"name": "metadata", "type": "json"}}},
+		{"users", true, []schemaField{{"display_name", "text", false}, {"disabled", "bool", false}, {"isAdmin", "bool", false}, {"preferences", "json", false}}},
+		{"organizations", false, []schemaField{{"name", "text", true}, {"owner", "text", false}, {"settings", "json", false}}},
+		{"groups", false, []schemaField{{"name", "text", true}, {"description", "text", false}, {"organization", "text", false}}},
+		{"permissions", false, []schemaField{{"name", "text", true}, {"category", "text", false}}},
+		{"group_permissions", false, []schemaField{{"group", "text", true}, {"permission", "text", true}, {"denied", "bool", false}}},
+		{"user_permissions", false, []schemaField{{"user", "text", true}, {"permission", "text", true}, {"denied", "bool", false}}},
+		{"group_members", false, []schemaField{{"group", "text", true}, {"user", "text", true}}},
+		{"todos", false, []schemaField{{"owner", "text", true}, {"title", "text", true}, {"description", "text", false}, {"priority", "text", false}, {"completed", "bool", false}, {"due_date", "date", false}}},
+		{"audit_logs", false, []schemaField{{"actor", "text", false}, {"action", "text", true}, {"metadata", "json", false}}},
 	}
 
 	for _, definition := range collections {
@@ -40,16 +40,28 @@ func EnsureCollections(app core.App) error {
 		if definition.Auth {
 			collection = core.NewAuthCollection(definition.Name)
 		}
-		data, err := json.Marshal(map[string]any{"fields": definition.Fields})
-		if err != nil {
-			return err
-		}
-		if err := json.Unmarshal(data, collection); err != nil {
-			return err
+		for _, field := range definition.Fields {
+			switch field.Type {
+			case "text":
+				collection.Fields.Add(&core.TextField{Name: field.Name, Required: field.Required})
+			case "bool":
+				collection.Fields.Add(&core.BoolField{Name: field.Name})
+			case "json":
+				collection.Fields.Add(&core.JSONField{Name: field.Name})
+			case "date":
+				collection.Fields.Add(&core.DateField{Name: field.Name})
+			default:
+				return fmt.Errorf("unsupported schema field type %q", field.Type)
+			}
 		}
 		if err := app.Save(collection); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+type schemaField struct {
+	Name, Type string
+	Required   bool
 }
