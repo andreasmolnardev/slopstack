@@ -6,26 +6,30 @@ import (
 )
 
 type Config struct {
-	HTTPAddress         string
-	PublicURL           string
-	SecureCookies       bool
-	RegistrationEnabled bool
-	LogLevel            string
-	StoragePath         string
-	PublicDirectory     string
-	Development         bool
+	HTTPAddress          string
+	PublicURL            string
+	SecureCookies        bool
+	RegistrationEnabled  bool
+	SSOOnly              bool
+	RequireVerifiedEmail bool
+	LogLevel             string
+	StoragePath          string
+	PublicDirectory      string
+	Development          bool
 }
 
 func LoadConfig() Config {
 	return Config{
-		HTTPAddress:         env("SLOPSTACK_HTTP_ADDRESS", "0.0.0.0:8090"),
-		PublicURL:           env("SLOPSTACK_PUBLIC_URL", "http://localhost:8090"),
-		SecureCookies:       envBool("SLOPSTACK_SECURE_COOKIES", false),
-		RegistrationEnabled: envBool("SLOPSTACK_REGISTRATION_ENABLED", true),
-		LogLevel:            env("SLOPSTACK_LOG_LEVEL", "info"),
-		StoragePath:         env("SLOPSTACK_STORAGE_PATH", "pb_data"),
-		PublicDirectory:     env("SLOPSTACK_PUBLIC_DIR", "apps/web/dist"),
-		Development:         envBool("SLOPSTACK_DEVELOPMENT", false),
+		HTTPAddress:          env("SLOPSTACK_HTTP_ADDRESS", "0.0.0.0:8090"),
+		PublicURL:            env("SLOPSTACK_PUBLIC_URL", "http://localhost:8090"),
+		SecureCookies:        envBool("SLOPSTACK_SECURE_COOKIES", false),
+		RegistrationEnabled:  envBool("SLOPSTACK_REGISTRATION_ENABLED", true),
+		SSOOnly:              envBool("SLOPSTACK_SSO_ONLY", false),
+		RequireVerifiedEmail: envBool("SLOPSTACK_REQUIRE_VERIFIED_EMAIL", false),
+		LogLevel:             env("SLOPSTACK_LOG_LEVEL", "info"),
+		StoragePath:          env("SLOPSTACK_STORAGE_PATH", "pb_data"),
+		PublicDirectory:      env("SLOPSTACK_PUBLIC_DIR", "apps/web/dist"),
+		Development:          envBool("SLOPSTACK_DEVELOPMENT", false),
 	}
 }
 

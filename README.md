@@ -71,7 +71,7 @@ To scaffold a separate application, run `pnpm slopstack create` for an interacti
 
 ## Authentication And Permissions
 
-PocketBase provides login, logout, registration, password reset, verification, and persistent tokens through its standard auth API. Set `SLOPSTACK_REGISTRATION_ENABLED=false` for custom registration endpoints. Enforce permissions in the backend with `Authorize`; frontend visibility is not authorization.
+PocketBase provides login, logout, registration, password reset, verification, OAuth login, and persistent tokens through its standard auth API. `SLOPSTACK_REGISTRATION_ENABLED=false` blocks public password and first-time OAuth registration. `SLOPSTACK_SSO_ONLY=true` disables password sign-in while at least one SSO provider is configured, with password fallback retained if OAuth is unavailable. `SLOPSTACK_REQUIRE_VERIFIED_EMAIL=true` requires verified accounts at login. Set `SLOPSTACK_PUBLIC_URL` to PocketBase's external origin for provider callback configuration. Enforce permissions in the backend with `Authorize`; frontend visibility is not authorization.
 
 Shared Go auth and ownership helpers are pinned to `github.com/andreasmolnardev/slopstack v0.3.0`, the same version used by Piggybudget. Apps should upgrade that dependency explicitly after reviewing its release notes.
 
