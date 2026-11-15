@@ -13,6 +13,7 @@ function usage() {
   node packages/cli/slopstack.mjs generate resource <name> [--field <name>:<kind>]...
   node packages/cli/slopstack.mjs generate view <name>
   node packages/cli/slopstack.mjs generate layout <name>
+  node packages/cli/slopstack.mjs generate route <path>
   node packages/cli/slopstack.mjs generate backend-plugin <name>
 
   Kinds: text, number, boolean, select, relation, date, datetime, time, slider, file
@@ -96,6 +97,17 @@ function render(kind, name, fields = []) {
   const id = slug(name);
   const symbol = pascalCase(name);
   const variable = camelCase(name);
+  if (kind === 'route') {
+    const route = name.replace(/^\/+|\/+$/g, '');
+    if (route.split('/').some((part) => !/^(\([\w-]+\)|\[\.\.\.[\w-]+\]|\[[\w-]+\]|[\w-]+)$/.test(part)))
+      throw new Error('Route segments must be words, [param], [...catchAll], or (group).');
+    const directory = path.join('routes', route);
+    return {
+      directory,
+      file: 'page.tsx',
+      source: `import type { ViewContext } from '@slopstack/core';\n\nexport default function Page({ context }: { context: ViewContext }) {\n  return <main><h1>${symbol || 'Page'}</h1><pre>{JSON.stringify(context.params, null, 2)}</pre></main>;\n}\n`,
+    };
+  }
   if (!id || !symbol) throw new Error('Choose a name with letters or numbers.');
   if (kind === 'backend-plugin' && !/^[a-z]/.test(id))
     throw new Error('Backend plugin names must start with a letter.');
@@ -169,12 +181,12 @@ function main() {
   }
   if (command !== 'generate') return usage();
   const [kind, name, ...rawOptions] = args;
-  if (!['resource', 'view', 'layout', 'backend-plugin'].includes(kind))
-    throw new Error('Generate resource, view, layout, or backend-plugin.');
+  if (!['resource', 'view', 'layout', 'backend-plugin', 'route'].includes(kind))
+    throw new Error('Generate resource, view, layout, route, or backend-plugin.');
   if (!name) throw new Error('Provide a name for the primitive.');
   const options = parseArgs(rawOptions);
   const rendered = render(kind, name, options.fields);
-  const defaultOutput = kind === 'backend-plugin' ? 'apps/server/internal' : 'apps/web/src';
+  const defaultOutput = kind === 'backend-plugin' ? 'apps/server/internal' : kind === 'route' ? 'apps/web/src' : 'apps/web/src';
   const targetRoot = path.resolve(root, options.output ?? defaultOutput);
   const destination = path.resolve(targetRoot, rendered.directory, rendered.file);
   if (!destination.startsWith(`${targetRoot}${path.sep}`))
