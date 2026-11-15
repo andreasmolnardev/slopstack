@@ -1,7 +1,9 @@
+import * as React from 'react';
 import { useSyncExternalStore } from 'react';
 import type { AccessContext } from '@slopstack/core';
 import type { ApplicationDefinition, ViewContext } from '@slopstack/core';
 import { resolveApplicationRoute, type ApplicationRouteResult } from './view-runtime.js';
+import { resolveFileRoute, type FileRoute, type FileRouteModule, type FileRouteResolution } from './file-router.js';
 
 export type NavigationLocation = { pathname: string; search: URLSearchParams };
 export type NavigationAdapter = {
@@ -118,4 +120,57 @@ export function createSlopstackRouter(
 
 export function useSlopstackRouter(router: SlopstackRouter) {
   return useSyncExternalStore(router.subscribe, router.getSnapshot, router.getSnapshot);
+}
+
+export type FileRouterSnapshot = NavigationLocation & { route: FileRouteResolution };
+export type FileBasedRouter = Omit<SlopstackRouter, 'getSnapshot' | 'setAccess'> & { getSnapshot: () => FileRouterSnapshot };
+
+export function useFileBasedRouter(router: FileBasedRouter) {
+  return useSyncExternalStore(router.subscribe, router.getSnapshot, router.getSnapshot);
+}
+
+export function FileRouteLink(props: Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> & {
+  to: string;
+  router: FileBasedRouter;
+}) {
+  const { to, router, onClick, ...anchorProps } = props;
+  return React.createElement('a', {
+    ...anchorProps,
+    href: to,
+    onClick(event: React.MouseEvent<HTMLAnchorElement>) {
+      onClick?.(event);
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const target = event.currentTarget.target;
+      if (target && target !== '_self' || anchorProps.download !== undefined) return;
+      const url = new URL(to, window.location.href);
+      if (url.origin !== window.location.origin) return;
+      event.preventDefault();
+      router.navigate(`${url.pathname}${url.search}${url.hash}`);
+    },
+  });
+}
+
+/** File-based counterpart to createSlopstackRouter; shares browser history and
+ * subscription semantics with the manifest router. */
+export function createFileBasedRouter(
+  routes: readonly FileRoute[],
+  modules: Readonly<Record<string, FileRouteModule>>,
+  adapter: NavigationAdapter = createBrowserNavigationAdapter(),
+): FileBasedRouter {
+  const listeners = new Set<() => void>();
+  const navigate: ViewContext['navigate'] = (to, options) => adapter.navigate(to, options);
+  const createSnapshot = (): FileRouterSnapshot => {
+    const location = adapter.getLocation();
+    return { ...location, route: resolveFileRoute(routes, modules, { ...location, navigate }) };
+  };
+  let snapshot = createSnapshot();
+  const publish = () => { snapshot = createSnapshot(); listeners.forEach((listener) => listener()); };
+  const stop = adapter.subscribe(publish);
+  return {
+    getSnapshot: () => snapshot,
+    subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+    navigate,
+    back: () => adapter.back?.(),
+    dispose() { stop(); listeners.clear(); },
+  };
 }

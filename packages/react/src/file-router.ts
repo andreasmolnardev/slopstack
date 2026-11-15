@@ -1,9 +1,8 @@
+import { Component, createElement, Suspense, type ReactNode } from 'react';
 import type { ComponentLike, ViewContext } from '@slopstack/core';
 
-/** A convention-based route module. Route paths are derived from app/routes file names. */
 export type FileRouteModule = {
-  default: ComponentLike<{ context: ViewContext; children?: unknown }>;
-  layout?: ComponentLike<{ context: ViewContext; children?: unknown }>;
+  default?: ComponentLike<{ context: ViewContext; children?: ReactNode }>;
   loading?: ComponentLike<{ context: ViewContext }>;
   error?: ComponentLike<{ context: ViewContext; error: Error; reset: () => void }>;
   notFound?: ComponentLike<{ context: ViewContext }>;
@@ -11,34 +10,45 @@ export type FileRouteModule = {
 
 export type FileRoute = {
   id: string;
+  directory: string;
   path: string;
   segments: readonly string[];
   module: FileRouteModule;
-  layouts: readonly ComponentLike<{ context: ViewContext; children?: unknown }>[];
+  layouts: readonly ComponentLike<{ context: ViewContext; children?: ReactNode }>[];
 };
 
-/** Turn route file paths into route records. `(group)` folders are URL-transparent;
- * `[id]` is a named segment and `[...slug]` is a catch-all. */
+export type FileRouteMatch = { route: FileRoute; params: Record<string, string> };
+
+/** Build routes from eager modules collected under `routes/`. Special files are
+ * colocated as `layout`, `loading`, `error`, and `not-found` modules. */
 export function createFileRoutes(modules: Readonly<Record<string, FileRouteModule>>): FileRoute[] {
-  return Object.entries(modules)
-    .filter(([file]) => /\/page\.[jt]sx?$/.test(file))
+  const files = Object.entries(modules);
+  return files
+    .filter(([file, module]) => /\/page\.[jt]sx?$/.test(file) && module.default)
     .map(([file, module]) => {
-      const routePath = file.replace(/^.*?routes\//, '').replace(/\/page\.[jt]sx?$/, '');
+      const routePath = file.replace(/^.*?routes\//, '').replace(/(^|\/)page\.[jt]sx?$/, '');
       const raw = routePath.split('/').filter(Boolean);
       const segments = raw.filter((segment) => !/^\(.*\)$/.test(segment));
       const path = `/${segments.map((segment) => segment.startsWith('[') && segment.endsWith(']')
         ? segment.startsWith('[...') ? '*' : `:${segment.slice(1, -1)}`
         : segment).join('/')}`;
-      const layouts = Object.entries(modules)
-        .filter(([layoutFile, layoutModule]) => layoutModule.layout && file.startsWith(layoutFile.slice(0, layoutFile.lastIndexOf('/') + 1)))
+      const layouts = files
+        .filter(([layoutFile, layoutModule]) => /\/layout\.[jt]sx?$/.test(layoutFile)
+          && layoutModule.default
+          && file.startsWith(layoutFile.slice(0, layoutFile.lastIndexOf('/') + 1)))
         .sort(([a], [b]) => a.length - b.length)
-        .map(([, layoutModule]) => layoutModule.layout!);
-      return { id: routePath || 'index', path, segments, module, layouts };
+        .map(([, layoutModule]) => layoutModule.default!);
+      return { id: routePath || 'index', directory: file.slice(0, file.lastIndexOf('/') + 1), path, segments, module, layouts };
     })
-    .sort((a, b) => a.path.localeCompare(b.path));
+    .sort((a, b) => (a.segments.length === 0 ? -1 : b.segments.length === 0 ? 1 : 0)
+      || routeRank(b) - routeRank(a) || a.path.localeCompare(b.path));
 }
 
-export function matchFileRoute(routes: readonly FileRoute[], pathname: string): { route: FileRoute; params: Record<string, string> } | undefined {
+function routeRank(route: FileRoute) {
+  return route.segments.reduce((rank, segment) => rank + (segment.startsWith('[') ? 1 : 10), 0);
+}
+
+export function matchFileRoute(routes: readonly FileRoute[], pathname: string): FileRouteMatch | undefined {
   const target = pathname.split('/').filter(Boolean);
   for (const route of routes) {
     const params: Record<string, string> = {};
@@ -46,7 +56,9 @@ export function matchFileRoute(routes: readonly FileRoute[], pathname: string): 
     for (let index = 0; index < route.segments.length; index += 1) {
       const part = route.segments[index];
       if (part.startsWith('[...')) {
-        params[part.slice(4, -1)] = target.slice(index).map(decode).join('/');
+        const tail = target.slice(index);
+        if (!tail.length) { matched = false; break; }
+        params[part.slice(4, -1)] = tail.map(decode).join('/');
         break;
       }
       if (target[index] === undefined) { matched = false; break; }
@@ -55,6 +67,82 @@ export function matchFileRoute(routes: readonly FileRoute[], pathname: string): 
     }
     if (matched && (route.segments.some((part) => part.startsWith('[...')) || target.length === route.segments.length)) return { route, params };
   }
+}
+
+export type FileRouteResolution =
+  | { status: 'rendered'; match: FileRouteMatch; context: ViewContext; element: ReactNode; loading?: ReactNode; error?: FileRouteModule['error'] }
+  | { status: 'not-found'; element?: ReactNode };
+
+/** Resolve and compose page and nested layouts. The caller can place `loading`
+ * in a Suspense boundary and `error` in an error boundary. */
+export function resolveFileRoute(
+  routes: readonly FileRoute[],
+  modules: Readonly<Record<string, FileRouteModule>>,
+  input: { pathname: string; search?: URLSearchParams; navigate: ViewContext['navigate'] },
+): FileRouteResolution {
+  const match = matchFileRoute(routes, input.pathname);
+  const context: ViewContext = { params: match?.params ?? {}, search: input.search ?? new URLSearchParams(), navigate: input.navigate };
+  if (!match) {
+    const notFound = Object.entries(modules).find(([file]) => /\/not-found\.[jt]sx?$/.test(file))?.[1].default;
+    return { status: 'not-found', element: notFound ? createElement(notFound, { context }) : undefined };
+  }
+  let element: ReactNode = createElement(match.route.module.default!, { context });
+  for (const Layout of [...match.route.layouts].reverse()) element = createElement(Layout, { context, children: element });
+  const routeFiles = [match.route.directory, ...parentDirectories(match.route.directory)];
+  const moduleFor = (kind: 'loading' | 'error') => routeFiles
+    .map((directory) => Object.entries(modules).find(([file]) => file.startsWith(directory) && file.slice(directory.length).split('/').length === 1 && new RegExp(`/${kind}\\.[jt]sx?$`).test(file))?.[1].default)
+    .find(Boolean);
+  const loadingModule = moduleFor('loading');
+  const errorModule = moduleFor('error');
+  return {
+    status: 'rendered', match, context, element,
+    loading: loadingModule ? createElement(loadingModule, { context }) : undefined,
+    error: errorModule as FileRouteModule['error'],
+  };
+}
+
+/** Render a resolved route with its colocated Suspense and error fallbacks. */
+export function FileRouteOutlet({ resolution }: { resolution: FileRouteResolution }) {
+  if (resolution.status === 'not-found') return resolution.element ?? null;
+  return createElement(RouteErrorBoundary, {
+    key: resolution.match.route.id,
+    fallback: resolution.error,
+    context: resolution.context,
+    children: createElement(Suspense, { fallback: resolution.loading ?? null, children: resolution.element }),
+  });
+}
+
+class RouteErrorBoundary extends Component<{
+  fallback?: FileRouteModule['error'];
+  context: ViewContext;
+  children?: ReactNode;
+}, { error?: Error }> {
+  state: { error?: Error } = {};
+
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  render() {
+    if (this.state.error && this.props.fallback) {
+      return createElement(this.props.fallback, {
+        context: this.props.context,
+        error: this.state.error,
+        reset: () => this.setState({ error: undefined }),
+      });
+    }
+    if (this.state.error) return createElement('div', { role: 'alert' }, 'Something went wrong.');
+    return this.props.children;
+  }
+}
+
+function parentDirectories(directory: string) {
+  const result: string[] = [];
+  let current = directory.replace(/[^/]+\/$/, '');
+  while (current.includes('/routes/')) {
+    const parent = current.slice(0, current.lastIndexOf('/', current.length - 2) + 1);
+    if (!parent || parent === current) break;
+    result.push(parent);
+    current = parent;
+  }
+  return result;
 }
 
 function decode(value: string) {
