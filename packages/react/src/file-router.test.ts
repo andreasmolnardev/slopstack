@@ -43,4 +43,11 @@ describe('file routes', () => {
     expect(router.getSnapshot().route.status).toBe('not-found');
     router.dispose();
   });
+
+  it('rejects duplicate URL patterns during route discovery', () => {
+    expect(() => createFileRoutes({
+      '/app/routes/users/[id]/page.tsx': { default: page },
+      '/app/routes/users/[name]/page.tsx': { default: page },
+    })).toThrow('resolve to the same URL pattern');
+  });
 });

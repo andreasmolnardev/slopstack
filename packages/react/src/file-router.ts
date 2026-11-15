@@ -23,7 +23,7 @@ export type FileRouteMatch = { route: FileRoute; params: Record<string, string> 
  * colocated as `layout`, `loading`, `error`, and `not-found` modules. */
 export function createFileRoutes(modules: Readonly<Record<string, FileRouteModule>>): FileRoute[] {
   const files = Object.entries(modules);
-  return files
+  const routes = files
     .filter(([file, module]) => /\/page\.[jt]sx?$/.test(file) && module.default)
     .map(([file, module]) => {
       const routePath = file.replace(/^.*?routes\//, '').replace(/(^|\/)page\.[jt]sx?$/, '');
@@ -42,6 +42,33 @@ export function createFileRoutes(modules: Readonly<Record<string, FileRouteModul
     })
     .sort((a, b) => (a.segments.length === 0 ? -1 : b.segments.length === 0 ? 1 : 0)
       || routeRank(b) - routeRank(a) || a.path.localeCompare(b.path));
+  validateFileRoutes(routes);
+  return routes;
+}
+
+/** Fail early on ambiguous or invalid route definitions while developing/building. */
+export function validateFileRoutes(routes: readonly FileRoute[]) {
+  const seen = new Map<string, string>();
+  for (const route of routes) {
+    const dynamicNames = new Set<string>();
+    route.segments.forEach((segment, index) => {
+      const catchAll = segment.startsWith('[...') && segment.endsWith(']');
+      const dynamic = segment.startsWith('[') && segment.endsWith(']');
+      if (catchAll && index !== route.segments.length - 1) throw new Error(`Catch-all route segment in "${route.id}" must be last.`);
+      if (dynamic) {
+        const name = catchAll ? segment.slice(4, -1) : segment.slice(1, -1);
+        if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(name)) throw new Error(`Invalid route parameter "${segment}" in "${route.id}".`);
+        if (dynamicNames.has(name)) throw new Error(`Duplicate route parameter "${name}" in "${route.id}".`);
+        dynamicNames.add(name);
+      } else if (segment.startsWith('[') || segment.endsWith(']')) {
+        throw new Error(`Invalid route segment "${segment}" in "${route.id}".`);
+      }
+    });
+    const signature = route.segments.map((segment) => segment.startsWith('[...') ? '*' : segment.startsWith('[') ? ':' : segment).join('/');
+    const previous = seen.get(signature);
+    if (previous) throw new Error(`Routes "${previous}" and "${route.id}" resolve to the same URL pattern.`);
+    seen.set(signature, route.id);
+  }
 }
 
 function routeRank(route: FileRoute) {
