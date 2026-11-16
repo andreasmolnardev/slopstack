@@ -5,3 +5,4 @@ export * from './router-runtime.js';
 export * from './settings-runtime.js';
 export * from './state-runtime.js';
 export * from './view-runtime.js';
+export * from './file-router.js';
