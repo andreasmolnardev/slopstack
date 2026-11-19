@@ -221,6 +221,25 @@ func TestExpandedAssessmentTypesValidateAndKeepAnswerKeysPrivate(t *testing.T) {
 	}
 }
 
+func TestAssessmentKnowledgeUnitReferencesStayWithinModule(t *testing.T) {
+	content := map[string]any{"modules": []any{map[string]any{
+		"knowledge_unit_ids": []string{"concept-a", "concept-b"},
+		"objectives":         []string{"Apply the idea"},
+		"assessment": map[string]any{"questions": []any{map[string]any{
+			"id": "q1", "type": "true_false", "prompt": "Check the concept.", "objective": "Apply the idea",
+			"knowledge_unit_ids": []string{"concept-a"}, "correct_answer": true, "points": float64(1),
+		}}},
+	}}}
+	if err := validateAssessmentQuestions(content, true); err != nil {
+		t.Fatalf("valid question concept binding was rejected: %v", err)
+	}
+	question := content["modules"].([]any)[0].(map[string]any)["assessment"].(map[string]any)["questions"].([]any)[0].(map[string]any)
+	question["knowledge_unit_ids"] = []string{"other-module-concept"}
+	if err := validateAssessmentQuestions(content, true); err == nil {
+		t.Fatal("question binding outside the module must be rejected")
+	}
+}
+
 func TestCourseAssessmentScoresAnswersAndKeepsKeysPrivate(t *testing.T) {
 	app, err := tests.NewTestApp()
 	if err != nil {
@@ -256,6 +275,15 @@ func TestCourseAssessmentScoresAnswersAndKeepsKeysPrivate(t *testing.T) {
 	}
 	var questions []map[string]any
 	if err := keys[0].UnmarshalJSONField("questions", &questions); err != nil {
+		t.Fatal(err)
+	}
+	unit := createTestRecord(t, app, "knowledge_units", map[string]any{
+		"owner": user.Id, "title": "Fraction model", "description": "A fraction model shows equal parts.",
+		"unit_type": "concept", "metadata": map[string]any{"course_id": course.Id, "outline_unit_id": "assessment-unit", "generated": true},
+	})
+	questions[0]["knowledge_unit_ids"] = []string{"assessment-unit"}
+	keys[0].Set("questions", questions)
+	if err := app.Save(keys[0]); err != nil {
 		t.Fatal(err)
 	}
 	answers := map[string]any{"explain-sequence": "Name the parts, explain their relationship, and test an example", "explanation-components": []string{"Identify relevant parts", "Explain how the parts relate"}, "model-test": true}
@@ -295,6 +323,14 @@ func TestCourseAssessmentScoresAnswersAndKeepsKeysPrivate(t *testing.T) {
 	attemptEvidence, err := app.FindRecordsByFilter("learner_evidence", "owner = {:owner} && unit = {:unit} && evidence_type = 'module_assessment'", "", 10, 0, dbx.Params{"owner": user.Id, "unit": "assessment:" + course.Id})
 	if err != nil || len(attemptEvidence) != 1 {
 		t.Fatalf("offline retry should create one evidence record: count=%d err=%v", len(attemptEvidence), err)
+	}
+	unitEvidence, err := app.FindRecordsByFilter("learner_evidence", "owner = {:owner} && unit = {:unit} && evidence_type = {:type}", "", 10, 0, dbx.Params{"owner": user.Id, "unit": unit.Id, "type": "module_assessment"})
+	if err != nil || len(unitEvidence) != 1 {
+		t.Fatalf("assessment should record evidence for its linked knowledge unit: count=%d err=%v", len(unitEvidence), err)
+	}
+	mastery, err := app.FindRecordsByFilter("knowledge_mastery", "owner = {:owner} && unit = {:unit}", "", 1, 0, dbx.Params{"owner": user.Id, "unit": unit.Id})
+	if err != nil || len(mastery) != 1 || mastery[0].GetFloat("mastery") <= 0 {
+		t.Fatalf("assessment should update mastery for its linked knowledge unit: records=%d err=%v", len(mastery), err)
 	}
 	other := createTestRecord(t, app, "users", map[string]any{"email": "assessment-other@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
 	request = httptest.NewRequest("POST", "/api/learning/courses/"+course.Id+"/assess", strings.NewReader(string(body)))
@@ -1395,7 +1431,7 @@ func TestCourseGenerationBuildsValidatedMultiModuleCurriculumFromGoal(t *testing
 		objectives := module["objectives"].([]any)
 		questions := make([]any, 0, 3)
 		for index := 0; index < 3; index++ {
-			questions = append(questions, map[string]any{"id": module["id"].(string) + "-q" + strconv.Itoa(index+1), "type": "multiple_choice", "prompt": "Choose the correct mathematical claim.", "objective": objectives[index%len(objectives)], "choices": []any{"answer", "distractor"}, "correct_answer": "answer", "rationale": "The answer follows from the model shown in the lesson.", "points": float64(1)})
+			questions = append(questions, map[string]any{"id": module["id"].(string) + "-q" + strconv.Itoa(index+1), "type": "multiple_choice", "prompt": "Choose the correct mathematical claim.", "objective": objectives[index%len(objectives)], "knowledge_unit_ids": module["knowledge_unit_ids"], "choices": []any{"answer", "distractor"}, "correct_answer": "answer", "rationale": "The answer follows from the model shown in the lesson.", "points": float64(1)})
 		}
 		scenes := []any{}
 		for index := 0; index < 3; index++ {
