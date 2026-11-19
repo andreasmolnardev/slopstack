@@ -19,6 +19,15 @@ export type PendingCourseProgress = SavedCourseProgress & {
   updatedAt: number;
 };
 
+export type PendingOfflineAssessment = {
+  ownerId: string;
+  courseId: string;
+  courseVersion: number;
+  requestId: string;
+  answers: Record<string, unknown>;
+  queuedAt: number;
+};
+
 export interface OfflineLearningStore {
   saveCourse(ownerId: string, course: LearningRecord, progress?: SavedCourseProgress): Promise<void>;
   listCourses(ownerId: string): Promise<DownloadedLesson[]>;
@@ -29,12 +38,16 @@ export interface OfflineLearningStore {
   queueProgress(progress: PendingCourseProgress): Promise<void>;
   listQueuedProgress(ownerId: string): Promise<PendingCourseProgress[]>;
   removeQueuedProgress(ownerId: string, courseId: string): Promise<void>;
+  queueAssessment(attempt: PendingOfflineAssessment): Promise<void>;
+  listQueuedAssessments(ownerId: string): Promise<PendingOfflineAssessment[]>;
+  removeQueuedAssessment(ownerId: string, requestId: string): Promise<void>;
   clearUser(ownerId: string): Promise<void>;
 }
 
-const DATABASE_VERSION = 1;
+const DATABASE_VERSION = 2;
 const COURSE_STORE = 'downloaded-courses';
 const PROGRESS_STORE = 'pending-progress';
+const ASSESSMENT_STORE = 'pending-assessments';
 
 export function createIndexedDbOfflineLearningStore(
   factory: IDBFactory = indexedDB,
@@ -48,10 +61,18 @@ export function createIndexedDbOfflineLearningStore(
         const request = factory.open(databaseName, DATABASE_VERSION);
         request.onupgradeneeded = () => {
           const db = request.result;
-          const courses = db.createObjectStore(COURSE_STORE, { keyPath: 'key' });
-          courses.createIndex('ownerId', 'ownerId', { unique: false });
-          const progress = db.createObjectStore(PROGRESS_STORE, { keyPath: 'key' });
-          progress.createIndex('ownerId', 'ownerId', { unique: false });
+          if (!db.objectStoreNames.contains(COURSE_STORE)) {
+            const courses = db.createObjectStore(COURSE_STORE, { keyPath: 'key' });
+            courses.createIndex('ownerId', 'ownerId', { unique: false });
+          }
+          if (!db.objectStoreNames.contains(PROGRESS_STORE)) {
+            const progress = db.createObjectStore(PROGRESS_STORE, { keyPath: 'key' });
+            progress.createIndex('ownerId', 'ownerId', { unique: false });
+          }
+          if (!db.objectStoreNames.contains(ASSESSMENT_STORE)) {
+            const assessments = db.createObjectStore(ASSESSMENT_STORE, { keyPath: 'requestId' });
+            assessments.createIndex('ownerId', 'ownerId', { unique: false });
+          }
         };
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error ?? new Error('Could not open offline learning storage'));
@@ -69,7 +90,7 @@ export function createIndexedDbOfflineLearningStore(
         key: courseKey(ownerId, course.id),
         ownerId,
         courseId: course.id,
-        course,
+        course: sanitizeDownloadedCourse(course),
         downloadedAt: Date.now(),
         progress,
       } satisfies DownloadedLesson & { key: string; courseId: string });
@@ -95,9 +116,16 @@ export function createIndexedDbOfflineLearningStore(
 
     async removeCourse(ownerId, courseId) {
       const db = await database();
-      const tx = db.transaction([COURSE_STORE, PROGRESS_STORE], 'readwrite');
+      const tx = db.transaction([COURSE_STORE, PROGRESS_STORE, ASSESSMENT_STORE], 'readwrite');
       tx.objectStore(COURSE_STORE).delete(courseKey(ownerId, courseId));
       tx.objectStore(PROGRESS_STORE).delete(courseKey(ownerId, courseId));
+      const assessmentStore = tx.objectStore(ASSESSMENT_STORE);
+      const assessmentRequest = assessmentStore.index('ownerId').getAll(ownerId);
+      assessmentRequest.onsuccess = () => {
+        for (const attempt of assessmentRequest.result as PendingOfflineAssessment[]) {
+          if (attempt.courseId === courseId) assessmentStore.delete(attempt.requestId);
+        }
+      };
       await transactionDone(tx);
     },
 
@@ -148,10 +176,36 @@ export function createIndexedDbOfflineLearningStore(
       await transactionDone(tx);
     },
 
+    async queueAssessment(attempt) {
+      const db = await database();
+      const tx = db.transaction(ASSESSMENT_STORE, 'readwrite');
+      tx.objectStore(ASSESSMENT_STORE).put(attempt);
+      await transactionDone(tx);
+    },
+
+    async listQueuedAssessments(ownerId) {
+      const db = await database();
+      const tx = db.transaction(ASSESSMENT_STORE, 'readonly');
+      const rows = await requestResult<PendingOfflineAssessment[]>(tx.objectStore(ASSESSMENT_STORE).index('ownerId').getAll(ownerId));
+      await transactionDone(tx);
+      return rows.sort((a, b) => a.queuedAt - b.queuedAt);
+    },
+
+    async removeQueuedAssessment(ownerId, requestId) {
+      const db = await database();
+      const tx = db.transaction(ASSESSMENT_STORE, 'readwrite');
+      const store = tx.objectStore(ASSESSMENT_STORE);
+      const request = store.get(requestId);
+      request.onsuccess = () => {
+        if (request.result?.ownerId === ownerId) store.delete(requestId);
+      };
+      await transactionDone(tx);
+    },
+
     async clearUser(ownerId) {
       const db = await database();
-      const tx = db.transaction([COURSE_STORE, PROGRESS_STORE], 'readwrite');
-      for (const storeName of [COURSE_STORE, PROGRESS_STORE]) {
+      const tx = db.transaction([COURSE_STORE, PROGRESS_STORE, ASSESSMENT_STORE], 'readwrite');
+      for (const storeName of [COURSE_STORE, PROGRESS_STORE, ASSESSMENT_STORE]) {
         const store = tx.objectStore(storeName);
         const keys = await requestResult<IDBValidKey[]>(store.index('ownerId').getAllKeys(ownerId));
         for (const key of keys) store.delete(key);
@@ -204,6 +258,72 @@ export async function syncQueuedProgress(
     }
   }
   return synced;
+}
+
+const assessmentSyncs = new Map<string, Promise<number>>();
+
+export async function syncQueuedAssessments(
+  ownerId: string,
+  store: OfflineLearningStore = offlineLearningStore,
+  submitOnline: (attempt: PendingOfflineAssessment) => Promise<void>,
+  isOnline = browserIsOnline,
+): Promise<number> {
+  if (!ownerId || !isOnline()) return 0;
+  const current = assessmentSyncs.get(ownerId);
+  if (current) return current;
+  const sync = (async () => {
+    const pending = await store.listQueuedAssessments(ownerId);
+    let synced = 0;
+    for (const attempt of pending) {
+      if (attempt.ownerId !== ownerId) continue;
+      try {
+        await submitOnline(attempt);
+        await store.removeQueuedAssessment(ownerId, attempt.requestId);
+        synced += 1;
+      } catch {
+        // Keep failed submissions queued so reconnect or authentication can retry them.
+      }
+    }
+    return synced;
+  })();
+  assessmentSyncs.set(ownerId, sync);
+  try {
+    return await sync;
+  } finally {
+    if (assessmentSyncs.get(ownerId) === sync) assessmentSyncs.delete(ownerId);
+  }
+}
+
+export function sanitizeDownloadedCourse(course: LearningRecord): LearningRecord {
+  const safe = structuredClone(course);
+  const content = asObject(safe.content);
+  if (!Array.isArray(content.modules)) return safe;
+  content.modules = content.modules.map((rawModule) => {
+    const module = asObject(rawModule);
+    const assessment = asObject(module.assessment);
+    if (Array.isArray(assessment.questions)) {
+      assessment.questions = assessment.questions.map(sanitizeAssessmentQuestion);
+      module.assessment = assessment;
+    }
+    return module;
+  });
+  safe.content = content;
+  return safe;
+}
+
+function sanitizeAssessmentQuestion(question: unknown): Record<string, unknown> {
+  const safe = { ...asObject(question) };
+  for (const key of [
+    'correct_answer', 'correct_answers', 'accepted_answers', 'correct_order', 'correct_matches',
+    'rationale', 'answer', 'answers', 'explanation',
+  ]) delete safe[key];
+  return safe;
+}
+
+function asObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
 }
 
 export function courseKey(ownerId: string, courseId: string): string {

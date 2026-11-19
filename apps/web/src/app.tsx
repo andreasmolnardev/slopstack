@@ -3297,7 +3297,7 @@ function SettingsView() {
     themeTokens: { primary: '#007acc', accent: '#dbeeff', radius: '0.75rem' },
     motion: { style: 'scale', duration: 'normal', easing: 'standard' },
     learningInterests: [], learningGoals: [], priorKnowledge: [], preferredLanguage: 'en', defaultDifficulty: 'intermediate',
-    targetMinutes: 20, narration: true, captions: true,
+    targetMinutes: 20, narration: true, captions: true, narrationVoice: '', narrationSpeaker: '',
   });
   const [preferencesError, setPreferencesError] = useState('');
   const [linkedProviders, setLinkedProviders] = useState<Array<{ provider: string; id: string }>>([]);

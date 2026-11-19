@@ -4,12 +4,15 @@ import { useQuery } from '@tanstack/react-query';
 import { pb } from '../api/pocketbase';
 import { learningQueryOptions, type VocabularyRecord } from '../api/learning-queries';
 import { startWavRecording, type WavRecorder } from '../audio/wav';
+import { SpeechVoicePicker } from '../speech-voice-picker';
+import { preferencesQueryOptions } from '../api/preferences';
 
 export const Route = createFileRoute('/speaking')({
   beforeLoad: ({ location }) => { if (!pb.authStore.isValid) throw redirect({ to: '/login', search: { redirect: location.href } }); },
   loader: ({ context }) => Promise.all([
     context.queryClient.ensureQueryData(learningQueryOptions.vocabulary()),
     context.queryClient.ensureQueryData(learningQueryOptions.piperHealth()),
+    context.queryClient.ensureQueryData(preferencesQueryOptions()),
   ]),
   component: SpeakingPractice,
 });
@@ -18,16 +21,23 @@ function SpeakingPractice() {
   const navigate = useNavigate();
   const vocabularyQuery = useQuery(learningQueryOptions.vocabulary());
   const piperQuery = useQuery(learningQueryOptions.piperHealth());
+  const preferencesQuery = useQuery(preferencesQueryOptions());
   const words = (vocabularyQuery.data ?? []).filter(word => word.metadata.language?.trim().toLowerCase() === 'english');
   const [wordId, setWordId] = useState(''); const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false); const [notice, setNotice] = useState('');
   const [transcript, setTranscript] = useState(''); const [feedback, setFeedback] = useState('');
+  const [voice, setVoice] = useState('');
+  const [speaker, setSpeaker] = useState('');
   const [audioUrl, setAudioUrl] = useState(''); const [wavUrl, setWavUrl] = useState('');
   const recorder = useRef<WavRecorder | null>(null); const audioRef = useRef<HTMLAudioElement>(null);
   const recordingTimeout = useRef<number | null>(null);
   const [authUserId, setAuthUserId] = useState(pb.authStore.model?.id);
   const selected = words.find(word => word.id === wordId) ?? words[0];
   const piperReady = Boolean(piperQuery.data?.configured && piperQuery.data.connected);
+  useEffect(() => {
+    setVoice(preferencesQuery.data?.narrationVoice ?? '');
+    setSpeaker(preferencesQuery.data?.narrationSpeaker ?? '');
+  }, [preferencesQuery.data?.narrationVoice, preferencesQuery.data?.narrationSpeaker]);
   useEffect(() => () => {
     if (recordingTimeout.current !== null) window.clearTimeout(recordingTimeout.current);
     void recorder.current?.cancel();
@@ -42,6 +52,8 @@ function SpeakingPractice() {
       recordingTimeout.current = null;
       void recorder.current?.cancel(); recorder.current = null;
       setRecording(false); setBusy(false); setWordId(''); setTranscript(''); setFeedback('');
+      setVoice('');
+      setSpeaker('');
       setAudioUrl(previous => { if (previous) URL.revokeObjectURL(previous); return ''; });
       setWavUrl(previous => { if (previous) URL.revokeObjectURL(previous); return ''; });
     }
@@ -56,7 +68,7 @@ function SpeakingPractice() {
     try {
       const response = await fetch(pb.buildUrl('/api/speech/synthesize'), {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: pb.authStore.token },
-        body: JSON.stringify({ text: selected.term }),
+        body: JSON.stringify({ text: selected.term, voice, speaker }),
       });
       if (!response.ok) throw new Error('Piper could not create the pronunciation');
       const url = URL.createObjectURL(await response.blob());
@@ -122,7 +134,8 @@ function SpeakingPractice() {
       {vocabularyQuery.isLoading ? <p>Loading saved vocabulary…</p> : words.length === 0 ? <p>No English vocabulary items found. Add English words in the Vocabulary practice section first.</p> : <>
         <label className="grid gap-2 text-sm">Choose a word<select value={selected?.id ?? ''} onChange={event => { setWordId(event.target.value); setTranscript(''); setFeedback(''); }} className="rounded-lg bg-[#0e0621] p-3">{words.map((word: VocabularyRecord) => <option key={word.id} value={word.id}>{word.term} — {word.metadata.translation ?? ''}</option>)}</select></label>
         {selected && <><div className="mt-5 rounded-xl bg-[#0e0621] p-5"><p className="text-xs text-[#b7adcc]">{selected.metadata.language} · {selected.metadata.set_name || 'Vocabulary'}</p><h2 className="mt-2 text-3xl font-semibold">{selected.term}</h2><p className="mt-1 text-sm text-[#b7adcc]">Translation: {selected.metadata.translation}</p></div>
-          <div className="mt-5 flex flex-wrap gap-3"><button disabled={busy || !piperReady} onClick={() => void pronounce()} className="rounded-lg bg-[#6350c8] px-4 py-2">Play pronunciation</button>{!recording ? <button disabled={busy} onClick={() => void startRecording()} className="rounded-lg border border-white/20 px-4 py-2">Record attempt</button> : <button onClick={() => void stopRecording()} className="rounded-lg bg-[#aa65c9] px-4 py-2">Stop and transcribe</button>}</div>
+          <div className="mt-5 flex flex-wrap gap-3"><button disabled={busy || !piperReady} onClick={() => void pronounce()} className="rounded-lg bg-[#6350c8] px-4 py-2">Test voice and play pronunciation</button>{!recording ? <button disabled={busy} onClick={() => void startRecording()} className="rounded-lg border border-white/20 px-4 py-2">Record attempt</button> : <button onClick={() => void stopRecording()} className="rounded-lg bg-[#aa65c9] px-4 py-2">Stop and transcribe</button>}</div>
+          <div className="mt-4"><SpeechVoicePicker health={piperQuery.data} value={voice} speaker={speaker} onChange={(nextVoice, nextSpeaker) => { setVoice(nextVoice); setSpeaker(nextSpeaker); }} disabled={busy}/></div>
           <p className="mt-2 text-xs text-[#b7adcc]">{piperReady ? 'Piper is ready.' : piperQuery.data?.configured ? 'Piper is disconnected.' : 'Piper is not configured.'} Microphone access needs a secure browser context. English transcript matching is supported in this first version.</p>
           {audioUrl && <audio ref={audioRef} controls autoPlay src={audioUrl} className="mt-3 w-full"/>}
           <label className="mt-6 block text-sm">Or upload a WAV recording<input className="mt-2 block w-full text-xs" type="file" accept="audio/wav,.wav" disabled={busy} onChange={event => { const file = event.currentTarget.files?.[0]; if (file) void transcribe(file); }}/></label>

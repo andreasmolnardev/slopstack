@@ -43,7 +43,8 @@ func TestSynthesizeBuildsWavFromWyomingEvents(t *testing.T) {
 		defer conn.Close()
 		reader := bufio.NewReader(conn)
 		request, readErr := ReadEvent(reader)
-		if readErr != nil || request.Type != "synthesize" {
+		voice, _ := request.Data["voice"].(map[string]any)
+		if readErr != nil || request.Type != "synthesize" || voice["name"] != "en_US-sample-medium" || voice["speaker"] != "speaker-1" {
 			return
 		}
 		_ = WriteEvent(conn, Event{Type: "audio-start", Data: map[string]any{"rate": 22050, "width": 2, "channels": 1}})
@@ -52,12 +53,43 @@ func TestSynthesizeBuildsWavFromWyomingEvents(t *testing.T) {
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	audio, rate, width, channels, err := Synthesize(ctx, listener.Addr().String(), "Hello", "", time.Second)
+	audio, rate, width, channels, err := Synthesize(ctx, listener.Addr().String(), "Hello", "en_US-sample-medium", "speaker-1", time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if rate != 22050 || width != 2 || channels != 1 || string(audio[:4]) != "RIFF" || len(audio) != 48 {
 		t.Fatalf("unexpected wav metadata or size: %d %d %d %d", rate, width, channels, len(audio))
+	}
+}
+
+func TestDiscoverUsesDescribeInfoRoundTrip(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer conn.Close()
+		request, readErr := ReadEvent(bufio.NewReader(conn))
+		if readErr != nil || request.Type != "describe" {
+			return
+		}
+		_ = WriteEvent(conn, Event{Type: "info", Data: map[string]any{"tts": map[string]any{"models": []any{map[string]any{"name": "voice-a"}}}}})
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	info, err := Discover(ctx, listener.Addr().String(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tts, ok := info["tts"].(map[string]any)
+	models, modelsOK := tts["models"].([]any)
+	if !ok || !modelsOK || len(models) != 1 {
+		t.Fatalf("unexpected discovery info: %#v", info)
 	}
 }
 

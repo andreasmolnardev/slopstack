@@ -4,22 +4,29 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { pb } from '../api/pocketbase';
 import { preferencesQueryOptions, savePreferences } from '../api/preferences';
 import { learnerProfileForm, learnerProfilePatch, type LearnerProfileForm } from '../profile/preferences-form';
+import { learningQueryOptions } from '../api/learning-queries';
+import { SpeechVoicePicker } from '../speech-voice-picker';
 
 export const Route = createFileRoute('/profile')({
   beforeLoad: ({ location }) => { if (!pb.authStore.isValid) throw redirect({ to: '/login', search: { redirect: location.href } }); },
-  loader: ({ context }) => context.queryClient.ensureQueryData(preferencesQueryOptions()),
+  loader: ({ context }) => Promise.all([
+    context.queryClient.ensureQueryData(preferencesQueryOptions()),
+    context.queryClient.ensureQueryData(learningQueryOptions.piperHealth()),
+  ]),
   component: LearnerProfile,
 });
 
 const blankForm: LearnerProfileForm = {
   learningInterests: '', learningGoals: '', priorKnowledge: '', preferredLanguage: 'en',
   defaultDifficulty: 'intermediate', targetMinutes: 20, narration: true, captions: true,
+  narrationVoice: '', narrationSpeaker: '',
 };
 
 function LearnerProfile() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const preferencesQuery = useQuery(preferencesQueryOptions());
+  const piperQuery = useQuery(learningQueryOptions.piperHealth());
   const [form, setForm] = useState(blankForm);
   const [message, setMessage] = useState('');
   const [authUserId, setAuthUserId] = useState(pb.authStore.model?.id);
@@ -59,6 +66,9 @@ function LearnerProfile() {
       <fieldset className="grid gap-3"><legend className="text-sm font-medium">Lesson presentation</legend>
         <label className="flex items-center gap-3 text-sm"><input type="checkbox" checked={form.narration} onChange={event => update('narration', event.target.checked)} />Narration</label>
         <label className="flex items-center gap-3 text-sm"><input type="checkbox" checked={form.captions} onChange={event => update('captions', event.target.checked)} />Captions</label>
+        <p className="text-xs text-[#b7adcc]">Choose an advertised Piper voice and speaker for narrated lessons. “Service default” uses the voice configured on the server.</p>
+        <SpeechVoicePicker health={piperQuery.data} value={form.narrationVoice} speaker={form.narrationSpeaker} onChange={(narrationVoice, narrationSpeaker) => setForm(current => ({ ...current, narrationVoice, narrationSpeaker }))} disabled={save.isPending}/>
+        {(form.narrationVoice || form.narrationSpeaker) && <div className="flex flex-wrap items-center gap-3 text-xs text-[#b7adcc]"><span>Saved choice: {form.narrationVoice}{form.narrationSpeaker ? ` · ${form.narrationSpeaker}` : ''}</span><button type="button" onClick={() => setForm(current => ({ ...current, narrationVoice: '', narrationSpeaker: '' }))} className="rounded border border-white/15 px-2 py-1">Use service default</button></div>}
       </fieldset>
       <div className="flex items-center gap-4"><button disabled={save.isPending} className="rounded-lg bg-[#6350c8] px-5 py-2.5">{save.isPending ? 'Saving…' : 'Save profile'}</button>{message && <p role="status" className="text-sm text-[#efc778]">{message}</p>}</div>
     </form>}

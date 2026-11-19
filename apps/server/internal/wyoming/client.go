@@ -101,7 +101,7 @@ func Discover(ctx context.Context, address string, timeout time.Duration) (map[s
 	return event.Data, nil
 }
 
-func Synthesize(ctx context.Context, address, text, voice string, timeout time.Duration) ([]byte, int, int, int, error) {
+func Synthesize(ctx context.Context, address, text, voice, speaker string, timeout time.Duration) ([]byte, int, int, int, error) {
 	conn, err := Dial(ctx, address, timeout)
 	if err != nil {
 		return nil, 0, 0, 0, err
@@ -110,7 +110,11 @@ func Synthesize(ctx context.Context, address, text, voice string, timeout time.D
 	_ = conn.SetDeadline(time.Now().Add(timeout))
 	data := map[string]any{"text": text}
 	if voice != "" {
-		data["voice"] = map[string]any{"name": voice}
+		selected := map[string]any{"name": voice}
+		if speaker != "" {
+			selected["speaker"] = speaker
+		}
+		data["voice"] = selected
 	}
 	if err := WriteEvent(conn, Event{Type: "synthesize", Data: data}); err != nil {
 		return nil, 0, 0, 0, err

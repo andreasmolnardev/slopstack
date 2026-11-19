@@ -7,6 +7,7 @@ const preferences: UserPreferences = {
   themeTokens: { primary: '#007acc', accent: '#dbeeff', radius: '0.75rem' }, motion: { style: 'scale', duration: 'normal', easing: 'standard' },
   learningInterests: ['astronomy'], learningGoals: ['read papers'], priorKnowledge: null,
   preferredLanguage: 'fr-CA', defaultDifficulty: 'advanced', targetMinutes: 40, narration: false, captions: true,
+  narrationVoice: 'en_US-sample-medium', narrationSpeaker: 'speaker-a',
 };
 
 describe('learner profile preferences form helpers', () => {
@@ -16,6 +17,8 @@ describe('learner profile preferences form helpers', () => {
     expect(form.learningGoals).toBe('read papers');
     expect(form.priorKnowledge).toBe('');
     expect(form.narration).toBe(false);
+    expect(form.narrationVoice).toBe('en_US-sample-medium');
+    expect(form.narrationSpeaker).toBe('speaker-a');
     expect(listToText(null)).toBe('');
   });
 
@@ -28,6 +31,7 @@ describe('learner profile preferences form helpers', () => {
     expect(patch).toEqual({
       learningInterests: ['astronomy'], learningGoals: ['read papers'], priorKnowledge: [],
       preferredLanguage: 'fr-CA', defaultDifficulty: 'advanced', targetMinutes: 40, narration: false, captions: true,
+      narrationVoice: 'en_US-sample-medium', narrationSpeaker: 'speaker-a',
     });
     expect(() => parseProfileList(Array.from({ length: 21 }, (_, index) => `item ${index}`).join('\n'))).toThrow('20 items');
     expect(() => learnerProfilePatch({ ...learnerProfileForm(preferences), targetMinutes: 61 })).toThrow('between 5 and 60');

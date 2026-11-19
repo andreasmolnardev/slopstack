@@ -16,6 +16,9 @@ func TestValidateUserPreferences(t *testing.T) {
 	if err := validateUserPreferences(prefs); err != nil {
 		t.Fatalf("defaults should be valid: %v", err)
 	}
+	if prefs.NarrationVoice != "" || prefs.NarrationSpeaker != "" {
+		t.Fatalf("voice preferences should default to the service-selected voice: %#v", prefs)
+	}
 
 	prefs.Navigation = "floating"
 	if err := validateUserPreferences(prefs); err == nil {
@@ -54,6 +57,16 @@ func TestValidateUserPreferences(t *testing.T) {
 	prefs.TargetMinutes = 120
 	if err := validateUserPreferences(prefs); err == nil {
 		t.Fatal("out of range target minutes should fail validation")
+	}
+	prefs = defaultUserPreferences()
+	prefs.NarrationSpeaker = "speaker-a"
+	if err := validateUserPreferences(prefs); err == nil {
+		t.Fatal("a speaker without a selected voice should fail validation")
+	}
+	prefs = defaultUserPreferences()
+	prefs.NarrationVoice = strings.Repeat("v", 201)
+	if err := validateUserPreferences(prefs); err == nil {
+		t.Fatal("voice names longer than 200 characters should fail validation")
 	}
 }
 
@@ -103,6 +116,8 @@ func TestPreferencesPartialPatchPreservesUnspecifiedFields(t *testing.T) {
 	prefs.LearningInterests = []string{"music", "history"}
 	prefs.LearningGoals = []string{"write a novel"}
 	prefs.Narration = false
+	prefs.NarrationVoice = "en_US-sample-medium"
+	prefs.NarrationSpeaker = "speaker-a"
 	user.Set("preferences", prefs)
 	if err := app.Save(user); err != nil {
 		t.Fatal(err)
@@ -118,7 +133,40 @@ func TestPreferencesPartialPatchPreservesUnspecifiedFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := readUserPreferences(updated)
-	if got.TargetMinutes != 35 || got.Captions || got.Narration || len(got.LearningInterests) != 2 || got.LearningInterests[1] != "history" || len(got.LearningGoals) != 1 || got.LearningGoals[0] != "write a novel" {
+	if got.TargetMinutes != 35 || got.Captions || got.Narration || got.NarrationVoice != "en_US-sample-medium" || got.NarrationSpeaker != "speaker-a" || len(got.LearningInterests) != 2 || got.LearningInterests[1] != "history" || len(got.LearningGoals) != 1 || got.LearningGoals[0] != "write a novel" {
 		t.Fatalf("partial update changed unrelated preferences: %#v", got)
+	}
+}
+
+func TestPreferencesPatchCanClearNarrationVoice(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	user := createTestRecord(t, app, "users", map[string]any{"email": "profile-voice@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	prefs := defaultUserPreferences()
+	prefs.NarrationVoice = "en_US-sample-medium"
+	prefs.NarrationSpeaker = "speaker-a"
+	user.Set("preferences", prefs)
+	if err := app.Save(user); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPatch, "/api/me/preferences", strings.NewReader(`{"narrationVoice":"","narrationSpeaker":""}`))
+	response := httptest.NewRecorder()
+	event := &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: request, Response: response}}
+	if err := patchMyPreferencesRoute(event); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := app.FindRecordById("users", user.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := readUserPreferences(updated)
+	if got.NarrationVoice != "" || got.NarrationSpeaker != "" {
+		t.Fatalf("voice and speaker should be clearable: %#v", got)
 	}
 }

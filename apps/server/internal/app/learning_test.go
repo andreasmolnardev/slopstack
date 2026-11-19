@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -30,6 +31,7 @@ func TestLearningOpenAPIContractsCoverPocketBaseRoutes(t *testing.T) {
 		{"GET", "/api/account/learning-export"}, {"POST", "/api/account/learning-import"},
 		{"GET", "/api/learning/sources"}, {"POST", "/api/learning/sources"}, {"DELETE", "/api/learning/sources/{id}"},
 		{"GET", "/api/languages/vocabulary"}, {"POST", "/api/languages/vocabulary"},
+		{"POST", "/api/languages/vocabulary/{id}/context-attempt"},
 		{"GET", "/api/languages/grammar"}, {"POST", "/api/languages/grammar"}, {"POST", "/api/languages/grammar/{id}/answer"},
 		{"GET", "/api/speech/piper"}, {"POST", "/api/speech/synthesize"}, {"POST", "/api/speech/transcribe"},
 		{"POST", "/api/learning/courses/{id}/generate"}, {"GET", "/api/learning/jobs/{id}"}, {"POST", "/api/learning/jobs/{id}/cancel"},
@@ -76,6 +78,38 @@ func TestFixtureCourseContentUsesSupportedScenes(t *testing.T) {
 	config := scene["widget"].(map[string]any)["config"].(map[string]any)
 	if !strings.Contains(config["body"].(string), "Compare fractions with shaded strips") || scene["source_ids"].([]string)[0] != "source-one" {
 		t.Fatalf("fixture did not use selected learner context: %#v", scene)
+	}
+}
+
+func TestPiperVoicesUsesWyomingTTSCapabilities(t *testing.T) {
+	info := map[string]any{"tts": map[string]any{"models": []any{
+		map[string]any{"name": "en_US-sample-medium", "languages": []any{"en_US"}, "speakers": []any{map[string]any{"name": "speaker-1"}}, "installed": true, "description": "Sample voice", "supports_synthesize_streaming": true},
+		map[string]any{"name": "", "languages": []any{"en"}},
+		"invalid",
+	}}}
+	voices := piperVoices(info)
+	if len(voices) != 1 || voices[0]["name"] != "en_US-sample-medium" || voices[0]["installed"] != true || len(voices[0]["speakers"].([]any)) != 1 {
+		t.Fatalf("unexpected advertised voices: %#v", voices)
+	}
+	if _, leakedUnsupportedCapability := voices[0]["supports_synthesize_streaming"]; leakedUnsupportedCapability {
+		t.Fatal("voice projection should expose only advertised voice metadata")
+	}
+}
+
+func TestValidatePiperSelectionRejectsUnavailableCapabilities(t *testing.T) {
+	info := map[string]any{"tts": map[string]any{"models": []any{
+		map[string]any{"name": "voice-a", "installed": true, "speakers": []any{map[string]any{"name": "speaker-a"}}},
+		map[string]any{"name": "voice-b", "installed": false},
+	}}}
+	cases := []struct {
+		voice, speaker string
+		wantErr        bool
+	}{{"", "", false}, {"voice-a", "", false}, {"voice-a", "speaker-a", false}, {"voice-a", "missing", true}, {"voice-b", "", true}, {"missing", "", true}, {"", "speaker-a", true}}
+	for _, test := range cases {
+		err := validatePiperSelection(info, test.voice, test.speaker)
+		if (err != nil) != test.wantErr {
+			t.Errorf("validatePiperSelection(%q, %q) error=%v, want error %v", test.voice, test.speaker, err, test.wantErr)
+		}
 	}
 }
 
@@ -192,7 +226,10 @@ func TestCourseAssessmentScoresAnswersAndKeepsKeysPrivate(t *testing.T) {
 		t.Fatal(err)
 	}
 	answers := map[string]any{"explain-sequence": "Name the parts, explain their relationship, and test an example", "explanation-components": []string{"Identify relevant parts", "Explain how the parts relate"}, "model-test": true}
-	body, _ := json.Marshal(map[string]any{"answers": answers})
+	if _, err := app.FindRecordsByFilter("learner_evidence", "owner = {:owner} && unit = {:unit} && evidence_type = {:type}", "", 0, 0, dbx.Params{"owner": user.Id, "unit": "assessment:" + course.Id, "type": "module_assessment"}); err != nil {
+		t.Fatalf("assessment retry filter failed: %v", err)
+	}
+	body, _ := json.Marshal(map[string]any{"answers": answers, "request_id": "offline-attempt-001"})
 	request := httptest.NewRequest("POST", "/api/learning/courses/"+course.Id+"/assess", strings.NewReader(string(body)))
 	request.SetPathValue("id", course.Id)
 	recorder := httptest.NewRecorder()
@@ -206,6 +243,25 @@ func TestCourseAssessmentScoresAnswersAndKeepsKeysPrivate(t *testing.T) {
 	}
 	if result["score"] != float64(1) {
 		t.Fatalf("expected exact answers to score 1, got %#v", result)
+	}
+	firstEvidenceID := result["evidence_id"]
+	request = httptest.NewRequest("POST", "/api/learning/courses/"+course.Id+"/assess", strings.NewReader(string(body)))
+	request.SetPathValue("id", course.Id)
+	recorder = httptest.NewRecorder()
+	event = &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: request, Response: recorder}}
+	if err := assessCourseRoute(event); err != nil {
+		t.Fatal(err)
+	}
+	var retryResult map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &retryResult); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.Code != http.StatusOK || retryResult["evidence_id"] != firstEvidenceID {
+		t.Fatalf("retry must return the original assessment result: status=%d result=%#v", recorder.Code, retryResult)
+	}
+	attemptEvidence, err := app.FindRecordsByFilter("learner_evidence", "owner = {:owner} && unit = {:unit} && evidence_type = 'module_assessment'", "", 10, 0, dbx.Params{"owner": user.Id, "unit": "assessment:" + course.Id})
+	if err != nil || len(attemptEvidence) != 1 {
+		t.Fatalf("offline retry should create one evidence record: count=%d err=%v", len(attemptEvidence), err)
 	}
 	other := createTestRecord(t, app, "users", map[string]any{"email": "assessment-other@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
 	request = httptest.NewRequest("POST", "/api/learning/courses/"+course.Id+"/assess", strings.NewReader(string(body)))
@@ -327,10 +383,48 @@ func TestManualCourseWritesKeepAnswerKeysPrivateAndVersionEdits(t *testing.T) {
 }
 
 func TestGeneratedCourseAcceptsRegisteredWidgetTypes(t *testing.T) {
-	for _, kind := range []string{"explanation", "model", "reflection", "number_line", "binary_explorer", "matching", "timeline", "function_plotter"} {
-		content := map[string]any{"modules": []any{map[string]any{"scenes": []any{map[string]any{"widget": map[string]any{"type": kind}}}}}}
+	for _, kind := range []string{"explanation", "model", "reflection", "number_line", "binary_explorer", "matching", "timeline", "function_plotter", "vector_visualizer", "logic_gates", "algorithm_step_visualizer"} {
+		widget := map[string]any{"type": kind}
+		switch kind {
+		case "vector_visualizer":
+			widget["version"] = float64(1)
+			widget["config"] = map[string]any{"vector_x": float64(3), "vector_y": float64(4), "axis_limit": float64(5)}
+		case "logic_gates":
+			widget["version"] = float64(1)
+			widget["config"] = map[string]any{"gate": "AND"}
+		case "algorithm_step_visualizer":
+			widget["version"] = float64(1)
+			widget["config"] = map[string]any{"items": []any{float64(1), float64(2), float64(3)}, "target": float64(2)}
+		}
+		content := map[string]any{"modules": []any{map[string]any{"scenes": []any{map[string]any{"widget": widget}}}}}
 		if err := validateGeneratedCourse(content); err != nil {
 			t.Errorf("registered widget %q rejected: %v", kind, err)
+		}
+	}
+}
+
+func TestTrustedInteractiveWidgetConfigsAreStrictAndBounded(t *testing.T) {
+	valid := []map[string]any{
+		{"type": "vector_visualizer", "version": float64(1), "config": map[string]any{"vector_x": float64(3), "vector_y": float64(-4), "axis_limit": float64(5)}},
+		{"type": "logic_gates", "version": float64(1), "config": map[string]any{"gate": "XOR"}},
+		{"type": "algorithm_step_visualizer", "version": float64(1), "config": map[string]any{"items": []any{float64(2), float64(5), float64(8)}, "target": float64(5)}},
+	}
+	for _, widget := range valid {
+		if err := validateWidgetConfig(widget["type"].(string), widget); err != nil {
+			t.Errorf("valid %s config rejected: %v", widget["type"], err)
+		}
+	}
+	invalid := []map[string]any{
+		{"type": "vector_visualizer", "version": float64(2), "config": map[string]any{"vector_x": float64(3), "vector_y": float64(4), "axis_limit": float64(5)}},
+		{"type": "vector_visualizer", "version": float64(1), "config": map[string]any{"vector_x": float64(8), "vector_y": float64(4), "axis_limit": float64(5)}},
+		{"type": "vector_visualizer", "version": float64(1), "config": map[string]any{"vector_x": float64(3), "vector_y": float64(4), "axis_limit": float64(5), "callback": "evil"}},
+		{"type": "logic_gates", "version": float64(1), "config": map[string]any{"gate": "CUSTOM"}},
+		{"type": "algorithm_step_visualizer", "version": float64(1), "config": map[string]any{"items": []any{float64(2), float64(8), float64(5)}, "target": float64(5)}},
+		{"type": "algorithm_step_visualizer", "version": float64(1), "config": map[string]any{"items": []any{float64(2), float64(5)}, "target": float64(5)}},
+	}
+	for _, widget := range invalid {
+		if err := validateWidgetConfig(widget["type"].(string), widget); err == nil {
+			t.Errorf("invalid %s config accepted: %#v", widget["type"], widget)
 		}
 	}
 }
@@ -565,7 +659,7 @@ func TestVocabularySetCreatesSharedKnowledgeUnits(t *testing.T) {
 		t.Fatal(err)
 	}
 	user := createTestRecord(t, app, "users", map[string]any{"email": "vocab@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
-	request := httptest.NewRequest("POST", "/api/languages/vocabulary", strings.NewReader(`{"language":"Spanish","set_name":"Travel","words":[{"term":"hola","translation":"hello"},{"term":"gracias","translation":"thank you"}]}`))
+	request := httptest.NewRequest("POST", "/api/languages/vocabulary", strings.NewReader(`{"language":"Spanish","set_name":"Travel","words":[{"term":"hola","translation":"hello","example_sentence":"Hola, buenos días."},{"term":"gracias","translation":"thank you"}]}`))
 	event := &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
 	if err := createVocabularyRoute(event); err != nil {
 		t.Fatal(err)
@@ -578,8 +672,60 @@ func TestVocabularySetCreatesSharedKnowledgeUnits(t *testing.T) {
 	if err := records[0].UnmarshalJSONField("metadata", &metadata); err != nil {
 		t.Fatal(err)
 	}
-	if metadata["language"] != "Spanish" || metadata["set_name"] != "Travel" {
+	if metadata["language"] != "Spanish" || metadata["set_name"] != "Travel" || metadata["example_sentence"] != "Hola, buenos días." {
 		t.Fatalf("vocabulary provenance missing: %#v", metadata)
+	}
+}
+
+func TestVocabularyContextAndListeningAttemptsRecordOwnedEvidence(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	owner := createTestRecord(t, app, "users", map[string]any{"email": "language-owner@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	other := createTestRecord(t, app, "users", map[string]any{"email": "language-other@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	unit := createTestRecord(t, app, "knowledge_units", map[string]any{"owner": owner.Id, "title": "bonjour", "unit_type": "vocabulary", "metadata": map[string]any{"language": "French", "example_sentence": "Bonjour, madame."}})
+	for _, test := range []struct{ mode, answer, evidenceType string }{
+		{"listening", " BONJOUR! ", "vocabulary_listening_attempt"},
+		{"context", "Je dis bonjour à mon voisin.", "vocabulary_context_attempt"},
+		{"context", "Je dis merci à mon voisin.", "vocabulary_context_attempt"},
+	} {
+		request := httptest.NewRequest(http.MethodPost, "/api/languages/vocabulary/"+unit.Id+"/context-attempt", strings.NewReader(`{"mode":"`+test.mode+`","answer":"`+test.answer+`"}`))
+		request.SetPathValue("id", unit.Id)
+		response := httptest.NewRecorder()
+		event := &core.RequestEvent{App: app, Auth: owner, Event: router.Event{Request: request, Response: response}}
+		if err := submitVocabularyContextAttemptRoute(event); err != nil {
+			t.Fatal(err)
+		}
+		var result map[string]any
+		if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		wantCorrect := !strings.Contains(test.answer, "merci")
+		if result["correct"] != wantCorrect || result["example_sentence"] != "Bonjour, madame." {
+			t.Fatalf("unexpected %s result: %#v", test.mode, result)
+		}
+		evidence, err := app.FindRecordsByFilter("learner_evidence", "owner = {:owner} && unit = {:unit} && evidence_type = {:type}", "", 10, 0, dbx.Params{"owner": owner.Id, "unit": unit.Id, "type": test.evidenceType})
+		found := false
+		for _, record := range evidence {
+			var details map[string]any
+			if err := record.UnmarshalJSONField("details", &details); err == nil && details["answer"] == strings.TrimSpace(test.answer) {
+				found = record.GetFloat("score") == map[bool]float64{true: 1, false: 0}[wantCorrect]
+			}
+		}
+		if err != nil || !found {
+			t.Fatalf("unexpected %s evidence: count=%d err=%v", test.evidenceType, len(evidence), err)
+		}
+	}
+	foreignRequest := httptest.NewRequest(http.MethodPost, "/api/languages/vocabulary/"+unit.Id+"/context-attempt", strings.NewReader(`{"mode":"listening","answer":"bonjour"}`))
+	foreignRequest.SetPathValue("id", unit.Id)
+	foreignEvent := &core.RequestEvent{App: app, Auth: other, Event: router.Event{Request: foreignRequest, Response: httptest.NewRecorder()}}
+	if err := submitVocabularyContextAttemptRoute(foreignEvent); err == nil {
+		t.Fatal("other user's vocabulary should not be available")
 	}
 }
 
@@ -673,6 +819,14 @@ func TestLearningArchiveExportIsOwnerScoped(t *testing.T) {
 	second := createTestRecord(t, app, "users", map[string]any{"email": "archive-b@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
 	own := createTestRecord(t, app, "courses", map[string]any{"owner": first.Id, "title": "Mine"})
 	createTestRecord(t, app, "courses", map[string]any{"owner": second.Id, "title": "Not mine"})
+	createTestRecord(t, app, "podcast_episodes", map[string]any{"owner": first.Id, "title": "My episode", "topic": "Learning", "status": "ready", "source_ids": []string{}, "concept_ids": []string{}, "outline": map[string]any{}, "transcript": map[string]any{}})
+	createTestRecord(t, app, "podcast_episodes", map[string]any{"owner": second.Id, "title": "Not my episode", "topic": "Learning", "status": "ready", "source_ids": []string{}, "concept_ids": []string{}, "outline": map[string]any{}, "transcript": map[string]any{}})
+	preferences := defaultUserPreferences()
+	preferences.LearningGoals = []string{"Learn more"}
+	first.Set("preferences", preferences)
+	if err := app.Save(first); err != nil {
+		t.Fatal(err)
+	}
 	recorder := httptest.NewRecorder()
 	event := &core.RequestEvent{App: app, Auth: first, Event: router.Event{Request: httptest.NewRequest("GET", "/api/account/learning-export", nil), Response: recorder}}
 	if err := exportLearningDataRoute(event); err != nil {
@@ -688,6 +842,161 @@ func TestLearningArchiveExportIsOwnerScoped(t *testing.T) {
 	}
 	if archive["format"] != "starburst-learning-archive" {
 		t.Fatalf("unexpected archive format: %#v", archive["format"])
+	}
+	podcasts, ok := archive["podcast_episodes"].([]any)
+	if !ok || len(podcasts) != 1 || podcasts[0].(map[string]any)["title"] != "My episode" {
+		t.Fatalf("archive leaked or omitted podcast data: %#v", archive["podcast_episodes"])
+	}
+	exportedPreferences, ok := archive["preferences"].(map[string]any)
+	if !ok || len(exportedPreferences["learningGoals"].([]any)) != 1 {
+		t.Fatalf("archive omitted account preferences: %#v", archive["preferences"])
+	}
+}
+
+func TestLearningArchiveImportIncludesPodcastAndPreferencesAndRemapsLinks(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	user := createTestRecord(t, app, "users", map[string]any{"email": "archive-podcast-import@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	other := createTestRecord(t, app, "users", map[string]any{"email": "archive-podcast-other@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	preferences := defaultUserPreferences()
+	preferences.LearningInterests = []string{"Astronomy"}
+	preferences.LearningGoals = []string{"Read the night sky"}
+	preferences.NarrationVoice = "en_US-sample-medium"
+	preferences.NarrationSpeaker = "speaker-a"
+	outline := fixturePodcastScript("Space notes", "Stars and galaxies", podcastContext{})
+	transcript := fixturePodcastTranscript("Space notes", "Stars and galaxies", podcastContext{})
+	archive := map[string]any{
+		"format": "starburst-learning-archive", "format_version": 1, "user_id": "untrusted-owner",
+		"preferences":      preferences,
+		"learning_sources": []any{map[string]any{"id": "source-old", "title": "Star notes", "source_type": "text/plain", "content": "Stars emit light."}},
+		"knowledge_units":  []any{map[string]any{"id": "unit-old", "title": "Star", "unit_type": "concept", "description": "A luminous sphere."}},
+		"podcast_episodes": []any{map[string]any{
+			"id": "episode-old", "title": "Space notes", "topic": "Stars and galaxies", "status": "ready",
+			"source_ids": []string{"source-old", "foreign-source"}, "concept_ids": []string{"unit-old", "foreign-unit"},
+			"outline": outline, "transcript": transcript, "duration_seconds": 1,
+		}},
+	}
+	body, err := json.Marshal(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: httptest.NewRequest("POST", "/api/account/learning-import", bytes.NewReader(body)), Response: httptest.NewRecorder()}}
+	if err := importLearningDataRoute(event); err != nil {
+		t.Fatal(err)
+	}
+	podcasts, err := app.FindRecordsByFilter("podcast_episodes", "owner = {:owner}", "", 0, 0, dbx.Params{"owner": user.Id})
+	if err != nil || len(podcasts) != 1 {
+		t.Fatalf("expected one podcast for the importing user: %v (%d)", err, len(podcasts))
+	}
+	var sourceIDs, conceptIDs []string
+	if err := podcasts[0].UnmarshalJSONField("source_ids", &sourceIDs); err != nil {
+		t.Fatal(err)
+	}
+	if err := podcasts[0].UnmarshalJSONField("concept_ids", &conceptIDs); err != nil {
+		t.Fatal(err)
+	}
+	if len(sourceIDs) != 1 || sourceIDs[0] == "source-old" || len(conceptIDs) != 1 || conceptIDs[0] == "unit-old" {
+		t.Fatalf("podcast links were not remapped or unmapped links were retained: %v %v", sourceIDs, conceptIDs)
+	}
+	if _, err := app.FindRecordById("learning_sources", sourceIDs[0]); err != nil {
+		t.Fatalf("podcast source link does not resolve: %v", err)
+	}
+	if _, err := app.FindRecordById("knowledge_units", conceptIDs[0]); err != nil {
+		t.Fatalf("podcast concept link does not resolve: %v", err)
+	}
+	if podcasts[0].GetString("owner") != user.Id || podcasts[0].GetString("status") != "ready" || podcasts[0].GetFloat("duration_seconds") == 1 {
+		t.Fatalf("podcast archive data was not safely restored: %#v", podcasts[0].PublicExport())
+	}
+	otherPodcasts, err := app.FindRecordsByFilter("podcast_episodes", "owner = {:owner}", "", 0, 0, dbx.Params{"owner": other.Id})
+	if err != nil || len(otherPodcasts) != 0 {
+		t.Fatalf("archive import changed another account's podcasts: %v (%d)", err, len(otherPodcasts))
+	}
+	restoredUser, err := app.FindRecordById("users", user.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredPreferences := readUserPreferences(restoredUser)
+	if restoredPreferences.LearningGoals[0] != "Read the night sky" || restoredPreferences.NarrationVoice != preferences.NarrationVoice || restoredPreferences.NarrationSpeaker != preferences.NarrationSpeaker {
+		t.Fatalf("account preferences were not restored: %#v", restoredPreferences)
+	}
+}
+
+func TestLearningArchiveImportRollsBackInvalidPodcastAndPreferences(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	user := createTestRecord(t, app, "users", map[string]any{"email": "archive-podcast-rollback@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	preferences := defaultUserPreferences()
+	preferences.LearningGoals = []string{"Must not apply"}
+	outline := fixturePodcastScript("Invalid notes", "Broken transcript", podcastContext{})
+	transcript := fixturePodcastTranscript("Invalid notes", "Broken transcript", podcastContext{})
+	transcript.Turns[0].Speaker = "alien"
+	archive := map[string]any{
+		"format": "starburst-learning-archive", "format_version": 1, "preferences": preferences,
+		"learning_sources": []any{map[string]any{"id": "source-old", "title": "Source", "source_type": "text/plain", "content": "text"}},
+		"podcast_episodes": []any{map[string]any{"title": "Invalid notes", "topic": "Broken transcript", "outline": outline, "transcript": transcript}},
+	}
+	body, err := json.Marshal(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: httptest.NewRequest("POST", "/api/account/learning-import", bytes.NewReader(body)), Response: httptest.NewRecorder()}}
+	if err := importLearningDataRoute(event); err == nil {
+		t.Fatal("invalid podcast transcript should reject the archive")
+	}
+	sources, findErr := app.FindRecordsByFilter("learning_sources", "owner = {:owner}", "", 0, 0, dbx.Params{"owner": user.Id})
+	if findErr != nil || len(sources) != 0 {
+		t.Fatalf("failed podcast import left partial sources: %v (%d)", findErr, len(sources))
+	}
+	unchanged, findErr := app.FindRecordById("users", user.Id)
+	if findErr != nil {
+		t.Fatal(findErr)
+	}
+	for _, goal := range readUserPreferences(unchanged).LearningGoals {
+		if goal == "Must not apply" {
+			t.Fatal("failed podcast import changed account preferences")
+		}
+	}
+}
+
+func TestLearningArchiveImportRejectsInvalidPreferences(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	user := createTestRecord(t, app, "users", map[string]any{"email": "archive-invalid-preferences@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	preferences := defaultUserPreferences()
+	preferences.TargetMinutes = 500
+	archive := map[string]any{
+		"format": "starburst-learning-archive", "format_version": 1, "preferences": preferences,
+		"learning_sources": []any{map[string]any{"id": "source-old", "title": "Source", "source_type": "text/plain", "content": "text"}},
+	}
+	body, err := json.Marshal(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: httptest.NewRequest("POST", "/api/account/learning-import", bytes.NewReader(body)), Response: httptest.NewRecorder()}}
+	if err := importLearningDataRoute(event); err == nil {
+		t.Fatal("invalid account preferences should reject the archive")
+	}
+	sources, findErr := app.FindRecordsByFilter("learning_sources", "owner = {:owner}", "", 0, 0, dbx.Params{"owner": user.Id})
+	if findErr != nil || len(sources) != 0 {
+		t.Fatalf("invalid archive preferences caused partial import: %v (%d)", findErr, len(sources))
 	}
 }
 

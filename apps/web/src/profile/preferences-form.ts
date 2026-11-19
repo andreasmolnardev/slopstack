@@ -9,6 +9,8 @@ export type LearnerProfileForm = {
   targetMinutes: number;
   narration: boolean;
   captions: boolean;
+  narrationVoice: string;
+  narrationSpeaker: string;
 };
 
 export function learnerProfileForm(preferences: UserPreferences): LearnerProfileForm {
@@ -21,6 +23,8 @@ export function learnerProfileForm(preferences: UserPreferences): LearnerProfile
     targetMinutes: preferences.targetMinutes,
     narration: preferences.narration,
     captions: preferences.captions,
+    narrationVoice: preferences.narrationVoice ?? '',
+    narrationSpeaker: preferences.narrationSpeaker ?? '',
   };
 }
 
@@ -54,5 +58,7 @@ export function learnerProfilePatch(form: LearnerProfileForm): UserPreferencesPa
     targetMinutes: form.targetMinutes,
     narration: form.narration,
     captions: form.captions,
+    narrationVoice: form.narrationVoice.trim(),
+    narrationSpeaker: form.narrationSpeaker.trim(),
   };
 }

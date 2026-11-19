@@ -10,6 +10,11 @@ export type WidgetConfig = {
   side_a?: number;
   side_b?: number;
   angle_degrees?: number;
+  vector_x?: number;
+  vector_y?: number;
+  axis_limit?: number;
+  items?: number[];
+  gate?: 'AND' | 'OR' | 'XOR' | 'NOT' | 'XNOR';
   options?: string[];
   answer?: string;
   events?: Array<{ label: string; detail?: string }>;

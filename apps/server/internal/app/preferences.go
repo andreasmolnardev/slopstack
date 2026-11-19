@@ -30,6 +30,8 @@ type UserPreferences struct {
 	TargetMinutes     int               `json:"targetMinutes"`
 	Narration         bool              `json:"narration"`
 	Captions          bool              `json:"captions"`
+	NarrationVoice    string            `json:"narrationVoice"`
+	NarrationSpeaker  string            `json:"narrationSpeaker"`
 }
 
 type ThemeTokens struct {
@@ -62,6 +64,8 @@ type userPreferencesPatchInput struct {
 		TargetMinutes     *int               `json:"targetMinutes,omitempty"`
 		Narration         *bool              `json:"narration,omitempty"`
 		Captions          *bool              `json:"captions,omitempty"`
+		NarrationVoice    *string            `json:"narrationVoice,omitempty"`
+		NarrationSpeaker  *string            `json:"narrationSpeaker,omitempty"`
 	} `json:"body"`
 }
 type userPreferencesOutput struct{ Body UserPreferences }
@@ -153,6 +157,12 @@ func patchMyPreferencesRoute(event *core.RequestEvent) error {
 	}
 	if patch.Body.Captions != nil {
 		prefs.Captions = *patch.Body.Captions
+	}
+	if patch.Body.NarrationVoice != nil {
+		prefs.NarrationVoice = strings.TrimSpace(*patch.Body.NarrationVoice)
+	}
+	if patch.Body.NarrationSpeaker != nil {
+		prefs.NarrationSpeaker = strings.TrimSpace(*patch.Body.NarrationSpeaker)
 	}
 	if err := validateUserPreferences(prefs); err != nil {
 		return event.BadRequestError("invalid preferences", err)
@@ -280,6 +290,12 @@ func validateUserPreferences(p UserPreferences) error {
 	}
 	if p.TargetMinutes < 5 || p.TargetMinutes > 60 {
 		return fmt.Errorf("targetMinutes must be between 5 and 60")
+	}
+	if len([]rune(p.NarrationVoice)) > 200 || len([]rune(p.NarrationSpeaker)) > 200 {
+		return fmt.Errorf("narration voice and speaker names must be 200 characters or fewer")
+	}
+	if p.NarrationSpeaker != "" && p.NarrationVoice == "" {
+		return fmt.Errorf("narrationSpeaker requires narrationVoice")
 	}
 	return nil
 }
