@@ -54,6 +54,11 @@ func TestPodcastGenerationUsesOwnerScopedDueKnowledgeGapsAndKeepsSnapshotOnRegen
 	if _, err := loadPodcastReferences(app, owner.Id, nil, nil, []string{notDue.Id}); err == nil {
 		t.Fatal("a concept that is not due should not be accepted as a review gap")
 	}
+	futureUnit := createTestRecord(t, app, "knowledge_units", map[string]any{"owner": owner.Id, "title": "Future review", "description": "Not due yet.", "unit_type": "concept"})
+	createTestRecord(t, app, "knowledge_mastery", map[string]any{"owner": owner.Id, "unit": futureUnit.Id, "mastery": 0.8, "next_review": time.Now().UTC().Add(time.Hour).Format("2006-01-02 15:04:05.000Z")})
+	if _, err := loadPodcastReferences(app, owner.Id, nil, nil, []string{futureUnit.Id}); err == nil {
+		t.Fatal("a future review must not be accepted as a due knowledge gap")
+	}
 	t.Setenv("STARBURST_LLM_BASE_URL", "")
 	t.Setenv("STARBURST_LLM_API_KEY", "")
 	t.Setenv("STARBURST_LLM_MODEL", "")

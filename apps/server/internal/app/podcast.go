@@ -640,7 +640,7 @@ func loadPodcastReferences(app core.App, ownerID string, sourceIDs, conceptIDs [
 	}
 	if len(gapSelections) > 0 {
 		for _, id := range gapSelections[0] {
-			records, err := app.FindRecordsByFilter("knowledge_mastery", "owner = {:owner} && unit = {:unit} && next_review <= {:now}", "", 1, 0, dbx.Params{"owner": ownerID, "unit": id, "now": time.Now().UTC().Format(time.RFC3339)})
+			records, err := app.FindRecordsByFilter("knowledge_mastery", "owner = {:owner} && unit = {:unit} && next_review <= {:now}", "", 1, 0, dbx.Params{"owner": ownerID, "unit": id, "now": time.Now().UTC().Format("2006-01-02 15:04:05.000Z")})
 			if err != nil {
 				return podcastContext{}, err
 			}
