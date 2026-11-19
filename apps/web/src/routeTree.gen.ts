@@ -16,6 +16,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as OfflineRouteImport } from './routes/offline'
 import { Route as PracticeRouteImport } from './routes/practice'
 import { Route as ProfileRouteImport } from './routes/profile'
+import { Route as SourcesRouteImport } from './routes/sources'
 import { Route as SpeakingRouteImport } from './routes/speaking'
 import { Route as CoursesCourseIdRouteImport } from './routes/courses.$courseId'
 
@@ -54,6 +55,11 @@ const ProfileRoute = ProfileRouteImport.update({
   path: '/profile',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SourcesRoute = SourcesRouteImport.update({
+  id: '/sources',
+  path: '/sources',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SpeakingRoute = SpeakingRouteImport.update({
   id: '/speaking',
   path: '/speaking',
@@ -73,6 +79,7 @@ export interface FileRoutesByFullPath {
   '/offline': typeof OfflineRoute
   '/practice': typeof PracticeRoute
   '/profile': typeof ProfileRoute
+  '/sources': typeof SourcesRoute
   '/speaking': typeof SpeakingRoute
   '/courses/$courseId': typeof CoursesCourseIdRoute
 }
@@ -84,6 +91,7 @@ export interface FileRoutesByTo {
   '/offline': typeof OfflineRoute
   '/practice': typeof PracticeRoute
   '/profile': typeof ProfileRoute
+  '/sources': typeof SourcesRoute
   '/speaking': typeof SpeakingRoute
   '/courses/$courseId': typeof CoursesCourseIdRoute
 }
@@ -96,6 +104,7 @@ export interface FileRoutesById {
   '/offline': typeof OfflineRoute
   '/practice': typeof PracticeRoute
   '/profile': typeof ProfileRoute
+  '/sources': typeof SourcesRoute
   '/speaking': typeof SpeakingRoute
   '/courses/$courseId': typeof CoursesCourseIdRoute
 }
@@ -109,6 +118,7 @@ export interface FileRouteTypes {
     | '/offline'
     | '/practice'
     | '/profile'
+    | '/sources'
     | '/speaking'
     | '/courses/$courseId'
   fileRoutesByTo: FileRoutesByTo
@@ -120,6 +130,7 @@ export interface FileRouteTypes {
     | '/offline'
     | '/practice'
     | '/profile'
+    | '/sources'
     | '/speaking'
     | '/courses/$courseId'
   id:
@@ -131,6 +142,7 @@ export interface FileRouteTypes {
     | '/offline'
     | '/practice'
     | '/profile'
+    | '/sources'
     | '/speaking'
     | '/courses/$courseId'
   fileRoutesById: FileRoutesById
@@ -143,6 +155,7 @@ export interface RootRouteChildren {
   OfflineRoute: typeof OfflineRoute
   PracticeRoute: typeof PracticeRoute
   ProfileRoute: typeof ProfileRoute
+  SourcesRoute: typeof SourcesRoute
   SpeakingRoute: typeof SpeakingRoute
   CoursesCourseIdRoute: typeof CoursesCourseIdRoute
 }
@@ -198,6 +211,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProfileRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/sources': {
+      id: '/sources'
+      path: '/sources'
+      fullPath: '/sources'
+      preLoaderRoute: typeof SourcesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/speaking': {
       id: '/speaking'
       path: '/speaking'
@@ -223,6 +243,7 @@ const rootRouteChildren: RootRouteChildren = {
   OfflineRoute: OfflineRoute,
   PracticeRoute: PracticeRoute,
   ProfileRoute: ProfileRoute,
+  SourcesRoute: SourcesRoute,
   SpeakingRoute: SpeakingRoute,
   CoursesCourseIdRoute: CoursesCourseIdRoute,
 }

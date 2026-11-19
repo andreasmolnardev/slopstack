@@ -22,8 +22,12 @@ Audio Studio uses the existing authenticated Piper endpoint for per-turn playbac
 
 Speaking tests cover WAV header/sample encoding, Unicode-aware transcript normalization, transcript bounds, owner-only English vocabulary access, evidence persistence, and the authenticated OpenAPI operation. Browser recording and live Whisper/Piper behavior still require a secure-context browser and configured services.
 
-The knowledge evidence-history route is tested for authenticated OpenAPI coverage and owner isolation. The Knowledge Map's search helper tests title/description matching and unit-type filtering; route-level browser interaction remains part of manual acceptance.
+The knowledge evidence-history route is tested for authenticated OpenAPI coverage and owner isolation. The Knowledge Map's search tests title/description matching and unit-type filtering; graph-layout tests verify stable type clusters and viewport bounds. Route-level browser interaction remains part of manual acceptance.
 
 Player timeline tests verify that required reflections gate progress in Interactive mode and that Watch/Silent playback can review through without recording an empty reflection as submitted work. Caption tests cover timestamp selection, gaps, ordering, and bounds. Learner-profile tests cover legacy defaults, partial updates, and bounded values; generation tests verify profile defaults and learner context are snapshotted into persistent jobs.
 
 Adaptive-practice tests verify private answer-key responses, selection ownership, due/weak filtering, server-side scoring, evidence creation, mastery updates, and authenticated OpenAPI entries. The browser route tree includes `/practice`; the production bundle check covers its code-split route.
+
+Geometry widget tests verify typed/ranged configuration, strict version and unknown-field rejection, law-of-cosines side lengths, area calculations, accessible controls, and deterministic reset values.
+
+Source editing tests cover authenticated owner-only detail reads, patch validation, type/content correction, and preservation of source provenance metadata. Previously generated job context remains an immutable snapshot.

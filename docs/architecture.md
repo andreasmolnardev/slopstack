@@ -10,6 +10,8 @@ The lesson player provides Watch, Interactive, Explore, and Silent modes over th
 
 Adaptive practice stores each quiz and its answer key in a private owner-scoped collection. The browser receives choices and hints; submission is scored server-side, records concept evidence, and updates the existing mastery/review scheduler. This version derives recall items deterministically from saved concept definitions.
 
+The Knowledge Map renders owner-visible concepts as keyboard-selectable SVG nodes grouped by knowledge-unit type. Typed edges show direction and relationship labels; due concepts receive a gold ring, and selecting a node opens its editable definition and evidence history.
+
 Target architecture: owner-checked endpoints over the shared model; background jobs for long generation/audio work; deterministic local generators for offline development; configurable OpenAI-compatible LLM and Wyoming speech adapters; React learning player using validated scene data. Huma defines the OpenAPI contract and generated-client schemas; PocketBase route handlers currently execute the learning requests. Media belongs in filesystem/object storage, while metadata and job state stay in PocketBase.
 
 Generated course content is versioned: regeneration stores the previous published content and its title/description in `course_versions`, then increments the current course version. Historical versions are read-only snapshots; progress and evidence remain tied to the course and knowledge identifiers.

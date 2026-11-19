@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { captionAtPosition, checkpointBlocksProgress, flattenCourseScenes, sceneAtTimelinePosition, sceneDurationSeconds, timelineDurationSeconds, timelineDurationWithSegments, timelinePosition } from './learning-timeline';
+import { captionAtPosition, checkpointBlocksProgress, flattenCourseScenes, sceneAtTimelinePosition, sceneDurationSeconds, timelineDurationSeconds, timelineDurationWithSegments, timelinePosition, triangleMetrics } from './learning-timeline';
 
 describe('learning timeline', () => {
   const scenes = [{ duration_seconds: 10 }, { duration_seconds: 20 }, {}];
@@ -37,5 +37,11 @@ describe('learning timeline', () => {
     expect(captionAtPosition(scene, 2)).toBe('Second line.');
     expect(captionAtPosition(scene, 5)).toBe('');
     expect(captionAtPosition({}, 1)).toBeUndefined();
+  });
+  it('computes triangle side and area from two sides and the included angle', () => {
+    expect(triangleMetrics(3, 4, 90).sideC).toBeCloseTo(5);
+    expect(triangleMetrics(3, 4, 90).area).toBeCloseTo(6);
+    expect(triangleMetrics(5, 5, 60).sideC).toBeCloseTo(5);
+    expect(triangleMetrics(5, 5, 60).area).toBeCloseTo(25 * Math.sqrt(3) / 4);
   });
 });

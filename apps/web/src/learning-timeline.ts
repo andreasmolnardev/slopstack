@@ -7,6 +7,9 @@ export type WidgetConfig = {
   min?: number;
   max?: number;
   target?: number;
+  side_a?: number;
+  side_b?: number;
+  angle_degrees?: number;
   options?: string[];
   answer?: string;
   events?: Array<{ label: string; detail?: string }>;
@@ -25,6 +28,15 @@ export type LessonPlayerMode = 'watch' | 'interactive' | 'explore' | 'silent';
 
 export function checkpointBlocksProgress(mode: LessonPlayerMode, required: boolean, answer: string): boolean {
   return mode === 'interactive' && required && !answer.trim();
+}
+
+export function triangleMetrics(sideA: number, sideB: number, includedAngleDegrees: number): { sideC: number; area: number } {
+  const radians = includedAngleDegrees * Math.PI / 180;
+  const sideCSquared = sideA ** 2 + sideB ** 2 - 2 * sideA * sideB * Math.cos(radians);
+  return {
+    sideC: Math.sqrt(Math.max(0, sideCSquared)),
+    area: sideA * sideB * Math.sin(radians) / 2,
+  };
 }
 
 export function flattenCourseScenes(content: Record<string, unknown> | undefined): LessonScene[] {

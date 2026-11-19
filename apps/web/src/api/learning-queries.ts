@@ -1,6 +1,6 @@
 import { queryOptions } from '@tanstack/react-query';
 import { pb } from './pocketbase';
-import { listCourses, listKnowledgeUnits, getCourse, getKnowledgeUnit, getKnowledgeEvidence, listKnowledgeEdges, listDueReviews, listCourseVersions, listLearningSources, listVocabulary, listGrammar, piperHealth } from './generated/sdk.gen';
+import { listCourses, listKnowledgeUnits, getCourse, getKnowledgeUnit, getKnowledgeEvidence, listKnowledgeEdges, listDueReviews, listCourseVersions, listLearningSources, getLearningSource, listVocabulary, listGrammar, piperHealth } from './generated/sdk.gen';
 import { client as generatedClient } from './generated/client.gen';
 
 export type LearningRecord = {
@@ -92,6 +92,15 @@ export const learningQueryOptions = {
       return (result.data ?? []) as LearningSource[];
     },
   }),
+  source: (id: string) => queryOptions({
+    queryKey: ['learning', 'sources', pb.authStore.model?.id, id] as const,
+    queryFn: async () => {
+      const result = await getLearningSource({ client: generatedClient, path: { id } });
+      if (result.error) throw new Error('Could not load learning source');
+      return result.data as LearningSource;
+    },
+    enabled: Boolean(id),
+  }),
   vocabulary: () => queryOptions({
     queryKey: ['learning', 'vocabulary', pb.authStore.model?.id] as const,
     queryFn: async () => {
@@ -121,7 +130,7 @@ export const learningQueryOptions = {
 export type DueReview = { unit: LearningRecord; mastery: number };
 export type LearningEvidence = { id: string; evidence_type: string; score: number; details?: Record<string, unknown> };
 export type CourseVersionSummary = { version: number; current: boolean };
-export type LearningSource = { id: string; title: string; source_type: string };
+export type LearningSource = { id: string; title: string; source_type: string; content?: string };
 export type VocabularyRecord = { id: string; term: string; metadata: { translation?: string; language?: string; set_name?: string } };
 export type GrammarRecord = { id: string; prompt: string; language: string; explanation?: string };
 export type PiperHealth = { configured: boolean; connected: boolean };

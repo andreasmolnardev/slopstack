@@ -49,13 +49,17 @@ Authorization: Bearer <pocketbase-token>
 Content-Type: application/json
 ```
 
-The body accepts `source_ids` (up to four), `concept_ids` (up to eight), `difficulty` (`beginner`, `intermediate`, or `advanced`), and `target_minutes` (5–60). Source text and concept descriptions are bounded before entering prompts and are snapshotted in the persistent job payload so retries and startup recovery use the same context. Omitted difficulty and duration use the learner profile defaults (intermediate and 20 minutes on a new account). Unowned IDs are rejected. Poll the returned job at `/api/learning/jobs/{id}`.
+The body accepts `source_ids` (up to four), `concept_ids` (up to eight), `difficulty` (`beginner`, `intermediate`, or `advanced`), and `target_minutes` (5–60). Source text and concept descriptions are bounded before entering prompts and are snapshotted in the persistent job payload so retries and startup recovery use the same context. Omitted difficulty and duration use the learner profile defaults (intermediate and 20 minutes on a new account). Unowned IDs are rejected. Poll the returned job at `/api/learning/jobs/{id}`. The trusted widget set includes `geometry_explorer` with bounded triangle side lengths and angle configuration.
 
 `GET/PATCH /api/me/preferences` reads and partially updates the authenticated learner profile. The `/profile` screen stores interests, goals, prior knowledge, preferred language, default difficulty, target session length, narration, and captions. Course generation snapshots the relevant profile context into its persistent job so retries use the same personalization inputs.
 
 ## Adaptive practice
 
 `POST /api/learning/practice/quizzes` creates a private recall quiz from `selected`, `due`, `weak`, or `mixed` knowledge units. The response contains question choices and progressive hints without answer keys. Submit choices to `POST /api/learning/practice/quizzes/{id}/submit`; the owner-scoped response includes scoring, targeted remediation, and evidence updates.
+
+## Source editing
+
+`GET /api/learning/sources/{id}` returns the authenticated owner's text or Markdown source. `PATCH /api/learning/sources/{id}` accepts any subset of `title`, `content`, and `source_type`; text remains capped at 1 MiB. Source corrections affect future generation context. Previously generated courses and independently edited concepts remain unchanged.
 
 ## Extending a module
 

@@ -762,6 +762,30 @@ func TestValidateGeneratedCourseRejectsUnsupportedWidget(t *testing.T) {
 	}
 }
 
+func TestGeometryExplorerConfigIsTypedAndBounded(t *testing.T) {
+	validWidget := map[string]any{"type": "geometry_explorer", "version": float64(1), "config": map[string]any{
+		"side_a": float64(6), "side_b": float64(8), "angle_degrees": float64(90), "prompt": "Explore the triangle.",
+	}}
+	content := map[string]any{"modules": []any{map[string]any{"scenes": []any{map[string]any{"widget": validWidget}}}}}
+	if err := validateGeneratedCourse(content); err != nil {
+		t.Fatalf("valid geometry explorer widget rejected: %v", err)
+	}
+	invalidWidgets := []map[string]any{
+		{"type": "geometry_explorer", "version": float64(2), "config": map[string]any{"side_a": float64(6), "side_b": float64(8), "angle_degrees": float64(90)}},
+		{"type": "geometry_explorer", "version": float64(1), "config": map[string]any{"side_a": float64(0.4), "side_b": float64(8), "angle_degrees": float64(90)}},
+		{"type": "geometry_explorer", "version": float64(1), "config": map[string]any{"side_a": float64(6), "side_b": float64(8), "angle_degrees": float64(180)}},
+		{"type": "geometry_explorer", "version": float64(1), "config": map[string]any{"side_a": "6", "side_b": float64(8), "angle_degrees": float64(90)}},
+		{"type": "geometry_explorer", "version": float64(1), "config": map[string]any{"side_a": float64(6), "side_b": float64(8), "angle_degrees": float64(90), "script": "arbitrary"}},
+		{"type": "geometry_explorer", "version": float64(1), "config": map[string]any{"side_a": float64(6), "side_b": float64(8), "angle_degrees": float64(90), "prompt": strings.Repeat("x", 241)}},
+	}
+	for _, widget := range invalidWidgets {
+		invalidContent := map[string]any{"modules": []any{map[string]any{"scenes": []any{map[string]any{"widget": widget}}}}}
+		if err := validateGeneratedCourse(invalidContent); err == nil {
+			t.Errorf("invalid geometry explorer config was accepted: %#v", widget)
+		}
+	}
+}
+
 func TestValidateGeneratedCourseRejectsEmptyModules(t *testing.T) {
 	if err := validateGeneratedCourse(map[string]any{"modules": []any{}}); err == nil {
 		t.Fatal("expected empty course to fail validation")

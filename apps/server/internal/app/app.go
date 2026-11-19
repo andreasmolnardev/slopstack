@@ -40,6 +40,7 @@ func Register(pb *pocketbase.PocketBase, config Config, api huma.API, plugins ..
 	registerSpeakingAPI(api)
 	registerPreferencesAPI(api)
 	registerAdaptivePracticeAPI(api)
+	registerSourceEditingAPI(api)
 	pb.OnBootstrap().BindFunc(func(e *core.BootstrapEvent) error {
 		if err := e.Next(); err != nil {
 			return err
@@ -300,6 +301,7 @@ func registerRoutes(e *core.ServeEvent, config Config, api huma.API) {
 	registerSpeakingRoutes(e)
 	registerPreferencesRoutes(e)
 	registerAdaptivePracticeRoutes(e)
+	registerSourceEditingRoutes(e)
 	registerStaticFrontend(e, config)
 }
 
