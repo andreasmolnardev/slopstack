@@ -138,6 +138,8 @@ func TestAssessmentAnswerEvaluationTypes(t *testing.T) {
 		{"numeric tolerance", map[string]any{"type": "numeric", "correct_answer": 3.14, "tolerance": 0.02}, "3.15", true},
 		{"short text normalized", map[string]any{"type": "short_text", "accepted_answers": []string{"the central idea"}}, "  THE   central idea ", true},
 		{"fill in the blank normalized", map[string]any{"type": "fill_blank", "accepted_answers": []string{"plants"}}, " PLANTS ", true},
+		{"grammar transformation accepts normalized form", map[string]any{"type": "grammar_transform", "accepted_answers": []string{"She has gone home."}}, "  SHE   HAS GONE HOME. ", true},
+		{"grammar transformation rejects a different conjugation", map[string]any{"type": "grammar_transform", "accepted_answers": []string{"She has gone home."}}, "She have go home.", false},
 		{"ordering exact sequence", map[string]any{"type": "ordering", "correct_order": []string{"observe", "model", "test"}}, []any{"observe", "model", "test"}, true},
 		{"ordering rejects reversed sequence", map[string]any{"type": "ordering", "correct_order": []string{"observe", "model", "test"}}, []any{"test", "model", "observe"}, false},
 		{"matching exact pairs", map[string]any{"type": "matching", "correct_matches": map[string]any{"term": "definition", "example": "application"}}, map[string]any{"example": "application", "term": "definition"}, true},
@@ -159,6 +161,7 @@ func TestExpandedAssessmentTypesValidateAndKeepAnswerKeysPrivate(t *testing.T) {
 		"id": "module-one", "objectives": []any{"Apply the idea"},
 		"assessment": map[string]any{"questions": []any{
 			map[string]any{"id": "fill", "type": "fill_blank", "prompt": "Fill the missing word.", "objective": "Apply the idea", "accepted_answers": []any{"answer"}, "points": float64(1)},
+			map[string]any{"id": "grammar", "type": "grammar_transform", "prompt": "Change the sentence to the present perfect: She goes home.", "objective": "Apply the idea", "accepted_answers": []any{"She has gone home."}, "points": float64(1)},
 			map[string]any{"id": "formula", "type": "formula", "prompt": "Enter the simplified expression.", "objective": "Apply the idea", "correct_answer": "x*(x+1)", "accepted_answers": []any{"x^2+x"}, "solution": "x squared plus x", "points": float64(1)},
 			map[string]any{"id": "order", "type": "ordering", "prompt": "Order the process.", "objective": "Apply the idea", "items": []any{"observe", "model", "test"}, "correct_order": []any{"observe", "model", "test"}, "points": float64(1)},
 			map[string]any{"id": "match", "type": "matching", "prompt": "Match each term.", "objective": "Apply the idea", "left_items": []any{"term", "example"}, "right_items": []any{"definition", "application"}, "correct_matches": map[string]any{"term": "definition", "example": "application"}, "points": float64(1)},
@@ -175,7 +178,7 @@ func TestExpandedAssessmentTypesValidateAndKeepAnswerKeysPrivate(t *testing.T) {
 	for _, indexAndKey := range []struct {
 		index int
 		key   string
-	}{{0, "accepted_answers"}, {1, "correct_answer"}, {1, "accepted_answers"}, {2, "correct_order"}, {3, "correct_matches"}} {
+	}{{0, "accepted_answers"}, {1, "correct_answer"}, {1, "accepted_answers"}, {3, "correct_order"}, {4, "correct_matches"}} {
 		question := publicQuestions[indexAndKey.index].(map[string]any)
 		if _, leaked := question[indexAndKey.key]; leaked {
 			t.Fatalf("public question %q exposed private field %q", question["id"], indexAndKey.key)
@@ -185,12 +188,12 @@ func TestExpandedAssessmentTypesValidateAndKeepAnswerKeysPrivate(t *testing.T) {
 	if _, leaked := publicQuestions[1].(map[string]any)["solution"]; leaked {
 		t.Fatal("public question renderer allowed an unknown private field through")
 	}
-	publicOrder := assessmentStrings(publicQuestions[2].(map[string]any)["items"])
-	correctOrder := assessmentStrings(privateQuestions[2]["correct_order"])
+	publicOrder := assessmentStrings(publicQuestions[3].(map[string]any)["items"])
+	correctOrder := assessmentStrings(privateQuestions[3]["correct_order"])
 	if equalStringOrder(publicOrder, correctOrder) {
 		t.Fatal("public ordering items still reveal the answer order")
 	}
-	if _, exists := privateQuestions[3]["correct_matches"]; !exists {
+	if _, exists := privateQuestions[4]["correct_matches"]; !exists {
 		t.Fatal("private matching key was not preserved")
 	}
 	bad := map[string]any{"modules": []any{map[string]any{"objectives": []any{"Apply the idea"}, "assessment": map[string]any{"questions": []any{map[string]any{"id": "broken", "type": "matching", "prompt": "Match.", "objective": "Apply the idea", "left_items": []any{"a", "b"}, "right_items": []any{"x", "y"}, "correct_matches": map[string]any{"a": "x"}, "points": float64(1)}}}}}}
