@@ -110,6 +110,8 @@ Authenticated learners can list, create, regenerate, read, and delete podcast ep
 
 `POST /api/audio/episodes/{id}/audio` synthesizes each dialogue turn with its saved host or guest voice assignment (unassigned roles use the learner's saved narration voice), joins matching PCM segments into a WAV file, and stores it on the owned episode in PocketBase. The complete file is capped at 25 MiB. `GET` on the same path streams the saved WAV and checks episode ownership. Episode responses include `audio_ready` and `audio_metadata`; changing the script or voice assignments clears the saved audio.
 
+`GET /api/account/learning-export/archive` downloads a version 2 ZIP archive. It contains `manifest.json` plus each generated podcast WAV under `media/podcasts/<episode-id>.wav`. The existing JSON export remains version 1. `POST /api/account/learning-import` accepts either version 1 JSON (25 MiB maximum) or the version 2 ZIP (100 MiB maximum, 25 MiB per WAV), validates WAV data and manifest paths, then imports records and media transactionally.
+
 
 ## Language speaking practice
 

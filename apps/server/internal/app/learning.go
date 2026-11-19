@@ -1,6 +1,7 @@
 package app
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -21,10 +22,15 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/filesystem"
 	"github.com/slopstack/slopstack/apps/server/internal/wyoming"
 )
 
-const maxLearningBody = 1 << 20
+const (
+	maxLearningBody          = 1 << 20
+	maxLearningArchiveBytes  = 100 << 20
+	maxLearningArchiveAssets = 25 << 20
+)
 
 var learningWorkerMu sync.Mutex
 var learningWorkerCancels = map[string]context.CancelFunc{}
@@ -191,6 +197,7 @@ func registerLearningAPI(api huma.API) {
 	huma.Register(api, huma.Operation{OperationID: "exportCourse", Method: http.MethodGet, Path: "/api/learning/courses/{id}/export", Tags: []string{"Learning"}, Summary: "Export an owned course with its private assessment keys", Security: security, Errors: errorSet}, func(context.Context, *learningIDInput) (*learningRecordOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "importCourse", Method: http.MethodPost, Path: "/api/learning/courses/import", Tags: []string{"Learning"}, Summary: "Import a course export", Security: security, Errors: errorSet, DefaultStatus: http.StatusCreated}, func(context.Context, *learningBodyInput) (*learningRecordOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "exportLearningArchive", Method: http.MethodGet, Path: "/api/account/learning-export", Tags: []string{"Learning"}, Summary: "Export the current user's learning archive", Security: security, Errors: errorSet}, func(context.Context, *learningListInput) (*learningRecordOutput, error) { return nil, nil })
+	huma.Register(api, huma.Operation{OperationID: "exportLearningArchiveZip", Method: http.MethodGet, Path: "/api/account/learning-export/archive", Tags: []string{"Learning"}, Summary: "Export a learning archive with podcast audio files", Security: security, Errors: errorSet, Responses: map[string]*huma.Response{"200": {Description: "ZIP archive with manifest and podcast WAV files", Content: map[string]*huma.MediaType{"application/zip": {Schema: &huma.Schema{Type: "string", Format: "binary"}}}}}}, func(context.Context, *learningListInput) (*huma.StreamResponse, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "importLearningArchive", Method: http.MethodPost, Path: "/api/account/learning-import", Tags: []string{"Learning"}, Summary: "Import a learning archive into the current account", Security: security, Errors: errorSet}, func(context.Context, *learningBodyInput) (*learningRecordOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "listLearningSources", Method: http.MethodGet, Path: "/api/learning/sources", Tags: []string{"Learning"}, Summary: "List the current user's imported sources", Security: security, Errors: errorSet}, func(context.Context, *learningListInput) (*learningOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "createLearningSource", Method: http.MethodPost, Path: "/api/learning/sources", Tags: []string{"Learning"}, Summary: "Import a text or Markdown learning source", Security: security, Errors: errorSet, DefaultStatus: http.StatusCreated}, func(context.Context, *learningBodyInput) (*learningRecordOutput, error) { return nil, nil })
@@ -225,6 +232,7 @@ func registerLearningRoutes(e *core.ServeEvent, config Config) {
 	e.Router.GET("/api/learning/courses/{id}/export", exportCourseRoute)
 	e.Router.POST("/api/learning/courses/import", importCourseRoute)
 	e.Router.GET("/api/account/learning-export", exportLearningDataRoute)
+	e.Router.GET("/api/account/learning-export/archive", exportLearningArchiveZipRoute)
 	e.Router.POST("/api/account/learning-import", importLearningDataRoute)
 	e.Router.GET("/api/learning/knowledge-units", listLearningRoute("knowledge_units"))
 	e.Router.POST("/api/learning/knowledge-units", createLearningRoute("knowledge_units"))
@@ -1776,21 +1784,111 @@ func exportLearningDataRoute(event *core.RequestEvent) error {
 	if err != nil {
 		return err
 	}
+	archive, _, err := collectLearningArchive(event.App, user, false)
+	if err != nil {
+		return event.InternalServerError("could not export learning data", err)
+	}
+	return event.JSON(http.StatusOK, archive)
+}
+
+func exportLearningArchiveZipRoute(event *core.RequestEvent) error {
+	user, err := CurrentUser(event)
+	if err != nil {
+		return err
+	}
+	manifest, assets, err := collectLearningArchive(event.App, user, true)
+	if err != nil {
+		return event.InternalServerError("could not export learning archive", err)
+	}
+	manifest["format_version"] = 2
+	manifestBytes, err := json.Marshal(manifest)
+	if err != nil {
+		return event.InternalServerError("could not encode learning archive", err)
+	}
+	var output bytes.Buffer
+	writer := zip.NewWriter(&output)
+	manifestFile, err := writer.Create("manifest.json")
+	if err != nil {
+		return event.InternalServerError("could not create learning archive", err)
+	}
+	if _, err := manifestFile.Write(manifestBytes); err != nil {
+		return event.InternalServerError("could not write learning archive manifest", err)
+	}
+	assetPaths := make([]string, 0, len(assets))
+	for name := range assets {
+		assetPaths = append(assetPaths, name)
+	}
+	sort.Strings(assetPaths)
+	for _, name := range assetPaths {
+		file, err := writer.Create(name)
+		if err != nil {
+			return event.InternalServerError("could not create learning archive media file", err)
+		}
+		if _, err := file.Write(assets[name]); err != nil {
+			return event.InternalServerError("could not write learning archive media file", err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return event.InternalServerError("could not finish learning archive", err)
+	}
+	if output.Len() > maxLearningArchiveBytes {
+		return event.BadRequestError("learning archive exceeds the 100 MiB limit", nil)
+	}
+	event.Response.Header().Set("Content-Disposition", `attachment; filename="starburst-learning-archive.zip"`)
+	return event.Blob(http.StatusOK, "application/zip", output.Bytes())
+}
+
+func collectLearningArchive(app core.App, user *core.Record, includeAudio bool) (map[string]any, map[string][]byte, error) {
 	collections := []string{"courses", "course_versions", "course_progress", "course_assessments", "knowledge_units", "knowledge_edges", "learning_sources", "learner_evidence", "knowledge_mastery", "podcast_episodes"}
 	archive := map[string]any{"format": "starburst-learning-archive", "format_version": 1, "exported_at": time.Now().UTC().Format(time.RFC3339), "user_id": user.Id}
+	assets := map[string][]byte{}
+	assetBytes := 0
 	for _, name := range collections {
-		records, findErr := event.App.FindRecordsByFilter(name, "owner = {:owner}", "", 0, 0, dbx.Params{"owner": user.Id})
+		records, findErr := app.FindRecordsByFilter(name, "owner = {:owner}", "", 0, 0, dbx.Params{"owner": user.Id})
 		if findErr != nil {
-			return event.InternalServerError("could not export learning data", findErr)
+			return nil, nil, findErr
 		}
 		items := make([]map[string]any, 0, len(records))
 		for _, record := range records {
-			items = append(items, record.PublicExport())
+			item := record.PublicExport()
+			if name == "podcast_episodes" {
+				filename := record.GetString("audio")
+				delete(item, "audio")
+				item["audio_ready"] = filename != ""
+				if includeAudio && filename != "" {
+					storage, storageErr := app.NewFilesystem()
+					if storageErr != nil {
+						return nil, nil, storageErr
+					}
+					reader, readerErr := storage.GetReader(record.BaseFilesPath() + "/" + filename)
+					if readerErr != nil {
+						storage.Close()
+						return nil, nil, readerErr
+					}
+					data, readErr := io.ReadAll(io.LimitReader(reader, maxLearningArchiveAssets+1))
+					reader.Close()
+					storage.Close()
+					if readErr != nil {
+						return nil, nil, readErr
+					}
+					if len(data) > maxLearningArchiveAssets || assetBytes > maxLearningArchiveBytes-len(data) {
+						return nil, nil, fmt.Errorf("podcast audio exceeds archive media limits")
+					}
+					if _, _, _, _, wavErr := wyoming.ParseWAV(data); wavErr != nil {
+						return nil, nil, fmt.Errorf("stored podcast audio is invalid: %w", wavErr)
+					}
+					assetBytes += len(data)
+					assetName := "media/podcasts/" + record.Id + ".wav"
+					item["audio_asset"] = assetName
+					assets[assetName] = data
+				}
+			}
+			items = append(items, item)
 		}
 		archive[name] = items
 	}
 	archive["preferences"] = readUserPreferences(user)
-	return event.JSON(http.StatusOK, archive)
+	return archive, assets, nil
 }
 
 // importLearningDataRoute restores an account archive as a new set of records.
@@ -1816,14 +1914,18 @@ func importLearningDataRoute(event *core.RequestEvent) error {
 		Podcasts      []map[string]any `json:"podcast_episodes"`
 		Preferences   *UserPreferences `json:"preferences,omitempty"`
 	}
-	body, err := io.ReadAll(io.LimitReader(event.Request.Body, (25<<20)+1))
+	body, err := io.ReadAll(io.LimitReader(event.Request.Body, maxLearningArchiveBytes+1))
 	if err != nil {
 		return event.BadRequestError("could not read learning archive", err)
 	}
-	if len(body) > 25<<20 {
-		return event.BadRequestError("learning archive exceeds the 25 MiB limit", nil)
+	if len(body) > maxLearningArchiveBytes {
+		return event.BadRequestError("learning archive exceeds the 100 MiB limit", nil)
 	}
-	decoder := json.NewDecoder(bytes.NewReader(body))
+	manifestBody, archiveFiles, isZip, err := decodeLearningArchiveContainer(body)
+	if err != nil {
+		return event.BadRequestError("invalid learning archive", err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(manifestBody))
 	if err := decoder.Decode(&archive); err != nil {
 		return event.BadRequestError("invalid learning archive", err)
 	}
@@ -1831,7 +1933,7 @@ func importLearningDataRoute(event *core.RequestEvent) error {
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		return event.BadRequestError("learning archive must contain one JSON value", err)
 	}
-	if archive.Format != "starburst-learning-archive" || archive.FormatVersion != 1 {
+	if archive.Format != "starburst-learning-archive" || (archive.FormatVersion != 1 && archive.FormatVersion != 2) || (archive.FormatVersion == 2 && !isZip) {
 		return event.BadRequestError("unsupported learning archive format", nil)
 	}
 	sets := [][]map[string]any{archive.Courses, archive.Versions, archive.Progress, archive.Assessments, archive.Units, archive.Edges, archive.Sources, archive.Evidence, archive.Mastery, archive.Podcasts}
@@ -1839,6 +1941,10 @@ func importLearningDataRoute(event *core.RequestEvent) error {
 		if len(records) > 10000 {
 			return event.BadRequestError("learning archive contains too many records", nil)
 		}
+	}
+	audioAssets, err := validateLearningArchiveAssets(archive.Podcasts, archiveFiles, archive.FormatVersion)
+	if err != nil {
+		return event.BadRequestError("learning archive media is invalid", err)
 	}
 	if archive.Preferences != nil {
 		if validationErr := validateUserPreferences(*archive.Preferences); validationErr != nil {
@@ -2164,6 +2270,16 @@ func importLearningDataRoute(event *core.RequestEvent) error {
 				"concept_ids": mappedConceptIDs, "outline": outline, "transcript": transcript,
 				"duration_seconds": podcastDuration(transcript),
 			}
+			if audio, exists := audioAssets[oldID(values)]; exists {
+				file, fileErr := filesystem.NewFileFromBytes(audio, "episode.wav")
+				if fileErr != nil {
+					return fmt.Errorf("invalid podcast audio: %w", fileErr)
+				}
+				fields["audio"] = file
+				if metadata, ok := values["audio_metadata"]; ok {
+					fields["audio_metadata"] = metadata
+				}
+			}
 			if courseContext != nil {
 				fields["course_context"] = courseContext
 			}
@@ -2187,6 +2303,111 @@ func importLearningDataRoute(event *core.RequestEvent) error {
 		return event.BadRequestError("learning archive could not be imported", err)
 	}
 	return event.JSON(http.StatusCreated, map[string]any{"imported": true})
+}
+
+func decodeLearningArchiveContainer(body []byte) ([]byte, map[string][]byte, bool, error) {
+	if len(body) < 4 || string(body[:4]) != "PK\x03\x04" {
+		return body, nil, false, nil
+	}
+	reader, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
+	if err != nil {
+		return nil, nil, true, err
+	}
+	if len(reader.File) == 0 || len(reader.File) > 10001 {
+		return nil, nil, true, fmt.Errorf("archive has an invalid number of files")
+	}
+	var manifest []byte
+	files := make(map[string][]byte, len(reader.File)-1)
+	seen := make(map[string]bool, len(reader.File))
+	totalUncompressed := uint64(0)
+	for _, file := range reader.File {
+		name := file.Name
+		if seen[name] || file.FileInfo().IsDir() {
+			return nil, nil, true, fmt.Errorf("archive contains duplicate or directory entries")
+		}
+		seen[name] = true
+		if file.UncompressedSize64 > maxLearningArchiveBytes || totalUncompressed > maxLearningArchiveBytes-file.UncompressedSize64 {
+			return nil, nil, true, fmt.Errorf("archive expands beyond the 100 MiB limit")
+		}
+		totalUncompressed += file.UncompressedSize64
+		var limit uint64 = maxLearningArchiveAssets
+		if name == "manifest.json" {
+			limit = 25 << 20
+		} else if !strings.HasPrefix(name, "media/podcasts/") || !strings.HasSuffix(name, ".wav") || strings.Contains(name, "..") || strings.Contains(name, "\\") {
+			return nil, nil, true, fmt.Errorf("archive contains an unsupported file path")
+		}
+		if file.UncompressedSize64 > limit {
+			return nil, nil, true, fmt.Errorf("archive file exceeds its size limit")
+		}
+		opened, openErr := file.Open()
+		if openErr != nil {
+			return nil, nil, true, openErr
+		}
+		data, readErr := io.ReadAll(io.LimitReader(opened, int64(limit)+1))
+		closeErr := opened.Close()
+		if readErr != nil {
+			return nil, nil, true, readErr
+		}
+		if closeErr != nil {
+			return nil, nil, true, closeErr
+		}
+		if uint64(len(data)) != file.UncompressedSize64 || uint64(len(data)) > limit {
+			return nil, nil, true, fmt.Errorf("archive entry size does not match its header")
+		}
+		if name == "manifest.json" {
+			manifest = data
+		} else {
+			files[name] = data
+		}
+	}
+	if manifest == nil {
+		return nil, nil, true, fmt.Errorf("archive is missing manifest.json")
+	}
+	return manifest, files, true, nil
+}
+
+func validateLearningArchiveAssets(podcasts []map[string]any, files map[string][]byte, version int) (map[string][]byte, error) {
+	assets := map[string][]byte{}
+	if version == 1 {
+		if len(files) != 0 {
+			return nil, fmt.Errorf("version 1 JSON archives cannot contain media")
+		}
+		return assets, nil
+	}
+	expectedFiles := map[string]string{}
+	for _, podcast := range podcasts {
+		assetName, _ := podcast["audio_asset"].(string)
+		audioReady, _ := podcast["audio_ready"].(bool)
+		oldEpisodeID, _ := podcast["id"].(string)
+		if assetName == "" {
+			if audioReady {
+				return nil, fmt.Errorf("podcast audio is marked ready but is missing from the archive")
+			}
+			continue
+		}
+		expected := "media/podcasts/" + oldEpisodeID + ".wav"
+		if oldEpisodeID == "" || assetName != expected || !audioReady || expectedFiles[assetName] != "" {
+			return nil, fmt.Errorf("podcast audio path does not match its episode")
+		}
+		data, exists := files[assetName]
+		if !exists || len(data) < 44 || len(data) > maxLearningArchiveAssets {
+			return nil, fmt.Errorf("podcast audio file is missing or invalid")
+		}
+		if _, _, _, _, err := wyoming.ParseWAV(data); err != nil {
+			return nil, fmt.Errorf("podcast audio is not a valid WAV: %w", err)
+		}
+		expectedFiles[assetName] = oldEpisodeID
+		assets[oldEpisodeID] = data
+	}
+	if len(expectedFiles) != len(files) {
+		return nil, fmt.Errorf("archive has unreferenced podcast media")
+	}
+	for name := range files {
+		if _, exists := expectedFiles[name]; !exists {
+			return nil, fmt.Errorf("archive has unreferenced podcast media")
+		}
+	}
+	return assets, nil
 }
 
 func decodePodcastArchiveObject[T any](value any) (T, error) {

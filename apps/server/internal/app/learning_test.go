@@ -1,8 +1,11 @@
 package app
 
 import (
+	"archive/zip"
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -15,6 +18,7 @@ import (
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
+	"github.com/pocketbase/pocketbase/tools/filesystem"
 	"github.com/pocketbase/pocketbase/tools/router"
 )
 
@@ -30,7 +34,7 @@ func TestLearningOpenAPIContractsCoverPocketBaseRoutes(t *testing.T) {
 		{"GET", "/api/learning/knowledge-units"}, {"POST", "/api/learning/knowledge-units"},
 		{"GET", "/api/learning/knowledge-units/{id}"}, {"PATCH", "/api/learning/knowledge-units/{id}"}, {"DELETE", "/api/learning/knowledge-units/{id}"},
 		{"GET", "/api/learning/courses/{id}/export"}, {"POST", "/api/learning/courses/import"},
-		{"GET", "/api/account/learning-export"}, {"POST", "/api/account/learning-import"},
+		{"GET", "/api/account/learning-export"}, {"GET", "/api/account/learning-export/archive"}, {"POST", "/api/account/learning-import"},
 		{"GET", "/api/learning/sources"}, {"POST", "/api/learning/sources"}, {"DELETE", "/api/learning/sources/{id}"},
 		{"GET", "/api/languages/vocabulary"}, {"POST", "/api/languages/vocabulary"},
 		{"POST", "/api/languages/vocabulary/{id}/context-attempt"},
@@ -908,6 +912,165 @@ func TestLearningArchiveExportIsOwnerScoped(t *testing.T) {
 	exportedPreferences, ok := archive["preferences"].(map[string]any)
 	if !ok || len(exportedPreferences["learningGoals"].([]any)) != 1 {
 		t.Fatalf("archive omitted account preferences: %#v", archive["preferences"])
+	}
+}
+
+func TestLearningArchiveZipRoundTripsPodcastWAV(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	user := createTestRecord(t, app, "users", map[string]any{"email": "archive-wav@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	other := createTestRecord(t, app, "users", map[string]any{"email": "archive-wav-other@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	outline := fixturePodcastScript("Archive audio", "portable WAV", podcastContext{})
+	transcript := fixturePodcastTranscript("Archive audio", "portable WAV", podcastContext{})
+	episode, err := savePodcastEpisode(app, user.Id, podcastCreateBody{Title: "Archive audio", Topic: "portable WAV"}, outline, transcript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wav := testPCM16WAV()
+	file, err := filesystem.NewFileFromBytes(wav, "episode.wav")
+	if err != nil {
+		t.Fatal(err)
+	}
+	episode.Set("audio", file)
+	episode.Set("audio_metadata", map[string]any{"format": "audio/wav", "bytes": len(wav)})
+	if err := app.Save(episode); err != nil {
+		t.Fatal(err)
+	}
+	otherEpisode, err := savePodcastEpisode(app, other.Id, podcastCreateBody{Title: "Private audio", Topic: "not exportable"}, fixturePodcastScript("Private audio", "not exportable", podcastContext{}), fixturePodcastTranscript("Private audio", "not exportable", podcastContext{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherFile, err := filesystem.NewFileFromBytes(wav, "episode.wav")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherEpisode.Set("audio", otherFile)
+	if err := app.Save(otherEpisode); err != nil {
+		t.Fatal(err)
+	}
+	exportResponse := httptest.NewRecorder()
+	exportEvent := &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: httptest.NewRequest(http.MethodGet, "/api/account/learning-export/archive", nil), Response: exportResponse}}
+	if err := exportLearningArchiveZipRoute(exportEvent); err != nil {
+		t.Fatalf("archive export failed: %v", err)
+	}
+	if exportResponse.Code != http.StatusOK || exportResponse.Header().Get("Content-Type") != "application/zip" {
+		t.Fatalf("unexpected export response: %d %q", exportResponse.Code, exportResponse.Header().Get("Content-Type"))
+	}
+	manifestBytes, files, isZip, err := decodeLearningArchiveContainer(exportResponse.Body.Bytes())
+	if err != nil || !isZip {
+		t.Fatalf("export was not a readable ZIP: isZip=%v err=%v", isZip, err)
+	}
+	var manifest map[string]any
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest["format_version"] != float64(2) || len(files) != 1 || !bytes.Equal(files["media/podcasts/"+episode.Id+".wav"], wav) {
+		t.Fatalf("ZIP did not include the episode WAV: version=%v files=%v", manifest["format_version"], len(files))
+	}
+	importResponse := httptest.NewRecorder()
+	importEvent := &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: httptest.NewRequest(http.MethodPost, "/api/account/learning-import", bytes.NewReader(exportResponse.Body.Bytes())), Response: importResponse}}
+	if err := importLearningDataRoute(importEvent); err != nil {
+		t.Fatalf("archive import failed: %v", err)
+	}
+	episodes, err := app.FindRecordsByFilter("podcast_episodes", "owner = {:owner} && title = {:title}", "", 0, 0, map[string]any{"owner": user.Id, "title": "Archive audio"})
+	if err != nil || len(episodes) != 2 {
+		t.Fatalf("expected original and imported episode, got %d records: %v", len(episodes), err)
+	}
+	var imported *core.Record
+	for _, record := range episodes {
+		if record.Id != episode.Id {
+			imported = record
+		}
+	}
+	if imported == nil || imported.GetString("audio") == "" || imported.Get("audio_metadata") == nil {
+		t.Fatalf("imported episode lost its audio metadata: %#v", imported)
+	}
+	storage, err := app.NewFilesystem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	reader, err := storage.GetReader(imported.BaseFilesPath() + "/" + imported.GetString("audio"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	restored, err := io.ReadAll(reader)
+	if err != nil || !bytes.Equal(restored, wav) {
+		t.Fatalf("restored audio differs from export: err=%v bytes=%d", err, len(restored))
+	}
+}
+
+func testPCM16WAV() []byte {
+	pcm := []byte{0, 0, 1, 0, 2, 0, 3, 0}
+	data := make([]byte, 44+len(pcm))
+	copy(data[0:4], "RIFF")
+	binary.LittleEndian.PutUint32(data[4:8], uint32(len(data)-8))
+	copy(data[8:12], "WAVE")
+	copy(data[12:16], "fmt ")
+	binary.LittleEndian.PutUint32(data[16:20], 16)
+	binary.LittleEndian.PutUint16(data[20:22], 1)
+	binary.LittleEndian.PutUint16(data[22:24], 1)
+	binary.LittleEndian.PutUint32(data[24:28], 16000)
+	binary.LittleEndian.PutUint32(data[28:32], 32000)
+	binary.LittleEndian.PutUint16(data[32:34], 2)
+	binary.LittleEndian.PutUint16(data[34:36], 16)
+	copy(data[36:40], "data")
+	binary.LittleEndian.PutUint32(data[40:44], uint32(len(pcm)))
+	copy(data[44:], pcm)
+	return data
+}
+
+func TestLearningArchiveZipRejectsUnsafeAndUnreferencedMedia(t *testing.T) {
+	for _, path := range []string{"../outside.wav", "media/podcasts/orphan.wav"} {
+		t.Run(path, func(t *testing.T) {
+			var output bytes.Buffer
+			writer := zip.NewWriter(&output)
+			manifest, err := writer.Create("manifest.json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := manifest.Write([]byte(`{"format":"starburst-learning-archive","format_version":2,"podcast_episodes":[]}`)); err != nil {
+				t.Fatal(err)
+			}
+			media, err := writer.Create(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := media.Write(testPCM16WAV()); err != nil {
+				t.Fatal(err)
+			}
+			if err := writer.Close(); err != nil {
+				t.Fatal(err)
+			}
+			manifestBytes, files, _, err := decodeLearningArchiveContainer(output.Bytes())
+			if strings.Contains(path, "..") {
+				if err == nil {
+					t.Fatal("unsafe ZIP path should fail during extraction")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			var parsed struct {
+				Format        string           `json:"format"`
+				FormatVersion int              `json:"format_version"`
+				Podcasts      []map[string]any `json:"podcast_episodes"`
+			}
+			if err := json.Unmarshal(manifestBytes, &parsed); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := validateLearningArchiveAssets(parsed.Podcasts, files, parsed.FormatVersion); err == nil {
+				t.Fatal("unreferenced media should fail manifest validation")
+			}
+		})
 	}
 }
 
