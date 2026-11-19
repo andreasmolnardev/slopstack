@@ -63,6 +63,9 @@ func TestPodcastGenerationUsesOwnerScopedDueKnowledgeGapsAndKeepsSnapshotOnRegen
 	if err := createPodcastEpisodeRoute(event); err != nil {
 		t.Fatalf("due-gap episode generation failed: %v", err)
 	}
+	if !strings.Contains(event.Response.(*httptest.ResponseRecorder).Body.String(), "Fraction equivalence") {
+		t.Fatal("generated podcast did not use its selected due-gap context")
+	}
 	var response map[string]any
 	if err := json.Unmarshal(event.Response.(*httptest.ResponseRecorder).Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
@@ -86,6 +89,27 @@ func TestPodcastGenerationUsesOwnerScopedDueKnowledgeGapsAndKeepsSnapshotOnRegen
 	event = &core.RequestEvent{App: app, Auth: owner, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
 	if err := regeneratePodcastEpisodeRoute(event); err != nil {
 		t.Fatalf("regeneration should use the saved knowledge gap snapshot: %v", err)
+	}
+	if !strings.Contains(event.Response.(*httptest.ResponseRecorder).Body.String(), "Fraction equivalence") {
+		t.Fatal("regenerated podcast did not use its saved due-gap snapshot")
+	}
+
+	tooMany := make([]string, maxPodcastGaps+1)
+	for index := range tooMany {
+		tooMany[index] = unit.Id
+	}
+	body, _ = json.Marshal(podcastCreateBody{Title: "Too many gaps", Topic: "fractions", KnowledgeGapIDs: tooMany})
+	request = httptest.NewRequest(http.MethodPost, "/api/audio/episodes", strings.NewReader(string(body)))
+	event = &core.RequestEvent{App: app, Auth: owner, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	if err := createPodcastEpisodeRoute(event); err == nil {
+		t.Fatal("API route should reject over-limit knowledge gap selections")
+	}
+
+	body, _ = json.Marshal(podcastCreateBody{Title: "Duplicate gaps", Topic: "fractions", KnowledgeGapIDs: []string{unit.Id, unit.Id}})
+	request = httptest.NewRequest(http.MethodPost, "/api/audio/episodes", strings.NewReader(string(body)))
+	event = &core.RequestEvent{App: app, Auth: owner, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	if err := createPodcastEpisodeRoute(event); err == nil {
+		t.Fatal("API route should reject duplicate knowledge gap selections")
 	}
 }
 
