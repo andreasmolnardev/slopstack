@@ -37,6 +37,7 @@ func TestPodcastOpenAPIContracts(t *testing.T) {
 		{"GET", "/api/audio/episodes/{id}"}, {"DELETE", "/api/audio/episodes/{id}"},
 		{"POST", "/api/audio/episodes/{id}/regenerate"},
 		{"PUT", "/api/audio/episodes/{id}/script"},
+		{"PUT", "/api/audio/episodes/{id}/voices"},
 	} {
 		item := api.OpenAPI().Paths[route.path]
 		if item == nil {
@@ -46,6 +47,80 @@ func TestPodcastOpenAPIContracts(t *testing.T) {
 		if operation := operations[route.method]; operation == nil || len(operation.Security) == 0 {
 			t.Fatalf("missing authenticated operation %s %s", route.method, route.path)
 		}
+	}
+}
+
+func TestPodcastVoiceAssignmentsAreOwnerScopedAndPersistAcrossScriptEdits(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	owner := createTestRecord(t, app, "users", map[string]any{"email": "voice-owner@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	other := createTestRecord(t, app, "users", map[string]any{"email": "voice-other@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	outline := fixturePodcastScript("Voices", "a topic", podcastContext{})
+	transcript := fixturePodcastTranscript("Voices", "a topic", podcastContext{})
+	record, err := savePodcastEpisode(app, owner.Id, podcastCreateBody{Title: "Voices", Topic: "a topic"}, outline, transcript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignments := podcastVoiceAssignments{Host: podcastRoleVoice{Voice: "host-model", Speaker: "0"}, Guest: podcastRoleVoice{Voice: "guest-model", Speaker: "1"}}
+	body, _ := json.Marshal(assignments)
+	request := httptest.NewRequest(http.MethodPut, "/api/audio/episodes/"+record.Id+"/voices", strings.NewReader(string(body)))
+	request.SetPathValue("id", record.Id)
+	event := &core.RequestEvent{App: app, Auth: owner, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	if err := updatePodcastVoicesRoute(event); err != nil {
+		t.Fatalf("voice update failed: %v", err)
+	}
+	var exported map[string]any
+	if err := json.Unmarshal(event.Response.(*httptest.ResponseRecorder).Body.Bytes(), &exported); err != nil {
+		t.Fatal(err)
+	}
+	if exported["voice_assignments"] == nil {
+		t.Fatal("saved assignments missing from episode response")
+	}
+	request = httptest.NewRequest(http.MethodPut, "/api/audio/episodes/"+record.Id+"/voices", strings.NewReader(string(body)))
+	request.SetPathValue("id", record.Id)
+	event = &core.RequestEvent{App: app, Auth: other, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	if err := updatePodcastVoicesRoute(event); err == nil {
+		t.Fatal("another learner's episode voices were editable")
+	}
+	record, err = app.FindRecordById("podcast_episodes", record.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved podcastVoiceAssignments
+	if err := record.UnmarshalJSONField("voice_assignments", &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved != assignments {
+		t.Fatalf("voice assignments not saved: %#v", saved)
+	}
+	updatedScript := podcastScriptBody{Outline: outline, Transcript: transcript}
+	updatedScript.Outline.Summary = "Updated after voice selection."
+	scriptBody, _ := json.Marshal(updatedScript)
+	request = httptest.NewRequest(http.MethodPut, "/api/audio/episodes/"+record.Id+"/script", strings.NewReader(string(scriptBody)))
+	request.SetPathValue("id", record.Id)
+	event = &core.RequestEvent{App: app, Auth: owner, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	if err := updatePodcastScriptRoute(event); err != nil {
+		t.Fatalf("script edit after voice assignment failed: %v", err)
+	}
+	record, err = app.FindRecordById("podcast_episodes", record.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved = podcastVoiceAssignments{}
+	if err := record.UnmarshalJSONField("voice_assignments", &saved); err != nil || saved != assignments {
+		t.Fatalf("script edit dropped voice assignments: %#v, %v", saved, err)
+	}
+	if _, err := normalizePodcastVoiceAssignments(podcastVoiceAssignments{Host: podcastRoleVoice{Speaker: "0"}}); err == nil {
+		t.Fatal("speaker without voice accepted")
+	}
+	if _, err := normalizePodcastVoiceAssignments(podcastVoiceAssignments{Host: podcastRoleVoice{Voice: strings.Repeat("x", 201)}}); err == nil {
+		t.Fatal("oversized voice accepted")
 	}
 }
 

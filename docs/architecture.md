@@ -35,7 +35,7 @@ Course portability uses a versioned `starburst-course` JSON envelope. Imports cr
 The `starburst-learning-archive` format supports owner-scoped export and transactional import of courses and versions, resume progress, knowledge units/edges, source documents, evidence, and mastery/review state. Import assigns fresh record IDs, replaces archive owner IDs with the authenticated user, and remaps linked course, concept, and source references. It currently omits account preferences and generated media assets.
 
 
-The Audio Studio stores owner-scoped podcast outlines and validated host/guest transcripts. Generation uses a separate outline request followed by dialogue generation, with a deterministic fixture when the LLM provider is not configured. The browser can synthesize turns through Piper and play a sequence, but it uses the configured default voice for both speakers and does not persist assembled audio.
+The Audio Studio stores owner-scoped podcast outlines and validated host/guest transcripts. Generation uses a separate outline request followed by dialogue generation, with a deterministic fixture when the LLM provider is not configured. The browser can save an optional Piper voice and speaker for each episode role, falling back to the saved narration default, and play a sequence; assembled audio is not persisted.
 
 Offline lessons are explicit user downloads stored in IndexedDB under user/course keys. Resume progress is queued locally and synchronized on reconnect, focus, visibility, or startup; downloaded narration is not included.
 

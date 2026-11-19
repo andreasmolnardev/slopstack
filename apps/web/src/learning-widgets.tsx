@@ -23,6 +23,25 @@ export function vectorMetrics(x: number, y: number): { magnitude: number; angle:
   return { magnitude: Math.hypot(x, y), angle: Math.atan2(y, x) * 180 / Math.PI };
 }
 
+export function probabilityOutcomes(experiment: 'coin_flip' | 'die_roll', seed: number, trials: number): number[] {
+  let state = seed >>> 0;
+  return Array.from({ length: trials }, () => {
+    state = (Math.imul(1664525, state) + 1013904223) >>> 0;
+    return experiment === 'coin_flip' ? state % 2 : state % 6 + 1;
+  });
+}
+
+export type MachineTransition = { from: string; input: string; to: string };
+
+export function transitionState(current: string, input: string, transitions: MachineTransition[]): string {
+  return transitions.find(transition => transition.from === current && transition.input === input)?.to ?? current;
+}
+
+export function classificationScore(answers: Record<string, string>, items: Array<{ label: string; category: string }>): number {
+  if (items.length === 0) return 0;
+  return items.filter(item => answers[item.label] === item.category).length / items.length;
+}
+
 type WidgetProps = { config: WidgetConfig };
 
 export function VectorExplorer({ config }: WidgetProps) {
@@ -86,5 +105,72 @@ export function BinarySearchVisualizer({ config }: WidgetProps) {
     <ol aria-label="Sorted values" className="mt-5 flex flex-wrap gap-2">{items.map((item, index) => <li key={`${index}-${item}`} aria-current={step?.middle === index ? 'step' : undefined} className={`min-w-10 rounded-lg border px-3 py-2 text-center font-mono ${step?.middle === index ? 'border-[#efc778] bg-[#6350c8]' : step && (index < step.low || index > step.high) ? 'border-white/5 opacity-40' : 'border-white/10 bg-[#0e0621]'}`}>{item}</li>)}</ol>
     <p role="status" aria-live="polite" className="mt-4 min-h-6 text-sm">{step ? `Check ${step.value} at index ${step.middle}: ${step.outcome === 'found' ? 'target found.' : step.outcome === 'higher' ? 'target is higher; move right.' : 'target is lower; move left.'}` : 'Ready to search.'}</p>
     <div className="mt-3 flex gap-2"><button type="button" disabled={stepIndex >= trace.length - 1} onClick={() => setStepIndex(index => Math.min(index + 1, trace.length - 1))} className="rounded-lg bg-[#6350c8] px-3 py-2 text-sm">{stepIndex < 0 ? 'Start search' : 'Next step'}</button><button type="button" onClick={() => setStepIndex(-1)} className="rounded-lg border border-white/15 px-3 py-2 text-sm">Reset search</button></div>
+  </section>;
+}
+
+export function ProbabilitySimulation({ config }: WidgetProps) {
+  const experiment = config.experiment === 'die_roll' ? 'die_roll' : 'coin_flip';
+  const maxTrials = Number(config.trials ?? 100);
+  const seed = Number(config.seed ?? 1);
+  const [sampleSize, setSampleSize] = useState(1);
+  const outcomes = probabilityOutcomes(experiment, seed, sampleSize);
+  const categories = experiment === 'coin_flip' ? [{ value: 0, label: 'Heads' }, { value: 1, label: 'Tails' }] : Array.from({ length: 6 }, (_, index) => ({ value: index + 1, label: `Roll ${index + 1}` }));
+  const counts = categories.map(category => ({ ...category, count: outcomes.filter(outcome => outcome === category.value).length }));
+  const heads = counts.find(category => category.value === 0);
+  return <section className="mt-8" aria-labelledby="probability-simulation-heading">
+    <h3 id="probability-simulation-heading" className="text-lg font-medium">{config.prompt || (experiment === 'coin_flip' ? 'Explore coin-flip probability' : 'Explore die-roll probability')}</h3>
+    <p className="mt-2 text-sm text-[#b7adcc]">This repeatable simulation uses the configured seed, so reset produces the same outcome sequence.</p>
+    <label className="mt-5 grid gap-1 text-sm">Number of trials · {sampleSize}<input aria-label="Number of simulation trials" type="range" min="1" max={maxTrials} value={sampleSize} onChange={event => setSampleSize(Number(event.target.value))} className="accent-[#e57fab]" /></label>
+    <ul aria-label="Observed outcome frequencies" className="mt-4 grid gap-3 sm:grid-cols-2">{counts.map(category => {
+      const frequency = sampleSize ? category.count / sampleSize : 0;
+      return <li key={category.value} className="rounded-lg bg-[#0e0621] p-3">
+        <div className="flex justify-between text-sm"><span>{category.label}</span><span>{category.count} · {(frequency * 100).toFixed(0)}%</span></div>
+        <div role="meter" aria-label={`${category.label} observed frequency`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(frequency * 100)} className="mt-2 h-2 overflow-hidden rounded bg-white/10"><div className="h-full bg-[#e57fab]" style={{ width: `${frequency * 100}%` }} /></div>
+      </li>;
+    })}</ul>
+    <p role="status" aria-live="polite" className="mt-3 rounded-lg bg-[#211638] p-3 text-sm">{experiment === 'coin_flip' ? `Heads in this sample: ${((heads?.count ?? 0) / sampleSize * 100).toFixed(0)}% (theoretical probability: 50%).` : `Each face has theoretical probability: 16.7%.`} Sample size: {sampleSize}.</p>
+    <button type="button" onClick={() => setSampleSize(1)} className="mt-3 rounded-lg border border-white/15 px-3 py-2 text-sm">Reset simulation</button>
+  </section>;
+}
+
+export function StateMachineVisualizer({ config }: WidgetProps) {
+  const states = config.states ?? [];
+  const transitions = config.transitions ?? [];
+  const initial = config.initial_state ?? states[0] ?? '';
+  const [current, setCurrent] = useState(initial);
+  const options = transitions.filter(transition => transition.from === current);
+  return <section className="mt-8" aria-labelledby="state-machine-heading">
+    <h3 id="state-machine-heading" className="text-lg font-medium">{config.prompt || 'Explore the state machine'}</h3>
+    <p className="mt-2 text-sm text-[#b7adcc]">Choose an input available from the current state to follow a transition.</p>
+    <ol aria-label="Machine states" className="mt-5 flex flex-wrap gap-2">{states.map(state => <li key={state} aria-current={state === current ? 'step' : undefined} className={`rounded-full border px-4 py-2 text-sm ${state === current ? 'border-[#efc778] bg-[#6350c8]' : 'border-white/10 bg-[#0e0621]'}`}>{state}{state === initial ? ' · start' : ''}</li>)}</ol>
+    <p role="status" aria-live="polite" className="mt-4 rounded-lg bg-[#0e0621] p-3 text-sm">Current state: {current}</p>
+    {options.length ? <div role="group" aria-label={`Inputs available from ${current}`} className="mt-3 flex flex-wrap gap-2">{options.map((transition, index) => <button key={`${transition.input}-${index}`} type="button" onClick={() => setCurrent(transition.to)} className="rounded-lg bg-[#6350c8] px-3 py-2 text-sm">Input {transition.input} → {transition.to}</button>)}</div> : <p className="mt-3 text-sm text-[#b7adcc]">No transitions leave this state.</p>}
+    <button type="button" onClick={() => setCurrent(initial)} className="mt-3 rounded-lg border border-white/15 px-3 py-2 text-sm">Reset machine</button>
+  </section>;
+}
+
+export function ClassificationExercise({ config }: WidgetProps) {
+  const categories = config.categories ?? [];
+  const items = config.classify_items ?? [];
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [checked, setChecked] = useState(false);
+  const complete = items.every(item => answers[item.label]);
+  const score = classificationScore(answers, items);
+  return <section className="mt-8" aria-labelledby="classification-exercise-heading">
+    <h3 id="classification-exercise-heading" className="text-lg font-medium">{config.prompt || 'Classify each example'}</h3>
+    <p className="mt-2 text-sm text-[#b7adcc]">Choose a category for each example, then check your classifications.</p>
+    <ul aria-label="Available categories" className="mt-3 flex flex-wrap gap-2">{categories.map(category => <li key={category.name} className="rounded-full bg-[#211638] px-3 py-1 text-sm">{category.name}{category.description ? ` · ${category.description}` : ''}</li>)}</ul>
+    <ul className="mt-4 space-y-3">{items.map((item, index) => {
+      const correct = answers[item.label] === item.category;
+      return <li key={`${index}-${item.label}`} className="grid gap-2 rounded-lg bg-[#0e0621] p-3 sm:grid-cols-[1fr_auto] sm:items-center">
+        <span>{item.label}</span>
+        <select aria-label={`Category for ${item.label}`} value={answers[item.label] ?? ''} onChange={event => { setAnswers(previous => ({ ...previous, [item.label]: event.target.value })); setChecked(false); }} className="rounded bg-[#211638] p-2">
+          <option value="">Choose category</option>{categories.map(category => <option key={category.name} value={category.name}>{category.name}</option>)}
+        </select>
+        {checked && <p className="text-sm sm:col-span-2">{correct ? 'Correct.' : `Correct category: ${item.category}.`}</p>}
+      </li>;
+    })}</ul>
+    <p role="status" aria-live="polite" className="mt-3 min-h-6 text-sm">{checked ? `${Math.round(score * 100)}% correct.` : complete ? 'Ready to check.' : 'Choose a category for each example.'}</p>
+    <div className="mt-3 flex gap-2"><button type="button" disabled={!complete} onClick={() => setChecked(true)} className="rounded-lg bg-[#6350c8] px-3 py-2 text-sm">Check classifications</button><button type="button" onClick={() => { setAnswers({}); setChecked(false); }} className="rounded-lg border border-white/15 px-3 py-2 text-sm">Reset answers</button></div>
   </section>;
 }

@@ -4,7 +4,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { captionAtPosition, checkpointBlocksProgress, flattenCourseScenes, sceneAtTimelinePosition, sceneDurationSeconds, timelineDurationWithSegments, timelinePosition, triangleMetrics } from './learning-timeline';
 import type { LessonPlayerMode } from './learning-timeline';
 import type { WidgetConfig } from './learning-timeline';
-import { BinarySearchVisualizer, LogicGateExplorer, VectorExplorer } from './learning-widgets';
+import { BinarySearchVisualizer, ClassificationExercise, LogicGateExplorer, ProbabilitySimulation, StateMachineVisualizer, VectorExplorer } from './learning-widgets';
 import { initialAssessmentAnswers, moveOrderedAnswer, updateMatchAnswer } from './learning-assessment';
 import type { AssessmentQuestion } from './learning-assessment';
 import { pb } from './api/pocketbase';
@@ -16,6 +16,7 @@ import { getCourseProgress, getLearningJob } from './api/generated/sdk.gen';
 import { client as generatedClient } from './api/generated/client.gen';
 import { offlineLearningStore, persistProgressOfflineFirst } from './api/offline-learning';
 import { saveCourseProgressOnline } from './api/offline-progress';
+import { LessonAssistant } from './lesson-assistant';
 
 export function Starburst({ initialCourse, redirectTo, offlineMode = false, onOfflineExit }: { initialCourse?: LearningRecord; redirectTo?: string; offlineMode?: boolean; onOfflineExit?: () => void }) {
   const navigate = useNavigate();
@@ -324,6 +325,7 @@ function Lesson({course,initialSceneIndex,initialPositionSeconds,captionsByDefau
       {narrationReady&&<audio ref={audioRef} src={narrationUrls[sceneIndex]} preload="auto" onTimeUpdate={onAudioTimeUpdate} onEnded={()=>{finishingRef.current=true;void advanceScene()}} onError={()=>setCheckpointFeedback('Narration could not be decoded by this browser.')} aria-label={`Synchronized narration for ${scene.title}`}/>}
       {checkpointOpen&&<form onSubmit={submitCheckpoint} className="mt-5 rounded-xl border border-[#efc778]/40 bg-[#0e0621] p-4"><label className="block text-sm font-medium" htmlFor="scene-reflection">Pause and reflect: {String(config.question||'Explain the idea in your own words.')}</label><textarea id="scene-reflection" className="mt-3 min-h-24 w-full rounded-lg border border-white/10 bg-[#211638] p-3" value={checkpointAnswer} onChange={event=>setCheckpointAnswer(event.target.value)} required/><button disabled={checkpointBusy||!checkpointAnswer.trim()} className="mt-3 rounded-lg bg-[#6350c8] px-4 py-2">{checkpointBusy?'Saving…':'Save reflection and continue'}</button></form>}
       {checkpointFeedback&&<p role="status" className="mt-3 text-sm text-[#efc778]">{checkpointFeedback}</p>}
+      <LessonAssistant key={`${course.id}:${sceneIndex}`} courseId={course.id} sceneIndex={sceneIndex} disabled={offlineMode}/>
     </section>
     <div className="mt-4 flex flex-wrap items-center gap-2"><button disabled={playbackMode==='explore'} aria-label={playing?'Pause lesson':'Play lesson'} onClick={togglePlayback} className="rounded-lg bg-[#6350c8] px-4 py-2">{playing?'Pause':'Play'}</button><button aria-label="Restart lesson" onClick={()=>void seekTo(0)} className="rounded-lg border border-white/15 px-3 py-2">Restart</button><button onClick={()=>void seekTo(Math.max(0,position-5))} className="rounded-lg border border-white/15 px-3 py-2">−5 sec</button><button onClick={()=>void seekTo(Math.min(totalDuration,position+5))} className="rounded-lg border border-white/15 px-3 py-2">+5 sec</button><label className="text-sm text-[#b7adcc]">Mode <select aria-label="Lesson player mode" value={playbackMode} onChange={event=>setPlaybackMode(event.target.value as LessonPlayerMode)} className="ml-2 rounded bg-[#211638] p-2 text-white"><option value="watch">Watch</option><option value="interactive">Interactive</option><option value="explore">Explore</option><option value="silent">Silent</option></select></label><button aria-pressed={captionsEnabled} onClick={()=>setCaptionsEnabled(value=>!value)} className="rounded-lg border border-white/15 px-3 py-2">Captions {captionsEnabled?'on':'off'}</button>{narrationReady&&<label className="text-sm text-[#b7adcc]">Volume <input aria-label="Narration volume" type="range" min="0" max="1" step="0.05" value={volume} onChange={event=>setVolume(Number(event.target.value))} className="ml-2 align-middle accent-[#e57fab]"/></label>}<label className="ml-auto text-sm text-[#b7adcc]">Speed <select aria-label="Playback speed" className="ml-2 rounded bg-[#211638] p-2 text-white" value={speed} onChange={event=>{const value=Number(event.target.value);setSpeed(value);if(audioRef.current)audioRef.current.playbackRate=value}}>{[0.5,0.75,1,1.25,1.5,2].map(value=><option key={value} value={value}>{value}×</option>)}</select></label></div>
     <p className="mt-2 text-xs text-[#b7adcc]">Keyboard: Space play/pause · ←/→ seek 5 seconds · R restart · F fullscreen. Interactive mode pauses for required reflections; Explore pauses the timeline; Silent keeps captions visible.</p>
@@ -424,6 +426,9 @@ function WidgetStage({type,config}:{type:string;config:WidgetConfig}) {
  if(type==='vector_visualizer')return <VectorExplorer config={config}/>;
  if(type==='logic_gates')return <LogicGateExplorer config={config}/>;
  if(type==='algorithm_step_visualizer')return <BinarySearchVisualizer config={config}/>;
+ if(type==='probability_simulation')return <ProbabilitySimulation config={config}/>;
+ if(type==='state_machine_visualizer')return <StateMachineVisualizer config={config}/>;
+ if(type==='classification')return <ClassificationExercise config={config}/>;
  if(type==='function_plotter'){return <div className="mt-8"><p>{config.prompt??'Explore the shape of y = x².'}</p><svg viewBox="0 0 240 140" role="img" aria-label="Parabola function plot" className="mt-4 h-48 w-full rounded-lg bg-[#0e0621]"><path d="M20 20H220M120 10V130" stroke="#81779a"/><path d="M30 30 Q120 130 210 30" fill="none" stroke="#e57fab" strokeWidth="4"/></svg><label className="mt-3 block text-sm">Horizontal shift <input aria-label="Horizontal shift" type="range" min="-5" max="5" value={value} onChange={e=>setValue(Number(e.target.value))} className="ml-3 accent-[#e57fab]"/> {value}</label></div>}
  return <div className="mt-8">{config.prompt&&<p className="text-xl text-[#efc778]">{config.prompt}</p>}{config.body&&<p className="mt-4 max-w-2xl leading-7 text-[#d4cde2]">{config.body}</p>}{config.steps&&<ol className="mt-8 grid gap-3">{config.steps.map((step:string,i:number)=><li key={step} className="rounded-lg bg-[#0e0621] p-4"><span className="mr-3 text-[#f3a178]">0{i+1}</span>{step}</li>)}</ol>}{config.question&&<textarea className="mt-6 min-h-32 w-full rounded-lg border border-white/10 bg-[#0e0621] p-4" placeholder="Write your explanation" aria-label="Your explanation"/>}</div>
 }

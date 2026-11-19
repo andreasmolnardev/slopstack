@@ -32,7 +32,7 @@ func EnsureCollections(app core.App) error {
 		{"learner_evidence", false, []schemaField{{"owner", "text", true}, {"unit", "text", true}, {"evidence_type", "text", true}, {"score", "number", false}, {"details", "json", false}}},
 		{"knowledge_mastery", false, []schemaField{{"owner", "text", true}, {"unit", "text", true}, {"mastery", "number", false}, {"confidence", "number", false}, {"review_interval_days", "number", false}, {"ease_factor", "number", false}, {"repetitions", "number", false}, {"last_practice", "date", false}, {"next_review", "date", false}}},
 		{"learning_jobs", false, []schemaField{{"owner", "text", true}, {"kind", "text", true}, {"status", "text", true}, {"progress", "number", false}, {"attempts", "number", false}, {"payload", "json", false}, {"result", "json", false}, {"course", "text", false}, {"error", "text", false}}},
-		{"podcast_episodes", false, []schemaField{{"owner", "text", true}, {"title", "text", true}, {"topic", "text", true}, {"status", "text", true}, {"source_ids", "json", false}, {"concept_ids", "json", false}, {"outline", "json", true}, {"transcript", "json", true}, {"duration_seconds", "number", false}}},
+		{"podcast_episodes", false, []schemaField{{"owner", "text", true}, {"title", "text", true}, {"topic", "text", true}, {"status", "text", true}, {"source_ids", "json", false}, {"concept_ids", "json", false}, {"outline", "json", true}, {"transcript", "json", true}, {"duration_seconds", "number", false}, {"voice_assignments", "json", false}}},
 		{"audit_logs", false, []schemaField{{"actor", "text", false}, {"action", "text", true}, {"metadata", "json", false}}},
 	}
 

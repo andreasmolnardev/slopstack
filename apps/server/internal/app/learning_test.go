@@ -22,6 +22,8 @@ func TestLearningOpenAPIContractsCoverPocketBaseRoutes(t *testing.T) {
 	api := humago.New(http.NewServeMux(), huma.DefaultConfig("Starburst API", "test"))
 	api.OpenAPI().Components.SecuritySchemes = map[string]*huma.SecurityScheme{"pocketbaseAuth": {Type: "http", Scheme: "bearer", BearerFormat: "JWT"}}
 	registerLearningAPI(api)
+	registerLessonAssistantAPI(api)
+	registerSourceWebImportAPI(api)
 	expected := []struct{ method, path string }{
 		{"GET", "/api/learning/courses"}, {"POST", "/api/learning/courses"},
 		{"GET", "/api/learning/courses/{id}"}, {"PATCH", "/api/learning/courses/{id}"}, {"DELETE", "/api/learning/courses/{id}"},
@@ -41,6 +43,8 @@ func TestLearningOpenAPIContractsCoverPocketBaseRoutes(t *testing.T) {
 		{"GET", "/api/learning/edges"}, {"POST", "/api/learning/edges"},
 		{"GET", "/api/learning/reviews/due"}, {"POST", "/api/learning/reviews/{unitId}"},
 		{"GET", "/api/learning/knowledge-units/{id}/evidence"},
+		{"POST", "/api/learning/courses/{id}/assistant"},
+		{"POST", "/api/learning/sources/web"},
 	}
 	for _, route := range expected {
 		item := api.OpenAPI().Paths[route.path]
@@ -57,6 +61,13 @@ func TestLearningOpenAPIContractsCoverPocketBaseRoutes(t *testing.T) {
 		if len(operation.Security) == 0 {
 			t.Errorf("route %s %s is missing authentication", route.method, route.path)
 		}
+	}
+	contract, err := json.Marshal(api.OpenAPI())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(contract), "LessonAssistantOutputBody") || !strings.Contains(string(contract), `"scene_index"`) || !strings.Contains(string(contract), `"practice"`) {
+		t.Fatal("lesson assistant request and response schemas must be present in OpenAPI")
 	}
 	response := api.OpenAPI().Paths["/api/speech/synthesize"].Post.Responses["200"]
 	if response == nil || response.Content["audio/wav"] == nil {
@@ -383,7 +394,7 @@ func TestManualCourseWritesKeepAnswerKeysPrivateAndVersionEdits(t *testing.T) {
 }
 
 func TestGeneratedCourseAcceptsRegisteredWidgetTypes(t *testing.T) {
-	for _, kind := range []string{"explanation", "model", "reflection", "number_line", "binary_explorer", "matching", "timeline", "function_plotter", "vector_visualizer", "logic_gates", "algorithm_step_visualizer"} {
+	for _, kind := range []string{"explanation", "model", "reflection", "number_line", "binary_explorer", "matching", "timeline", "function_plotter", "vector_visualizer", "logic_gates", "algorithm_step_visualizer", "probability_simulation", "state_machine_visualizer", "classification"} {
 		widget := map[string]any{"type": kind}
 		switch kind {
 		case "vector_visualizer":
@@ -395,10 +406,44 @@ func TestGeneratedCourseAcceptsRegisteredWidgetTypes(t *testing.T) {
 		case "algorithm_step_visualizer":
 			widget["version"] = float64(1)
 			widget["config"] = map[string]any{"items": []any{float64(1), float64(2), float64(3)}, "target": float64(2)}
+		case "probability_simulation":
+			widget["version"] = float64(1)
+			widget["config"] = map[string]any{"experiment": "coin_flip", "trials": float64(40), "seed": float64(17)}
+		case "state_machine_visualizer":
+			widget["version"] = float64(1)
+			widget["config"] = map[string]any{"states": []any{"even", "odd"}, "initial_state": "even", "transitions": []any{map[string]any{"from": "even", "input": "1", "to": "odd"}, map[string]any{"from": "odd", "input": "1", "to": "even"}}}
+		case "classification":
+			widget["version"] = float64(1)
+			widget["config"] = map[string]any{"categories": []any{map[string]any{"name": "Mammal"}, map[string]any{"name": "Bird"}}, "classify_items": []any{map[string]any{"label": "Whale", "category": "Mammal"}, map[string]any{"label": "Robin", "category": "Bird"}, map[string]any{"label": "Bat", "category": "Mammal"}}}
 		}
 		content := map[string]any{"modules": []any{map[string]any{"scenes": []any{map[string]any{"widget": widget}}}}}
 		if err := validateGeneratedCourse(content); err != nil {
 			t.Errorf("registered widget %q rejected: %v", kind, err)
+		}
+	}
+}
+
+func TestScienceAndLearningWidgetConfigsAreStrictAndBounded(t *testing.T) {
+	valid := []map[string]any{
+		{"type": "probability_simulation", "version": float64(1), "config": map[string]any{"experiment": "die_roll", "trials": float64(100), "seed": float64(42)}},
+		{"type": "state_machine_visualizer", "version": float64(1), "config": map[string]any{"states": []any{"ready", "done"}, "initial_state": "ready", "transitions": []any{map[string]any{"from": "ready", "input": "finish", "to": "done"}}}},
+		{"type": "classification", "version": float64(1), "config": map[string]any{"categories": []any{map[string]any{"name": "Solid", "description": "Fixed shape"}, map[string]any{"name": "Liquid"}}, "classify_items": []any{map[string]any{"label": "Ice", "category": "Solid"}, map[string]any{"label": "Water", "category": "Liquid"}, map[string]any{"label": "Steam", "category": "Liquid"}}}},
+	}
+	for _, widget := range valid {
+		if err := validateWidgetConfig(widget["type"].(string), widget); err != nil {
+			t.Errorf("valid %s config rejected: %v", widget["type"], err)
+		}
+	}
+	invalid := []map[string]any{
+		{"type": "probability_simulation", "version": float64(1), "config": map[string]any{"experiment": "coin_flip", "trials": float64(9), "seed": float64(42)}},
+		{"type": "probability_simulation", "version": float64(1), "config": map[string]any{"experiment": "coin_flip", "trials": float64(100), "seed": float64(42), "code": "bad"}},
+		{"type": "state_machine_visualizer", "version": float64(1), "config": map[string]any{"states": []any{"ready", "done"}, "initial_state": "missing", "transitions": []any{map[string]any{"from": "ready", "input": "finish", "to": "done"}}}},
+		{"type": "state_machine_visualizer", "version": float64(1), "config": map[string]any{"states": []any{"ready", "done"}, "initial_state": "ready", "transitions": []any{map[string]any{"from": "ready", "input": "x", "to": "done"}, map[string]any{"from": "ready", "input": "x", "to": "ready"}}}},
+		{"type": "classification", "version": float64(1), "config": map[string]any{"categories": []any{map[string]any{"name": "Solid"}, map[string]any{"name": "Liquid"}}, "classify_items": []any{map[string]any{"label": "Ice", "category": "Other"}, map[string]any{"label": "Water", "category": "Liquid"}, map[string]any{"label": "Steam", "category": "Liquid"}}}},
+	}
+	for _, widget := range invalid {
+		if err := validateWidgetConfig(widget["type"].(string), widget); err == nil {
+			t.Errorf("invalid %s config accepted: %#v", widget["type"], widget)
 		}
 	}
 }

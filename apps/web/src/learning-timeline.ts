@@ -15,6 +15,14 @@ export type WidgetConfig = {
   axis_limit?: number;
   items?: number[];
   gate?: 'AND' | 'OR' | 'XOR' | 'NOT' | 'XNOR';
+  experiment?: 'coin_flip' | 'die_roll';
+  trials?: number;
+  seed?: number;
+  states?: string[];
+  initial_state?: string;
+  transitions?: Array<{ from: string; input: string; to: string }>;
+  categories?: Array<{ name: string; description?: string }>;
+  classify_items?: Array<{ label: string; category: string }>;
   options?: string[];
   answer?: string;
   events?: Array<{ label: string; detail?: string }>;

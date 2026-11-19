@@ -55,15 +55,26 @@ type podcastTranscript struct {
 }
 
 type podcastEpisode struct {
-	ID              string            `json:"id"`
-	Title           string            `json:"title"`
-	Topic           string            `json:"topic"`
-	Status          string            `json:"status"`
-	SourceIDs       []string          `json:"source_ids"`
-	ConceptIDs      []string          `json:"concept_ids"`
-	Outline         podcastOutline    `json:"outline"`
-	Transcript      podcastTranscript `json:"transcript"`
-	DurationSeconds int               `json:"duration_seconds"`
+	ID               string                  `json:"id"`
+	Title            string                  `json:"title"`
+	Topic            string                  `json:"topic"`
+	Status           string                  `json:"status"`
+	SourceIDs        []string                `json:"source_ids"`
+	ConceptIDs       []string                `json:"concept_ids"`
+	Outline          podcastOutline          `json:"outline"`
+	Transcript       podcastTranscript       `json:"transcript"`
+	DurationSeconds  int                     `json:"duration_seconds"`
+	VoiceAssignments podcastVoiceAssignments `json:"voice_assignments"`
+}
+
+type podcastRoleVoice struct {
+	Voice   string `json:"voice"`
+	Speaker string `json:"speaker"`
+}
+
+type podcastVoiceAssignments struct {
+	Host  podcastRoleVoice `json:"host"`
+	Guest podcastRoleVoice `json:"guest"`
 }
 
 type podcastListInput struct{}
@@ -79,6 +90,10 @@ type podcastScriptBody struct {
 type podcastScriptInput struct {
 	ID   string `path:"id"`
 	Body podcastScriptBody
+}
+type podcastVoiceInput struct {
+	ID   string `path:"id"`
+	Body podcastVoiceAssignments
 }
 type podcastCreateInput struct{ Body podcastCreateBody }
 type podcastDeletedOutput struct {
@@ -118,6 +133,7 @@ func registerPodcastAPI(api huma.API) {
 	huma.Register(api, huma.Operation{OperationID: "deletePodcastEpisode", Method: http.MethodDelete, Path: "/api/audio/episodes/{id}", Tags: []string{"Audio"}, Summary: "Delete an owned podcast episode", Security: security, Errors: errorSet, DefaultStatus: http.StatusNoContent}, func(context.Context, *podcastIDInput) (*podcastDeletedOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "regeneratePodcastEpisode", Method: http.MethodPost, Path: "/api/audio/episodes/{id}/regenerate", Tags: []string{"Audio"}, Summary: "Regenerate an owned podcast episode", Security: security, Errors: errorSet}, func(context.Context, *podcastIDInput) (*podcastSingleOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "updatePodcastScript", Method: http.MethodPut, Path: "/api/audio/episodes/{id}/script", Tags: []string{"Audio"}, Summary: "Save edits to an owned podcast outline and transcript", Security: security, Errors: errorSet}, func(context.Context, *podcastScriptInput) (*podcastSingleOutput, error) { return nil, nil })
+	huma.Register(api, huma.Operation{OperationID: "updatePodcastVoices", Method: http.MethodPut, Path: "/api/audio/episodes/{id}/voices", Tags: []string{"Audio"}, Summary: "Save host and guest voices for an owned podcast episode", Security: security, Errors: errorSet}, func(context.Context, *podcastVoiceInput) (*podcastSingleOutput, error) { return nil, nil })
 }
 
 func registerPodcastRoutes(event *core.ServeEvent) {
@@ -127,6 +143,41 @@ func registerPodcastRoutes(event *core.ServeEvent) {
 	event.Router.DELETE("/api/audio/episodes/{id}", deletePodcastEpisodeRoute)
 	event.Router.POST("/api/audio/episodes/{id}/regenerate", regeneratePodcastEpisodeRoute)
 	event.Router.PUT("/api/audio/episodes/{id}/script", updatePodcastScriptRoute)
+	event.Router.PUT("/api/audio/episodes/{id}/voices", updatePodcastVoicesRoute)
+}
+
+func updatePodcastVoicesRoute(event *core.RequestEvent) error {
+	record, err := findOwnedPodcastEpisode(event)
+	if err != nil {
+		return err
+	}
+	var input podcastVoiceAssignments
+	if err := decodePodcastBody(event, &input); err != nil {
+		return event.BadRequestError("invalid podcast voice assignments", err)
+	}
+	input, err = normalizePodcastVoiceAssignments(input)
+	if err != nil {
+		return event.BadRequestError("invalid podcast voice assignments", err)
+	}
+	record.Set("voice_assignments", input)
+	if err := event.App.Save(record); err != nil {
+		return event.InternalServerError("could not save podcast voices", err)
+	}
+	return event.JSON(http.StatusOK, podcastEpisodeExport(record))
+}
+
+func normalizePodcastVoiceAssignments(input podcastVoiceAssignments) (podcastVoiceAssignments, error) {
+	for _, role := range []*podcastRoleVoice{&input.Host, &input.Guest} {
+		role.Voice = strings.TrimSpace(role.Voice)
+		role.Speaker = strings.TrimSpace(role.Speaker)
+		if len([]rune(role.Voice)) > 200 || len([]rune(role.Speaker)) > 200 {
+			return input, fmt.Errorf("voice and speaker must be at most 200 characters")
+		}
+		if role.Voice == "" && role.Speaker != "" {
+			return input, fmt.Errorf("speaker requires a voice")
+		}
+	}
+	return input, nil
 }
 
 func listPodcastEpisodesRoute(event *core.RequestEvent) error {
@@ -595,6 +646,7 @@ func savePodcastEpisode(app core.App, ownerID string, input podcastCreateBody, o
 	record.Set("outline", outline)
 	record.Set("transcript", transcript)
 	record.Set("duration_seconds", podcastDuration(transcript))
+	record.Set("voice_assignments", podcastVoiceAssignments{})
 	if err := app.Save(record); err != nil {
 		return nil, err
 	}
@@ -614,9 +666,12 @@ func podcastDuration(transcript podcastTranscript) int {
 }
 
 func podcastEpisodeExport(record *core.Record) map[string]any {
+	var voiceAssignments podcastVoiceAssignments
+	_ = record.UnmarshalJSONField("voice_assignments", &voiceAssignments)
+	voiceAssignments, _ = normalizePodcastVoiceAssignments(voiceAssignments)
 	return map[string]any{
 		"id": record.Id, "title": record.GetString("title"), "topic": record.GetString("topic"), "status": record.GetString("status"),
 		"source_ids": record.Get("source_ids"), "concept_ids": record.Get("concept_ids"), "outline": record.Get("outline"),
-		"transcript": record.Get("transcript"), "duration_seconds": record.GetFloat("duration_seconds"),
+		"transcript": record.Get("transcript"), "duration_seconds": record.GetFloat("duration_seconds"), "voice_assignments": voiceAssignments,
 	}
 }

@@ -36,11 +36,13 @@ func Register(pb *pocketbase.PocketBase, config Config, api huma.API, plugins ..
 	pb.RootCmd.PersistentFlags().StringVar(&config.HTTPAddress, "http", config.HTTPAddress, "HTTP address")
 	registerTodoAPI(api)
 	registerLearningAPI(api)
+	registerLessonAssistantAPI(api)
 	registerPodcastAPI(api)
 	registerSpeakingAPI(api)
 	registerPreferencesAPI(api)
 	registerAdaptivePracticeAPI(api)
 	registerSourceEditingAPI(api)
+	registerSourceWebImportAPI(api)
 	pb.OnBootstrap().BindFunc(func(e *core.BootstrapEvent) error {
 		if err := e.Next(); err != nil {
 			return err
@@ -297,11 +299,13 @@ func registerRoutes(e *core.ServeEvent, config Config, api huma.API) {
 	})
 	registerTodoRoutes(e, config)
 	registerLearningRoutes(e, config)
+	registerLessonAssistantRoute(e)
 	registerPodcastRoutes(e)
 	registerSpeakingRoutes(e)
 	registerPreferencesRoutes(e)
 	registerAdaptivePracticeRoutes(e)
 	registerSourceEditingRoutes(e)
+	registerSourceWebImportRoute(e)
 	registerStaticFrontend(e, config)
 }
 

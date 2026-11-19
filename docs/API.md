@@ -61,6 +61,10 @@ The body accepts `source_ids` (up to four), `concept_ids` (up to eight), `diffic
 
 `GET /api/learning/sources/{id}` returns the authenticated owner's text or Markdown source. `PATCH /api/learning/sources/{id}` accepts any subset of `title`, `content`, and `source_type`; text remains capped at 1 MiB. Source corrections affect future generation context. Previously generated courses and independently edited concepts remain unchanged.
 
+The source library can import local PDFs by extracting selectable text in the browser and posting it to `POST /api/learning/sources` as a Markdown source. Import is limited to PDF files up to 10 MiB, 200 pages, and 1 MiB of extracted text. Image-only scanned pages are not OCRed and cannot be imported until text is available.
+
+`POST /api/learning/sources/web` fetches a public HTTP(S) page and stores its visible text as an owned Markdown source with URL provenance. It rejects redirects, non-public DNS/IP results, non-standard ports, unsupported content types, and bodies over 5 MiB; extracted text is capped at 1 MiB. Only visible text is retained; scripts and embedded active content are discarded.
+
 ## Extending a module
 
 1. Define request and response types in the Go module.
