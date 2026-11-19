@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,6 +30,7 @@ type practiceQuestion struct {
 	ID            string   `json:"id"`
 	UnitID        string   `json:"unit_id"`
 	UnitTitle     string   `json:"unit_title"`
+	Difficulty    string   `json:"difficulty"`
 	Prompt        string   `json:"prompt"`
 	Options       []string `json:"options"`
 	Hints         []string `json:"hints"`
@@ -36,12 +39,13 @@ type practiceQuestion struct {
 }
 
 type practiceQuestionPublic struct {
-	ID        string   `json:"id"`
-	UnitID    string   `json:"unit_id"`
-	UnitTitle string   `json:"unit_title"`
-	Prompt    string   `json:"prompt"`
-	Options   []string `json:"options"`
-	Hints     []string `json:"hints"`
+	ID         string   `json:"id"`
+	UnitID     string   `json:"unit_id"`
+	UnitTitle  string   `json:"unit_title"`
+	Difficulty string   `json:"difficulty"`
+	Prompt     string   `json:"prompt"`
+	Options    []string `json:"options"`
+	Hints      []string `json:"hints"`
 }
 
 type adaptivePracticeCreateInput struct {
@@ -150,7 +154,15 @@ func createAdaptivePracticeQuizRoute(event *core.RequestEvent) error {
 	if len(units) > unitLimit {
 		return event.BadRequestError(fmt.Sprintf("practice is limited to %d knowledge items", unitLimit), nil)
 	}
-	questions := makePracticeQuestions(units)
+	masteryByUnit, err := loadPracticeMastery(event.App, user.Id)
+	if err != nil {
+		return event.InternalServerError("could not load practice history", err)
+	}
+	shuffleSeed, err := newPracticeShuffleSeed()
+	if err != nil {
+		return event.InternalServerError("could not prepare practice quiz", err)
+	}
+	questions := makePracticeQuestions(units, masteryByUnit, shuffleSeed)
 	if len(questions) == 0 {
 		return event.BadRequestError("could not create practice questions", nil)
 	}
@@ -170,7 +182,7 @@ func createAdaptivePracticeQuizRoute(event *core.RequestEvent) error {
 	}
 	for _, question := range questions {
 		answerKeys[question.ID] = question.CorrectChoice
-		publicQuestions = append(publicQuestions, practiceQuestionPublic{ID: question.ID, UnitID: question.UnitID, UnitTitle: question.UnitTitle, Prompt: question.Prompt, Options: question.Options, Hints: question.Hints})
+		publicQuestions = append(publicQuestions, practiceQuestionPublic{ID: question.ID, UnitID: question.UnitID, UnitTitle: question.UnitTitle, Difficulty: question.Difficulty, Prompt: question.Prompt, Options: question.Options, Hints: question.Hints})
 	}
 	quiz.Set("unit_ids", unitIDs)
 	quiz.Set("questions", questions)
@@ -414,7 +426,32 @@ func ownedPracticeUnit(app core.App, ownerID, id string) (*core.Record, error) {
 	return units[0], nil
 }
 
-func makePracticeQuestions(units []*core.Record) []practiceQuestion {
+type practiceMastery struct {
+	Score       float64
+	Repetitions int
+}
+
+func loadPracticeMastery(app core.App, ownerID string) (map[string]practiceMastery, error) {
+	records, err := app.FindRecordsByFilter("knowledge_mastery", "owner = {:owner}", "", 0, 0, dbx.Params{"owner": ownerID})
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]practiceMastery, len(records))
+	for _, record := range records {
+		result[record.GetString("unit")] = practiceMastery{Score: record.GetFloat("mastery"), Repetitions: int(record.GetFloat("repetitions"))}
+	}
+	return result, nil
+}
+
+func newPracticeShuffleSeed() (string, error) {
+	seed := make([]byte, 16)
+	if _, err := cryptorand.Read(seed); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(seed), nil
+}
+
+func makePracticeQuestions(units []*core.Record, masteryByUnit map[string]practiceMastery, shuffleSeed string) []practiceQuestion {
 	questions := make([]practiceQuestion, 0, len(units))
 	for index, unit := range units {
 		title := strings.TrimSpace(unit.GetString("title"))
@@ -422,8 +459,14 @@ func makePracticeQuestions(units []*core.Record) []practiceQuestion {
 			continue
 		}
 		definition := strings.TrimSpace(unit.GetString("description"))
+		mastery := masteryByUnit[unit.Id]
+		reverseRecall := mastery.Score >= 0.75 && mastery.Repetitions >= 2 && definition != ""
+		difficulty := "recognition"
+		if reverseRecall {
+			difficulty = "recall"
+		}
 		question := practiceQuestion{
-			ID: fmt.Sprintf("question-%d", index+1), UnitID: unit.Id, UnitTitle: title,
+			ID: fmt.Sprintf("question-%d", index+1), UnitID: unit.Id, UnitTitle: title, Difficulty: difficulty,
 			Hints: []string{
 				fmt.Sprintf("Recall the main idea of %q before comparing the choices.", title),
 				"Look for the choice that captures the central idea, not just a related word.",
@@ -437,26 +480,50 @@ func makePracticeQuestions(units []*core.Record) []practiceQuestion {
 			questions = append(questions, question)
 			continue
 		}
-		question.Prompt = fmt.Sprintf("Which saved explanation best describes %q?", title)
-		question.CorrectChoice = definition
-		question.Options = append(question.Options, definition)
-		for _, candidate := range units {
-			if candidate.Id == unit.Id {
-				continue
+		if reverseRecall {
+			question.Prompt = fmt.Sprintf("Which concept is described by this explanation?\n\n%s", definition)
+			question.CorrectChoice = title
+			question.Hints = []string{"Look for the concept whose defining idea matches the explanation.", "Compare the key condition or relationship in the explanation to each concept title."}
+			question.Options = append(question.Options, title)
+			for _, candidate := range units {
+				if candidate.Id == unit.Id {
+					continue
+				}
+				choice := strings.TrimSpace(candidate.GetString("title"))
+				if choice == "" || containsString(question.Options, choice) {
+					continue
+				}
+				question.Options = append(question.Options, choice)
+				if len(question.Options) == 4 {
+					break
+				}
 			}
-			choice := strings.TrimSpace(candidate.GetString("description"))
-			if choice == "" || choice == definition || containsString(question.Options, choice) {
-				continue
-			}
-			question.Options = append(question.Options, choice)
-			if len(question.Options) == 4 {
-				break
+		} else {
+			question.Prompt = fmt.Sprintf("Which saved explanation best describes %q?", title)
+			question.CorrectChoice = definition
+			question.Options = append(question.Options, definition)
+			for _, candidate := range units {
+				if candidate.Id == unit.Id {
+					continue
+				}
+				choice := strings.TrimSpace(candidate.GetString("description"))
+				if choice == "" || choice == definition || containsString(question.Options, choice) {
+					continue
+				}
+				question.Options = append(question.Options, choice)
+				if len(question.Options) == 4 {
+					break
+				}
 			}
 		}
 		for len(question.Options) < 4 {
-			question.Options = append(question.Options, fmt.Sprintf("A different explanation that does not describe %q (%d).", title, len(question.Options)))
+			if reverseRecall {
+				question.Options = append(question.Options, fmt.Sprintf("Another concept, different from %q (%d).", title, len(question.Options)))
+			} else {
+				question.Options = append(question.Options, fmt.Sprintf("A different explanation that does not describe %q (%d).", title, len(question.Options)))
+			}
 		}
-		question.Options = stablePracticeShuffle(question.Options, unit.Id)
+		question.Options = stablePracticeShuffle(question.Options, shuffleSeed+unit.Id)
 		questions = append(questions, question)
 	}
 	return questions

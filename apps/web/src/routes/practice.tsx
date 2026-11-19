@@ -17,7 +17,7 @@ export const Route = createFileRoute('/practice')({
 });
 
 type PracticeMode = 'selected' | 'due' | 'weak' | 'mixed' | 'gap' | 'course' | 'module';
-type PracticeQuestion = { id: string; unit_id: string; unit_title: string; prompt: string; options: string[]; hints: string[] };
+type PracticeQuestion = { id: string; unit_id: string; unit_title: string; difficulty: 'recognition' | 'recall'; prompt: string; options: string[]; hints: string[] };
 type PracticeQuiz = { id: string; mode: PracticeMode; questions: PracticeQuestion[] };
 type PracticeResult = { score: number; correct: number; total: number; results: Array<{ question_id: string; unit_id: string; correct: boolean; feedback: string; remediation: string }> };
 
@@ -153,6 +153,7 @@ function AdaptivePractice() {
           return <fieldset key={question.id} className="rounded-2xl border border-white/10 bg-[#211638] p-5">
             <legend className="px-2 text-lg font-medium">{index + 1}. {question.prompt}</legend>
             <p className="mb-3 text-xs uppercase tracking-wider text-[#efc778]">{question.unit_title}</p>
+            <p className="mb-3 text-xs text-[#b7adcc]">{question.difficulty === 'recall' ? 'Recall challenge · identify the concept from its explanation' : 'Concept recall · match the concept to its explanation'}</p>
             <div className="space-y-2">{question.options.map((option) => <label key={`${question.id}:${option}`} className="flex cursor-pointer items-start gap-3 rounded-lg border border-white/10 bg-[#0e0621] p-3 hover:border-[#aa65c9]">
               <input type="radio" name={question.id} value={option} checked={answers[question.id] === option} onChange={() => setAnswers((current) => ({ ...current, [question.id]: option }))} className="mt-1 accent-[#e57fab]" />
               <span className="text-sm leading-6">{option}</span>

@@ -261,7 +261,7 @@ func TestAdaptivePracticeRejectsUnansweredWithoutChangingMastery(t *testing.T) {
 	}
 	owner := createRecordForPracticeTest(t, app, "adaptive-unanswered@example.com")
 	unit := createPracticeUnit(t, app, owner.Id, "Single concept", "A saved explanation for the concept.")
-	questions := makePracticeQuestions([]*core.Record{unit})
+	questions := makePracticeQuestions([]*core.Record{unit}, nil, "test-seed")
 	if len(questions) != 1 || len(questions[0].Options) != 4 {
 		t.Fatalf("expected four options: %#v", questions)
 	}
@@ -304,6 +304,43 @@ func TestAdaptivePracticeRejectsUnansweredWithoutChangingMastery(t *testing.T) {
 	mastery, err := app.FindRecordsByFilter("knowledge_mastery", "owner = {:owner} && unit = {:unit}", "", 1, 0, dbx.Params{"owner": owner.Id, "unit": unit.Id})
 	if err != nil || len(mastery) != 0 {
 		t.Fatalf("rejected submission changed mastery: %v (%d)", err, len(mastery))
+	}
+}
+
+func TestAdaptivePracticeDifficultyUsesMasteryAndRepetitionHistory(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	owner := createRecordForPracticeTest(t, app, "adaptive-difficulty@example.com")
+	high := createPracticeUnit(t, app, owner.Id, "Integration", "Integration accumulates signed area across an interval.")
+	low := createPracticeUnit(t, app, owner.Id, "Derivative", "A derivative measures an instantaneous rate of change.")
+	masteryByUnit := map[string]practiceMastery{
+		high.Id: {Score: 0.9, Repetitions: 3},
+		low.Id:  {Score: 0.45, Repetitions: 1},
+	}
+	questions := makePracticeQuestions([]*core.Record{high, low}, masteryByUnit, "difficulty-test")
+	if len(questions) != 2 {
+		t.Fatalf("expected a question for each concept: %#v", questions)
+	}
+	if questions[0].Difficulty != "recall" || questions[0].CorrectChoice != high.GetString("title") || !strings.Contains(questions[0].Prompt, high.GetString("description")) {
+		t.Fatalf("repeated high-mastery concept should use reverse recall: %#v", questions[0])
+	}
+	if questions[1].Difficulty != "recognition" || questions[1].CorrectChoice != low.GetString("description") || !strings.Contains(questions[1].Prompt, low.GetString("title")) {
+		t.Fatalf("low-mastery concept should use definition recognition: %#v", questions[1])
+	}
+	for _, question := range questions {
+		seen := map[string]bool{}
+		for _, option := range question.Options {
+			if seen[option] {
+				t.Fatalf("difficulty %q produced duplicate choices: %#v", question.Difficulty, question.Options)
+			}
+			seen[option] = true
+		}
 	}
 }
 
