@@ -14,7 +14,7 @@
 | Add deterministic structured scene generation and progress evidence | APIs | Complete | Go tests and web build pass |
 | Add seekable scene timeline with synchronized narration, captions, fullscreen, and required reflection checkpoint | Structured content | Partial | Watch/Interactive/Explore/Silent modes, profile-default captions and narration-on-play behavior, timestamped caption selection/validation, timeline duration and mode-gating tests, longer-than-estimate resume test, and production build pass; persisted narration assets, narrator selection, and voice selection remain |
 | Persist per-user per-course resume position and completion state | Lesson player | Complete | PocketBase owner-scoped progress route tests pass |
-| Add scene player for generated lesson scenes | Structured content | Partial | Web production build passes; all required interaction widget types remain incomplete |
+| Add scene player for generated lesson scenes | Structured content | Partial | Web production build passes; 15 trusted interaction types render in the player; durable interaction-state persistence and broader widget coverage remain |
 | Add objective-linked module assessments with private answer keys, deterministic scoring, feedback, and persisted attempts | Lesson player | Partial | Go answer-type, manual create/edit privacy, scoring, ownership, version-restore, and archive tests pass; frontend tests/build pass; nine deterministic question types are implemented; AI rubric grading and the remaining six spec types remain |
 | Add typed knowledge relationships with ownership validation | Knowledge model | Complete | Go tests and web build pass |
 | Add per-learner mastery state and spaced review queue | Knowledge model | Complete | Go tests and web build pass |
