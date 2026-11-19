@@ -37,6 +37,26 @@ For example:
 
 Unauthenticated requests return `401`. The Huma operations define the OpenAPI contract; PocketBase routes implement the requests.
 
+The learning route contract covers courses and versions, assessments and progress, knowledge units and edges, sources, vocabulary and grammar, adaptive practice, speech, generation jobs, review, and account learning archives. Go tests verify that every registered PocketBase learning endpoint has an authenticated OpenAPI operation. Speech synthesis is documented with an `audio/wav` response, and transcription accepts raw `audio/wav` request bytes.
+
+## Course generation
+
+Queue generation for an owned course with optional owner-owned sources and concepts:
+
+```http
+POST /api/learning/courses/{id}/generate
+Authorization: Bearer <pocketbase-token>
+Content-Type: application/json
+```
+
+The body accepts `source_ids` (up to four), `concept_ids` (up to eight), `difficulty` (`beginner`, `intermediate`, or `advanced`), and `target_minutes` (5–60). Source text and concept descriptions are bounded before entering prompts and are snapshotted in the persistent job payload so retries and startup recovery use the same context. Omitted difficulty and duration use the learner profile defaults (intermediate and 20 minutes on a new account). Unowned IDs are rejected. Poll the returned job at `/api/learning/jobs/{id}`.
+
+`GET/PATCH /api/me/preferences` reads and partially updates the authenticated learner profile. The `/profile` screen stores interests, goals, prior knowledge, preferred language, default difficulty, target session length, narration, and captions. Course generation snapshots the relevant profile context into its persistent job so retries use the same personalization inputs.
+
+## Adaptive practice
+
+`POST /api/learning/practice/quizzes` creates a private recall quiz from `selected`, `due`, `weak`, or `mixed` knowledge units. The response contains question choices and progressive hints without answer keys. Submit choices to `POST /api/learning/practice/quizzes/{id}/submit`; the owner-scoped response includes scoring, targeted remediation, and evidence updates.
+
 ## Extending a module
 
 1. Define request and response types in the Go module.
@@ -48,3 +68,41 @@ Unauthenticated requests return `401`. The Huma operations define the OpenAPI co
 7. Use generated client calls from the React feature.
 
 Never treat frontend visibility as authorization. Backend `Authorize` is the enforcement point.
+
+## Learning progress
+
+Authenticated learners can get and update their own course resume state:
+
+```http
+GET /api/learning/courses/{id}/progress
+PUT /api/learning/courses/{id}/progress
+Authorization: Bearer <pocketbase-token>
+```
+
+The update body is `{ "scene_index": 1, "position_seconds": 12.5, "completed": false }`. Course ownership is checked before reading or writing progress. A foreign course returns `404`.
+
+## Module assessment
+
+Submit answers keyed by the generated question IDs:
+
+```http
+POST /api/learning/courses/{id}/assess
+Authorization: Bearer <pocketbase-token>
+Content-Type: application/json
+```
+
+For example, `{ "answers": { "question-1": "choice-id", "question-2": ["a", "b"], "question-3": true } }`. The server loads private answer keys for the current course version and records the attempt as learner evidence. Supported deterministic types are multiple choice, multiple select, true/false, numeric values with tolerance, exact short text and fill-in answers, normalized formula text, ordering, and one-to-one matching. Formula grading normalizes whitespace and common operator characters; it does not use symbolic algebra to prove equivalence.
+
+
+## Audio Studio
+
+Authenticated learners can list, create, regenerate, read, and delete podcast episodes at `/api/audio/episodes` and `/api/audio/episodes/{id}`. Creation accepts a title, topic, and owner-owned `source_ids` and `concept_ids` (bounded to five and ten). The server creates a validated outline and dialogue transcript in separate LLM stages, or a deterministic fixture if no provider is configured. Regeneration reuses the saved topic and context IDs and fails if any selected context was deleted. `PUT /api/audio/episodes/{id}/script` saves an edited outline and transcript for an owned episode; it applies the same structure, speaker alternation, per-turn length, and total transcript limits as generation, then recalculates the estimated duration.
+
+
+## Language speaking practice
+
+To submit a transcript for an owned English vocabulary item, call `POST /api/languages/vocabulary/{id}/speaking-attempt` with `{ "transcript": "good morning" }`. The route normalizes case, whitespace, and punctuation, compares against the saved word, and stores a `speaking_attempt` row in `learner_evidence`. The `/speaking` UI first sends a WAV recording to the existing `/api/speech/transcribe` endpoint, then submits the returned transcript. This score checks text only; it is not a pronunciation or accent score.
+
+## Knowledge evidence
+
+`GET /api/learning/knowledge-units/{id}/evidence` lists the current learner's evidence records for an owned concept. The `/knowledge` route uses it with the knowledge-unit and relationship APIs to show searchable concept details, typed edges, related course links, and prior attempts. A concept owned by another learner returns `404`.

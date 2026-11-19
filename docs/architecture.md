@@ -1,0 +1,43 @@
+# Starburst architecture
+
+Starburst builds on Slopstack's embedded PocketBase, SQLite, Go, Huma, OpenAPI, and React foundation. PocketBase remains the source of truth for identity and persisted records. Schema additions are additive and owned by Go startup schema initialization; existing migrations and authentication are preserved.
+
+The shared learning model starts with owner-scoped courses, canonical knowledge units, typed knowledge edges, learner evidence, and persistent learning jobs. Course content is structured JSON so a trusted scene renderer can interpret versioned widget configurations without executing generated code. Learner evidence is separate from course completion and can later support cross-course mastery and review scheduling.
+
+Learner presentation and curriculum preferences are stored in the authenticated PocketBase user's preferences field and exposed through a partial-update account API. Course-generation jobs snapshot the effective difficulty, duration, interests, goals, prior knowledge, and preferred language at queue time, ensuring retries use stable inputs and never read another learner's profile.
+
+The lesson player provides Watch, Interactive, Explore, and Silent modes over the same scene timeline. Interactive mode gates required reflection checkpoints; Watch mode allows a continuous presentation, Explore holds the timeline while widgets remain adjustable, and Silent keeps captions visible without playing generated narration.
+
+Adaptive practice stores each quiz and its answer key in a private owner-scoped collection. The browser receives choices and hints; submission is scored server-side, records concept evidence, and updates the existing mastery/review scheduler. This version derives recall items deterministically from saved concept definitions.
+
+Target architecture: owner-checked endpoints over the shared model; background jobs for long generation/audio work; deterministic local generators for offline development; configurable OpenAI-compatible LLM and Wyoming speech adapters; React learning player using validated scene data. Huma defines the OpenAPI contract and generated-client schemas; PocketBase route handlers currently execute the learning requests. Media belongs in filesystem/object storage, while metadata and job state stay in PocketBase.
+
+Generated course content is versioned: regeneration stores the previous published content and its title/description in `course_versions`, then increments the current course version. Historical versions are read-only snapshots; progress and evidence remain tied to the course and knowledge identifiers.
+
+LLM course generation uses two requests inside the persistent job: a curriculum pass returns bounded prerequisite, knowledge-unit, module, and objective data; a lesson pass fills those exact modules with scenes and assessments. The server validates cross-references and prevents the second pass from changing the approved outline before it publishes. The learner's goal, owner-checked selected source/concept snapshots, difficulty, and target session length are stored with the job so retries and startup recovery use the same bounded context. Source IDs are validated before the model can cite them. Generated knowledge units persist course/module/source provenance, and deleting a source removes derived units and episodes and redacts it from queued job snapshots. Learner-history adaptation is not yet included in generation context.
+
+Lesson resume state is stored separately in `course_progress`, keyed by owner and course. The timeline flattens module scenes in order, uses declared scene durations (with a 30-second fallback), and maps seeks back to scene-local positions. When narration is prepared, the browser reads each WAV segment's actual media duration and uses it for the timeline; play, pause, seek, and speed control the active segment. Interaction state is reset on seeks so replay begins from the widget's initial state. The required reflection checkpoint blocks scene completion until a response is submitted. Captions currently show scene-level text rather than timed word or phrase cues; narrator selection and the other player modes remain future work.
+
+Each generated module includes objective-linked assessment items. Public course content carries prompts and response choices; correct answers, accepted text, numeric tolerance, formula answers, ordering keys, matching keys, and rationale are stored in owner-scoped `course_assessments` records keyed by course version and module. The deterministic scorer supports nine response types, with exact string matching for formulas after whitespace/operator normalization rather than symbolic equivalence. Attempts and per-item feedback are persisted as learner evidence. Version restore copies the selected version's answer keys to its new version; course and account exports include private keys for the authenticated owner and import remaps course IDs.
+
+Text and Markdown imports are stored as owner-scoped `learning_sources`; the import flow creates one linked concept carrying the source ID and media type as provenance. Deleting a source removes that concept and its linked graph, mastery, and evidence records. PDF extraction, web fetching, and richer chunking are not yet implemented.
+
+Vocabulary entries are `knowledge_units` with `unit_type=vocabulary`; language, translation, and set name live in metadata. This keeps language recall evidence in the same per-user mastery/review system as other concepts rather than creating a parallel learner database.
+
+Grammar cloze prompts also use shared `knowledge_units` (`unit_type=grammar`). Accepted answers and explanations live in metadata; normalized deterministic comparisons write attempts to `learner_evidence`. These exercises are user-authored for now; AI exercise generation and speech-linked practice are not implemented.
+
+Review scheduling stores an ease factor, repetition count, interval, confidence, and mastery per user/concept. The current schedule follows the core SM-2 interval progression (1 day, 6 days, then interval × ease factor), resets on a low recall rating, and separately updates the mastery estimate. It is an initial scheduling model and should be calibrated against learner evidence.
+
+Course portability uses a versioned `starburst-course` JSON envelope. Imports create a new owner-scoped course and validate all scene widget identifiers before persistence; course history and learner evidence are not included in this format.
+
+The `starburst-learning-archive` format supports owner-scoped export and transactional import of courses and versions, resume progress, knowledge units/edges, source documents, evidence, and mastery/review state. Import assigns fresh record IDs, replaces archive owner IDs with the authenticated user, and remaps linked course, concept, and source references. It currently omits account preferences and generated media assets.
+
+
+The Audio Studio stores owner-scoped podcast outlines and validated host/guest transcripts. Generation uses a separate outline request followed by dialogue generation, with a deterministic fixture when the LLM provider is not configured. The browser can synthesize turns through Piper and play a sequence, but it uses the configured default voice for both speakers and does not persist assembled audio.
+
+Offline lessons are explicit user downloads stored in IndexedDB under user/course keys. Resume progress is queued locally and synchronized on reconnect, focus, visibility, or startup; downloaded narration is not included.
+
+
+Language speaking practice reuses vocabulary knowledge units and `learner_evidence`. The browser records mono PCM WAV or accepts a WAV upload, sends it to the authenticated Whisper endpoint, then submits the transcript for owner-scoped text matching against the saved English term. Evidence records the transcript and deterministic match result. This is content matching only; acoustic pronunciation evaluation is a separate, unsupported capability.
+
+The searchable Knowledge Map composes owner-scoped concept list/detail APIs with typed knowledge edges, due-review state, and a new evidence-history endpoint. Generated concepts link back to their course through metadata. Adaptive quiz selection, weakness views, and remediation are still not implemented.

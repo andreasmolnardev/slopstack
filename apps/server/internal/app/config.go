@@ -16,6 +16,10 @@ type Config struct {
 	StoragePath          string
 	PublicDirectory      string
 	Development          bool
+	WyomingPiperHost     string
+	WyomingPiperPort     int
+	WyomingWhisperHost   string
+	WyomingWhisperPort   int
 }
 
 func LoadConfig() Config {
@@ -30,7 +34,23 @@ func LoadConfig() Config {
 		StoragePath:          env("SLOPSTACK_STORAGE_PATH", "pb_data"),
 		PublicDirectory:      env("SLOPSTACK_PUBLIC_DIR", "apps/web/dist"),
 		Development:          envBool("SLOPSTACK_DEVELOPMENT", false),
+		WyomingPiperHost:     env("STARBURST_WYOMING_PIPER_HOST", ""),
+		WyomingPiperPort:     envInt("STARBURST_WYOMING_PIPER_PORT", 10200),
+		WyomingWhisperHost:   env("STARBURST_WYOMING_WHISPER_HOST", ""),
+		WyomingWhisperPort:   envInt("STARBURST_WYOMING_WHISPER_PORT", 10300),
 	}
+}
+
+func envInt(key string, fallback int) int {
+	value, ok := os.LookupEnv(key)
+	if !ok {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 1 || parsed > 65535 {
+		return fallback
+	}
+	return parsed
 }
 
 func env(key, fallback string) string {

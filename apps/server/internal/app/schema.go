@@ -22,6 +22,17 @@ func EnsureCollections(app core.App) error {
 		{"user_permissions", false, []schemaField{{"user", "text", true}, {"permission", "text", true}, {"denied", "bool", false}}},
 		{"group_members", false, []schemaField{{"group", "text", true}, {"user", "text", true}}},
 		{"todos", false, []schemaField{{"owner", "text", true}, {"title", "text", true}, {"description", "text", false}, {"priority", "text", false}, {"completed", "bool", false}, {"due_date", "date", false}}},
+		{"courses", false, []schemaField{{"owner", "text", true}, {"title", "text", true}, {"description", "text", false}, {"status", "text", false}, {"content", "json", false}, {"version", "number", false}}},
+		{"course_versions", false, []schemaField{{"owner", "text", true}, {"course", "text", true}, {"version", "number", true}, {"content", "json", true}, {"title", "text", true}, {"description", "text", false}}},
+		{"course_progress", false, []schemaField{{"owner", "text", true}, {"course", "text", true}, {"scene_index", "number", false}, {"position_seconds", "number", false}, {"completed", "bool", false}}},
+		{"course_assessments", false, []schemaField{{"owner", "text", true}, {"course", "text", true}, {"version", "number", true}, {"module_id", "text", true}, {"questions", "json", true}}},
+		{"knowledge_units", false, []schemaField{{"owner", "text", true}, {"title", "text", true}, {"description", "text", false}, {"unit_type", "text", true}, {"metadata", "json", false}}},
+		{"learning_sources", false, []schemaField{{"owner", "text", true}, {"title", "text", true}, {"source_type", "text", true}, {"content", "text", true}, {"metadata", "json", false}}},
+		{"knowledge_edges", false, []schemaField{{"owner", "text", true}, {"from_unit", "text", true}, {"to_unit", "text", true}, {"relationship", "text", true}}},
+		{"learner_evidence", false, []schemaField{{"owner", "text", true}, {"unit", "text", true}, {"evidence_type", "text", true}, {"score", "number", false}, {"details", "json", false}}},
+		{"knowledge_mastery", false, []schemaField{{"owner", "text", true}, {"unit", "text", true}, {"mastery", "number", false}, {"confidence", "number", false}, {"review_interval_days", "number", false}, {"ease_factor", "number", false}, {"repetitions", "number", false}, {"last_practice", "date", false}, {"next_review", "date", false}}},
+		{"learning_jobs", false, []schemaField{{"owner", "text", true}, {"kind", "text", true}, {"status", "text", true}, {"progress", "number", false}, {"attempts", "number", false}, {"payload", "json", false}, {"result", "json", false}, {"course", "text", false}, {"error", "text", false}}},
+		{"podcast_episodes", false, []schemaField{{"owner", "text", true}, {"title", "text", true}, {"topic", "text", true}, {"status", "text", true}, {"source_ids", "json", false}, {"concept_ids", "json", false}, {"outline", "json", true}, {"transcript", "json", true}, {"duration_seconds", "number", false}}},
 		{"audit_logs", false, []schemaField{{"actor", "text", false}, {"action", "text", true}, {"metadata", "json", false}}},
 	}
 
@@ -58,6 +69,36 @@ func EnsureCollections(app core.App) error {
 			return err
 		}
 	}
+	progress, err := app.FindCollectionByNameOrId("course_progress")
+	if err != nil {
+		return err
+	}
+	if progress.GetIndex("idx_course_progress_owner_course") == "" {
+		progress.AddIndex("idx_course_progress_owner_course", true, "owner, course", "")
+		if err := app.Save(progress); err != nil {
+			return fmt.Errorf("could not index course progress: %w", err)
+		}
+	}
+	assessments, err := app.FindCollectionByNameOrId("course_assessments")
+	if err != nil {
+		return err
+	}
+	if assessments.GetIndex("idx_course_assessments_course_version_module") == "" {
+		assessments.AddIndex("idx_course_assessments_course_version_module", true, "owner, course, version, module_id", "")
+		if err := app.Save(assessments); err != nil {
+			return fmt.Errorf("could not index course assessments: %w", err)
+		}
+	}
+	podcasts, err := app.FindCollectionByNameOrId("podcast_episodes")
+	if err != nil {
+		return err
+	}
+	if podcasts.GetIndex("idx_podcast_episodes_owner_id") == "" {
+		podcasts.AddIndex("idx_podcast_episodes_owner_id", false, "owner, id", "")
+		if err := app.Save(podcasts); err != nil {
+			return fmt.Errorf("could not index podcast episodes: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -67,6 +108,8 @@ func addSchemaField(collection *core.Collection, field schemaField) error {
 		collection.Fields.Add(&core.TextField{Name: field.Name, Required: field.Required})
 	case "bool":
 		collection.Fields.Add(&core.BoolField{Name: field.Name})
+	case "number":
+		collection.Fields.Add(&core.NumberField{Name: field.Name})
 	case "json":
 		collection.Fields.Add(&core.JSONField{Name: field.Name})
 	case "date":

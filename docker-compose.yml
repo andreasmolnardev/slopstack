@@ -1,13 +1,37 @@
 services:
-  slopstack:
+  starburst:
     build: .
+    init: true
+    restart: unless-stopped
     ports:
-      - "8090:8090"
+      - "${STARBURST_PORT:-8090}:8090"
+    env_file:
+      - .env
     environment:
-      SLOPSTACK_PUBLIC_URL: http://localhost:8090
+      SLOPSTACK_HTTP_ADDRESS: 0.0.0.0:8090
+      SLOPSTACK_PUBLIC_URL: ${SLOPSTACK_PUBLIC_URL:-http://localhost:8090}
+      SLOPSTACK_SECURE_COOKIES: ${SLOPSTACK_SECURE_COOKIES:-false}
       SLOPSTACK_STORAGE_PATH: /app/pb_data
+      SLOPSTACK_DEVELOPMENT: "false"
     volumes:
-      - slopstack-data:/app/pb_data
+      - starburst-data:/app/pb_data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8090/api/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
 
 volumes:
-  slopstack-data:
+  starburst-data:
+    name: starburst-data

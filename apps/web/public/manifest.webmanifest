@@ -1,0 +1,17 @@
+{
+  "name": "Starburst Learning",
+  "short_name": "Starburst",
+  "description": "Turn curiosity into interactive learning paths.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0E0621",
+  "theme_color": "#0E0621",
+  "icons": [
+    {
+      "src": "/starburst-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

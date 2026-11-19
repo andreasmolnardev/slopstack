@@ -11,7 +11,13 @@ export async function getPreferences(): Promise<UserPreferences> {
   return data;
 }
 
+export const preferencesQueryOptions = () => queryOptions({
+  queryKey: ['account', 'preferences', pb.authStore.model?.id] as const,
+  queryFn: getPreferences,
+});
+
 export async function savePreferences(input: UserPreferencesPatchInputBodyWritable) {
   const { data } = await updateMyPreferences({ client: api, body: input, throwOnError: true });
   return data;
 }
+import { queryOptions } from '@tanstack/react-query';

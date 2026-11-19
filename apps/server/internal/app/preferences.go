@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -13,14 +14,22 @@ import (
 )
 
 type UserPreferences struct {
-	Locale      string            `json:"locale"`
-	TimeZone    string            `json:"timeZone"`
-	DateFormat  string            `json:"dateFormat"`
-	TimeFormat  string            `json:"timeFormat"`
-	Theme       string            `json:"theme"`
-	Navigation  string            `json:"navigation"`
-	ThemeTokens ThemeTokens       `json:"themeTokens"`
-	Motion      MotionPreferences `json:"motion"`
+	Locale            string            `json:"locale"`
+	TimeZone          string            `json:"timeZone"`
+	DateFormat        string            `json:"dateFormat"`
+	TimeFormat        string            `json:"timeFormat"`
+	Theme             string            `json:"theme"`
+	Navigation        string            `json:"navigation"`
+	ThemeTokens       ThemeTokens       `json:"themeTokens"`
+	Motion            MotionPreferences `json:"motion"`
+	LearningInterests []string          `json:"learningInterests"`
+	LearningGoals     []string          `json:"learningGoals"`
+	PriorKnowledge    []string          `json:"priorKnowledge"`
+	PreferredLanguage string            `json:"preferredLanguage"`
+	DefaultDifficulty string            `json:"defaultDifficulty"`
+	TargetMinutes     int               `json:"targetMinutes"`
+	Narration         bool              `json:"narration"`
+	Captions          bool              `json:"captions"`
 }
 
 type ThemeTokens struct {
@@ -37,14 +46,22 @@ type MotionPreferences struct {
 
 type userPreferencesPatchInput struct {
 	Body struct {
-		Locale      *string            `json:"locale,omitempty"`
-		TimeZone    *string            `json:"timeZone,omitempty"`
-		DateFormat  *string            `json:"dateFormat,omitempty"`
-		TimeFormat  *string            `json:"timeFormat,omitempty"`
-		Theme       *string            `json:"theme,omitempty"`
-		Navigation  *string            `json:"navigation,omitempty"`
-		ThemeTokens *ThemeTokens       `json:"themeTokens,omitempty"`
-		Motion      *MotionPreferences `json:"motion,omitempty"`
+		Locale            *string            `json:"locale,omitempty"`
+		TimeZone          *string            `json:"timeZone,omitempty"`
+		DateFormat        *string            `json:"dateFormat,omitempty"`
+		TimeFormat        *string            `json:"timeFormat,omitempty"`
+		Theme             *string            `json:"theme,omitempty"`
+		Navigation        *string            `json:"navigation,omitempty"`
+		ThemeTokens       *ThemeTokens       `json:"themeTokens,omitempty"`
+		Motion            *MotionPreferences `json:"motion,omitempty"`
+		LearningInterests *[]string          `json:"learningInterests,omitempty"`
+		LearningGoals     *[]string          `json:"learningGoals,omitempty"`
+		PriorKnowledge    *[]string          `json:"priorKnowledge,omitempty"`
+		PreferredLanguage *string            `json:"preferredLanguage,omitempty"`
+		DefaultDifficulty *string            `json:"defaultDifficulty,omitempty"`
+		TargetMinutes     *int               `json:"targetMinutes,omitempty"`
+		Narration         *bool              `json:"narration,omitempty"`
+		Captions          *bool              `json:"captions,omitempty"`
 	} `json:"body"`
 }
 type userPreferencesOutput struct{ Body UserPreferences }
@@ -68,7 +85,7 @@ func registerPreferencesRoutes(e *core.ServeEvent) {
 }
 
 func defaultUserPreferences() UserPreferences {
-	return UserPreferences{Locale: "en-US", TimeZone: "UTC", DateFormat: "MMM d, yyyy", TimeFormat: "12h", Theme: "light", Navigation: "sidebar", ThemeTokens: ThemeTokens{Primary: "#007acc", Accent: "#dbeeff", Radius: "0.75rem"}, Motion: MotionPreferences{Style: "scale", Duration: "normal", Easing: "standard"}}
+	return UserPreferences{Locale: "en-US", TimeZone: "UTC", DateFormat: "MMM d, yyyy", TimeFormat: "12h", Theme: "light", Navigation: "sidebar", ThemeTokens: ThemeTokens{Primary: "#007acc", Accent: "#dbeeff", Radius: "0.75rem"}, Motion: MotionPreferences{Style: "scale", Duration: "normal", Easing: "standard"}, LearningInterests: []string{}, LearningGoals: []string{}, PriorKnowledge: []string{}, PreferredLanguage: "en", DefaultDifficulty: "intermediate", TargetMinutes: 20, Narration: true, Captions: true}
 }
 
 func getMyPreferencesRoute(event *core.RequestEvent) error {
@@ -85,7 +102,7 @@ func patchMyPreferencesRoute(event *core.RequestEvent) error {
 		return err
 	}
 	var patch userPreferencesPatchInput
-	if err := json.NewDecoder(event.Request.Body).Decode(&patch); err != nil {
+	if err := json.NewDecoder(event.Request.Body).Decode(&patch.Body); err != nil {
 		return event.BadRequestError("invalid preferences body", err)
 	}
 	prefs := readUserPreferences(user)
@@ -112,6 +129,30 @@ func patchMyPreferencesRoute(event *core.RequestEvent) error {
 	}
 	if patch.Body.Motion != nil {
 		prefs.Motion = *patch.Body.Motion
+	}
+	if patch.Body.LearningInterests != nil {
+		prefs.LearningInterests = *patch.Body.LearningInterests
+	}
+	if patch.Body.LearningGoals != nil {
+		prefs.LearningGoals = *patch.Body.LearningGoals
+	}
+	if patch.Body.PriorKnowledge != nil {
+		prefs.PriorKnowledge = *patch.Body.PriorKnowledge
+	}
+	if patch.Body.PreferredLanguage != nil {
+		prefs.PreferredLanguage = *patch.Body.PreferredLanguage
+	}
+	if patch.Body.DefaultDifficulty != nil {
+		prefs.DefaultDifficulty = *patch.Body.DefaultDifficulty
+	}
+	if patch.Body.TargetMinutes != nil {
+		prefs.TargetMinutes = *patch.Body.TargetMinutes
+	}
+	if patch.Body.Narration != nil {
+		prefs.Narration = *patch.Body.Narration
+	}
+	if patch.Body.Captions != nil {
+		prefs.Captions = *patch.Body.Captions
 	}
 	if err := validateUserPreferences(prefs); err != nil {
 		return event.BadRequestError("invalid preferences", err)
@@ -147,6 +188,42 @@ func readUserPreferences(user *core.Record) UserPreferences {
 	}
 	if prefs.Navigation == "" {
 		prefs.Navigation = defaults.Navigation
+	}
+	if prefs.ThemeTokens.Primary == "" {
+		prefs.ThemeTokens.Primary = defaults.ThemeTokens.Primary
+	}
+	if prefs.ThemeTokens.Accent == "" {
+		prefs.ThemeTokens.Accent = defaults.ThemeTokens.Accent
+	}
+	if prefs.ThemeTokens.Radius == "" {
+		prefs.ThemeTokens.Radius = defaults.ThemeTokens.Radius
+	}
+	if prefs.Motion.Style == "" {
+		prefs.Motion.Style = defaults.Motion.Style
+	}
+	if prefs.Motion.Duration == "" {
+		prefs.Motion.Duration = defaults.Motion.Duration
+	}
+	if prefs.Motion.Easing == "" {
+		prefs.Motion.Easing = defaults.Motion.Easing
+	}
+	if prefs.LearningInterests == nil {
+		prefs.LearningInterests = defaults.LearningInterests
+	}
+	if prefs.LearningGoals == nil {
+		prefs.LearningGoals = defaults.LearningGoals
+	}
+	if prefs.PriorKnowledge == nil {
+		prefs.PriorKnowledge = defaults.PriorKnowledge
+	}
+	if prefs.PreferredLanguage == "" {
+		prefs.PreferredLanguage = defaults.PreferredLanguage
+	}
+	if prefs.DefaultDifficulty == "" {
+		prefs.DefaultDifficulty = defaults.DefaultDifficulty
+	}
+	if prefs.TargetMinutes == 0 {
+		prefs.TargetMinutes = defaults.TargetMinutes
 	}
 	return prefs
 }
@@ -185,6 +262,36 @@ func validateUserPreferences(p UserPreferences) error {
 	}
 	if len(p.Locale) < 2 || len(p.Locale) > 35 {
 		return fmt.Errorf("locale must be a valid locale tag")
+	}
+	if err := validatePreferenceList("learningInterests", p.LearningInterests); err != nil {
+		return err
+	}
+	if err := validatePreferenceList("learningGoals", p.LearningGoals); err != nil {
+		return err
+	}
+	if err := validatePreferenceList("priorKnowledge", p.PriorKnowledge); err != nil {
+		return err
+	}
+	if !regexp.MustCompile(`^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$`).MatchString(p.PreferredLanguage) {
+		return fmt.Errorf("preferredLanguage must be a valid language tag")
+	}
+	if p.DefaultDifficulty != "beginner" && p.DefaultDifficulty != "intermediate" && p.DefaultDifficulty != "advanced" {
+		return fmt.Errorf("defaultDifficulty must be beginner, intermediate, or advanced")
+	}
+	if p.TargetMinutes < 5 || p.TargetMinutes > 60 {
+		return fmt.Errorf("targetMinutes must be between 5 and 60")
+	}
+	return nil
+}
+
+func validatePreferenceList(name string, values []string) error {
+	if len(values) > 20 {
+		return fmt.Errorf("%s can contain at most 20 entries", name)
+	}
+	for _, value := range values {
+		if strings.TrimSpace(value) == "" || len([]rune(strings.TrimSpace(value))) > 100 {
+			return fmt.Errorf("%s entries must contain between 1 and 100 characters", name)
+		}
 	}
 	return nil
 }

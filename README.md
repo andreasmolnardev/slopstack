@@ -1,12 +1,12 @@
-# Slopstack
+# Starburst
 
-Slopstack is an API-first full-stack template with an embedded PocketBase backend and a static React frontend.
+Starburst is a self-hosted AI-native learning platform built on the Slopstack Go/PocketBase backend and React/TypeScript frontend.
 
-The task workspace is a reference module, not the product domain. Use it as a working example for replacing the React surface, adding protected API routes, evolving PocketBase schemas, and composing shadcn UI.
+It combines AI-generated interactive courses, a personal knowledge library, adaptive recall practice, a narrated lesson player, language and speaking practice, and a source-grounded Audio Studio. Learner records and course progress remain in the self-hosted PocketBase database; the browser stores downloaded lesson material locally for offline reading.
 
 ## What it does
 
-Slopstack gives a new app a working frontend, backend, database, API contract, and deployment setup. The included task workspace is a replaceable example that demonstrates how those pieces fit together; it is not the product Slopstack is trying to build.
+The application retains Slopstack's API-first frontend, backend, database, authentication, and deployment foundations while replacing the task demo with Starburst's learning workspace.
 
 ### Components and styling
 
@@ -36,9 +36,9 @@ The frontend runtime is split into `@slopstack/core`, `@slopstack/react`, `@slop
 
 The Go runtime can serve the built frontend, and Docker packages the app with persistent PocketBase data. CI and release workflows check builds and publish version-tagged container images. The Slopstack CLI can initialize a project and apply template upgrades with previews, checksums, conflict detection, snapshots, rollback, and validation.
 
-## What the template includes
+## What Starburst includes
 
-- **Frontend:** React, TypeScript, Vite, route handling, account screens, responsive app shell, and the reference task workspace with overview, tasks, schedule, analytics, and component showcase screens.
+- **Frontend:** React, TypeScript, Vite, TanStack file routes, protected course and learning views, and a responsive Starburst workspace with PWA shell caching.
 - **UI library:** the full checked-in shadcn component set, color/theme tokens, and reusable resource form/data-view/query, table, form-dialog, page-heading, and navigation patterns.
 - **Backend:** Go server, Huma API routes, embedded PocketBase, SQLite, migrations, owner-scoped Todo CRUD, preferences, and permission enforcement.
 - **Authentication and administration:** PocketBase account flows, OAuth provider configuration, protected user/group administration, memberships, permission rules, and optional organizations.
@@ -81,12 +81,12 @@ The server serves `/openapi.json`, `/openapi.yaml`, and `/docs`. Export offline 
 
 ## Docker And Deployment
 
-`docker compose up --build` runs the production image and persists PocketBase data in `slopstack-data`. Set `SLOPSTACK_PUBLIC_URL` and secure-cookie values for your deployment.
+`docker compose up --build -d` runs the production image and persists PocketBase data in `starburst-data`. Copy `.env.example` to `.env`, then set `SLOPSTACK_PUBLIC_URL` and secure-cookie values for your deployment. See [deployment and backup guidance](docs/deployment.md).
 The release workflow publishes `ghcr.io/<owner>/slopstack:<VERSION>` and `:latest` when a `v<VERSION>` tag is pushed. Keep the root `VERSION` file and tag in sync.
 
 ## Customization
 
-The task workspace is in `apps/web/src/app.tsx`. Replace it without changing the backend infrastructure. Add modules through protected API routes, schemas, and generated client calls. Keep schema evolution in PocketBase migrations.
+Starburst uses TanStack file routes in `apps/web/src/routes/` for courses, knowledge, adaptive practice, learner profile, offline learning, Audio Studio, and speaking practice. The lesson experience is in `apps/web/src/starburst.tsx`; offline downloads live in IndexedDB and speech uses the authenticated Wyoming-backed API. Add modules through protected API routes, schemas, and generated client calls. Keep schema evolution in PocketBase migrations.
 
 The optional shadcn component set and reusable patterns are in `@slopstack/ui`. The starter imports these through public package exports, while apps can replace or customize them. See [frontend package guidance](docs/frontend-packages.md) and [component usage](docs/COMPONENTS.md).
 

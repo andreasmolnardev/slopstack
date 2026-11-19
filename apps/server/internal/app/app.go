@@ -35,7 +35,11 @@ func Register(pb *pocketbase.PocketBase, config Config, api huma.API, plugins ..
 	}
 	pb.RootCmd.PersistentFlags().StringVar(&config.HTTPAddress, "http", config.HTTPAddress, "HTTP address")
 	registerTodoAPI(api)
+	registerLearningAPI(api)
+	registerPodcastAPI(api)
+	registerSpeakingAPI(api)
 	registerPreferencesAPI(api)
+	registerAdaptivePracticeAPI(api)
 	pb.OnBootstrap().BindFunc(func(e *core.BootstrapEvent) error {
 		if err := e.Next(); err != nil {
 			return err
@@ -57,6 +61,10 @@ func Register(pb *pocketbase.PocketBase, config Config, api huma.API, plugins ..
 		if err := e.App.RunAppMigrations(); err != nil {
 			return err
 		}
+		if err := recoverLearningJobs(e.App); err != nil {
+			return err
+		}
+		e.App.OnTerminate().BindFunc(func(_ *core.TerminateEvent) error { stopLearningWorkers(); return nil })
 		stopJobs, err := registry.RunJobs(e.App)
 		if err != nil {
 			return err
@@ -287,7 +295,11 @@ func registerRoutes(e *core.ServeEvent, config Config, api huma.API) {
 		return event.HTML(http.StatusOK, "<!doctype html><html><body><redoc spec-url=\"/openapi.json\"></redoc><script src=\"https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js\"></script></body></html>")
 	})
 	registerTodoRoutes(e, config)
+	registerLearningRoutes(e, config)
+	registerPodcastRoutes(e)
+	registerSpeakingRoutes(e)
 	registerPreferencesRoutes(e)
+	registerAdaptivePracticeRoutes(e)
 	registerStaticFrontend(e, config)
 }
 

@@ -1,0 +1,1078 @@
+package app
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humago"
+	"github.com/pocketbase/dbx"
+	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tests"
+	"github.com/pocketbase/pocketbase/tools/router"
+)
+
+func TestLearningOpenAPIContractsCoverPocketBaseRoutes(t *testing.T) {
+	api := humago.New(http.NewServeMux(), huma.DefaultConfig("Starburst API", "test"))
+	api.OpenAPI().Components.SecuritySchemes = map[string]*huma.SecurityScheme{"pocketbaseAuth": {Type: "http", Scheme: "bearer", BearerFormat: "JWT"}}
+	registerLearningAPI(api)
+	expected := []struct{ method, path string }{
+		{"GET", "/api/learning/courses"}, {"POST", "/api/learning/courses"},
+		{"GET", "/api/learning/courses/{id}"}, {"PATCH", "/api/learning/courses/{id}"}, {"DELETE", "/api/learning/courses/{id}"},
+		{"GET", "/api/learning/knowledge-units"}, {"POST", "/api/learning/knowledge-units"},
+		{"GET", "/api/learning/knowledge-units/{id}"}, {"PATCH", "/api/learning/knowledge-units/{id}"}, {"DELETE", "/api/learning/knowledge-units/{id}"},
+		{"GET", "/api/learning/courses/{id}/export"}, {"POST", "/api/learning/courses/import"},
+		{"GET", "/api/account/learning-export"}, {"POST", "/api/account/learning-import"},
+		{"GET", "/api/learning/sources"}, {"POST", "/api/learning/sources"}, {"DELETE", "/api/learning/sources/{id}"},
+		{"GET", "/api/languages/vocabulary"}, {"POST", "/api/languages/vocabulary"},
+		{"GET", "/api/languages/grammar"}, {"POST", "/api/languages/grammar"}, {"POST", "/api/languages/grammar/{id}/answer"},
+		{"GET", "/api/speech/piper"}, {"POST", "/api/speech/synthesize"}, {"POST", "/api/speech/transcribe"},
+		{"POST", "/api/learning/courses/{id}/generate"}, {"GET", "/api/learning/jobs/{id}"}, {"POST", "/api/learning/jobs/{id}/cancel"},
+		{"GET", "/api/learning/courses/{id}/versions"}, {"POST", "/api/learning/courses/{id}/versions/{version}/restore"},
+		{"POST", "/api/learning/courses/{id}/evidence"}, {"POST", "/api/learning/courses/{id}/assess"},
+		{"GET", "/api/learning/courses/{id}/progress"}, {"PUT", "/api/learning/courses/{id}/progress"},
+		{"GET", "/api/learning/edges"}, {"POST", "/api/learning/edges"},
+		{"GET", "/api/learning/reviews/due"}, {"POST", "/api/learning/reviews/{unitId}"},
+		{"GET", "/api/learning/knowledge-units/{id}/evidence"},
+	}
+	for _, route := range expected {
+		item := api.OpenAPI().Paths[route.path]
+		if item == nil {
+			t.Errorf("OpenAPI is missing route %s %s", route.method, route.path)
+			continue
+		}
+		operations := map[string]*huma.Operation{"GET": item.Get, "POST": item.Post, "PUT": item.Put, "PATCH": item.Patch, "DELETE": item.Delete}
+		operation := operations[route.method]
+		if operation == nil {
+			t.Errorf("OpenAPI is missing method %s for %s", route.method, route.path)
+			continue
+		}
+		if len(operation.Security) == 0 {
+			t.Errorf("route %s %s is missing authentication", route.method, route.path)
+		}
+	}
+	response := api.OpenAPI().Paths["/api/speech/synthesize"].Post.Responses["200"]
+	if response == nil || response.Content["audio/wav"] == nil {
+		t.Fatal("speech synthesis response must be documented as audio/wav")
+	}
+}
+
+func TestFixtureCourseContentUsesSupportedScenes(t *testing.T) {
+	content := fixtureCourseContent("Fractions")
+	if err := validateGeneratedCourse(content); err != nil {
+		t.Fatalf("fixture rejected: %v", err)
+	}
+	if err := validateAssessmentQuestions(content, true); err != nil {
+		t.Fatalf("fixture assessment rejected: %v", err)
+	}
+	applyFixtureLearningContext(content, map[string]any{"sources": []map[string]any{{"id": "source-one", "title": "Notebook", "content": "Compare fractions with shaded strips."}}, "concepts": []map[string]any{{"id": "concept-one", "title": "Equivalent fractions", "description": "Different forms can represent the same amount."}}})
+	module := content["modules"].([]any)[0].(map[string]any)
+	scene := module["scenes"].([]any)[0].(map[string]any)
+	config := scene["widget"].(map[string]any)["config"].(map[string]any)
+	if !strings.Contains(config["body"].(string), "Compare fractions with shaded strips") || scene["source_ids"].([]string)[0] != "source-one" {
+		t.Fatalf("fixture did not use selected learner context: %#v", scene)
+	}
+}
+
+func TestAssessmentAnswerEvaluationTypes(t *testing.T) {
+	cases := []struct {
+		name     string
+		question map[string]any
+		answer   any
+		correct  bool
+	}{
+		{"choice", map[string]any{"type": "multiple_choice", "correct_answer": "a"}, "a", true},
+		{"multi select order independent", map[string]any{"type": "multiple_select", "correct_answers": []string{"a", "b"}}, []any{"b", "a"}, true},
+		{"multi select exact set", map[string]any{"type": "multiple_select", "correct_answers": []string{"a", "b"}}, []any{"a"}, false},
+		{"boolean", map[string]any{"type": "true_false", "correct_answer": true}, true, true},
+		{"numeric tolerance", map[string]any{"type": "numeric", "correct_answer": 3.14, "tolerance": 0.02}, "3.15", true},
+		{"short text normalized", map[string]any{"type": "short_text", "accepted_answers": []string{"the central idea"}}, "  THE   central idea ", true},
+		{"fill in the blank normalized", map[string]any{"type": "fill_blank", "accepted_answers": []string{"plants"}}, " PLANTS ", true},
+		{"ordering exact sequence", map[string]any{"type": "ordering", "correct_order": []string{"observe", "model", "test"}}, []any{"observe", "model", "test"}, true},
+		{"ordering rejects reversed sequence", map[string]any{"type": "ordering", "correct_order": []string{"observe", "model", "test"}}, []any{"test", "model", "observe"}, false},
+		{"matching exact pairs", map[string]any{"type": "matching", "correct_matches": map[string]any{"term": "definition", "example": "application"}}, map[string]any{"example": "application", "term": "definition"}, true},
+		{"matching rejects wrong pair", map[string]any{"type": "matching", "correct_matches": map[string]any{"term": "definition", "example": "application"}}, map[string]any{"example": "definition", "term": "application"}, false},
+		{"formula normalizes operators and spaces", map[string]any{"type": "formula", "correct_answer": "x*(x+1)"}, "x × (x + 1)", true},
+		{"formula can accept equivalent authored forms", map[string]any{"type": "formula", "correct_answer": "a/b", "accepted_answers": []string{"a÷b"}}, " a ÷ b ", true},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			if got := evaluateAssessmentAnswer(test.question, test.answer); got != test.correct {
+				t.Fatalf("got %v, want %v", got, test.correct)
+			}
+		})
+	}
+}
+
+func TestExpandedAssessmentTypesValidateAndKeepAnswerKeysPrivate(t *testing.T) {
+	content := map[string]any{"modules": []any{map[string]any{
+		"id": "module-one", "objectives": []any{"Apply the idea"},
+		"assessment": map[string]any{"questions": []any{
+			map[string]any{"id": "fill", "type": "fill_blank", "prompt": "Fill the missing word.", "objective": "Apply the idea", "accepted_answers": []any{"answer"}, "points": float64(1)},
+			map[string]any{"id": "formula", "type": "formula", "prompt": "Enter the simplified expression.", "objective": "Apply the idea", "correct_answer": "x*(x+1)", "accepted_answers": []any{"x^2+x"}, "solution": "x squared plus x", "points": float64(1)},
+			map[string]any{"id": "order", "type": "ordering", "prompt": "Order the process.", "objective": "Apply the idea", "items": []any{"observe", "model", "test"}, "correct_order": []any{"observe", "model", "test"}, "points": float64(1)},
+			map[string]any{"id": "match", "type": "matching", "prompt": "Match each term.", "objective": "Apply the idea", "left_items": []any{"term", "example"}, "right_items": []any{"definition", "application"}, "correct_matches": map[string]any{"term": "definition", "example": "application"}, "points": float64(1)},
+		}},
+	}}}
+	if err := validateAssessmentQuestions(content, true); err != nil {
+		t.Fatalf("valid structured questions were rejected: %v", err)
+	}
+	public, groups, err := splitCourseAssessments(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicQuestions := public["modules"].([]any)[0].(map[string]any)["assessment"].(map[string]any)["questions"].([]any)
+	for _, indexAndKey := range []struct {
+		index int
+		key   string
+	}{{0, "accepted_answers"}, {1, "correct_answer"}, {1, "accepted_answers"}, {2, "correct_order"}, {3, "correct_matches"}} {
+		question := publicQuestions[indexAndKey.index].(map[string]any)
+		if _, leaked := question[indexAndKey.key]; leaked {
+			t.Fatalf("public question %q exposed private field %q", question["id"], indexAndKey.key)
+		}
+	}
+	privateQuestions := groups[0]["questions"].([]map[string]any)
+	if _, leaked := publicQuestions[1].(map[string]any)["solution"]; leaked {
+		t.Fatal("public question renderer allowed an unknown private field through")
+	}
+	publicOrder := assessmentStrings(publicQuestions[2].(map[string]any)["items"])
+	correctOrder := assessmentStrings(privateQuestions[2]["correct_order"])
+	if equalStringOrder(publicOrder, correctOrder) {
+		t.Fatal("public ordering items still reveal the answer order")
+	}
+	if _, exists := privateQuestions[3]["correct_matches"]; !exists {
+		t.Fatal("private matching key was not preserved")
+	}
+	bad := map[string]any{"modules": []any{map[string]any{"objectives": []any{"Apply the idea"}, "assessment": map[string]any{"questions": []any{map[string]any{"id": "broken", "type": "matching", "prompt": "Match.", "objective": "Apply the idea", "left_items": []any{"a", "b"}, "right_items": []any{"x", "y"}, "correct_matches": map[string]any{"a": "x"}, "points": float64(1)}}}}}}
+	if err := validateAssessmentQuestions(bad, true); err == nil {
+		t.Fatal("incomplete matching key should fail validation")
+	}
+}
+
+func TestCourseAssessmentScoresAnswersAndKeepsKeysPrivate(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	user := createTestRecord(t, app, "users", map[string]any{"email": "assessment@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	course := createTestRecord(t, app, "courses", map[string]any{"owner": user.Id, "title": "Fractions", "status": "draft"})
+	job := createTestRecord(t, app, "learning_jobs", map[string]any{"owner": user.Id, "kind": "course_generation", "status": "queued", "course": course.Id})
+	t.Setenv("STARBURST_LLM_BASE_URL", "")
+	t.Setenv("STARBURST_LLM_API_KEY", "")
+	t.Setenv("STARBURST_LLM_MODEL", "")
+	runCourseGenerationJob(t.Context(), app, job.Id, course.Id, user.Id, course.GetString("title"))
+	course, err = app.FindRecordById("courses", course.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var publicContent map[string]any
+	if err := course.UnmarshalJSONField("content", &publicContent); err != nil {
+		t.Fatal(err)
+	}
+	module := publicContent["modules"].([]any)[0].(map[string]any)
+	question := module["assessment"].(map[string]any)["questions"].([]any)[0].(map[string]any)
+	if _, leaked := question["correct_answer"]; leaked {
+		t.Fatal("published course content exposed its answer key")
+	}
+	keys, err := app.FindRecordsByFilter("course_assessments", "owner = {:owner} && course = {:course} && version = {:version}", "", 10, 0, dbx.Params{"owner": user.Id, "course": course.Id, "version": course.GetFloat("version")})
+	if err != nil || len(keys) != 1 {
+		t.Fatalf("private assessment keys missing: %v (%d)", err, len(keys))
+	}
+	var questions []map[string]any
+	if err := keys[0].UnmarshalJSONField("questions", &questions); err != nil {
+		t.Fatal(err)
+	}
+	answers := map[string]any{"explain-sequence": "Name the parts, explain their relationship, and test an example", "explanation-components": []string{"Identify relevant parts", "Explain how the parts relate"}, "model-test": true}
+	body, _ := json.Marshal(map[string]any{"answers": answers})
+	request := httptest.NewRequest("POST", "/api/learning/courses/"+course.Id+"/assess", strings.NewReader(string(body)))
+	request.SetPathValue("id", course.Id)
+	recorder := httptest.NewRecorder()
+	event := &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: request, Response: recorder}}
+	if err := assessCourseRoute(event); err != nil {
+		t.Fatal(err)
+	}
+	var result map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result["score"] != float64(1) {
+		t.Fatalf("expected exact answers to score 1, got %#v", result)
+	}
+	other := createTestRecord(t, app, "users", map[string]any{"email": "assessment-other@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	request = httptest.NewRequest("POST", "/api/learning/courses/"+course.Id+"/assess", strings.NewReader(string(body)))
+	request.SetPathValue("id", course.Id)
+	event = &core.RequestEvent{App: app, Auth: other, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	err = assessCourseRoute(event)
+	apiErr, ok := err.(*router.ApiError)
+	if !ok || apiErr.Status != 404 {
+		t.Fatalf("foreign assessment must be hidden: %v", err)
+	}
+	request = httptest.NewRequest("POST", "/api/learning/courses/"+course.Id+"/assess", strings.NewReader(`{"answers":{"explain-sequence":"wrong"}}`))
+	request.SetPathValue("id", course.Id)
+	event = &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	if err := assessCourseRoute(event); err != nil {
+		t.Fatal(err)
+	}
+	request = httptest.NewRequest("POST", "/api/learning/courses/"+course.Id+"/assess", strings.NewReader(`{"answers":{"unknown-question":"answer"}}`))
+	request.SetPathValue("id", course.Id)
+	event = &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	err = assessCourseRoute(event)
+	apiErr, ok = err.(*router.ApiError)
+	if !ok || apiErr.Status != 400 {
+		t.Fatalf("unknown question IDs must be rejected: %v", err)
+	}
+}
+
+func TestCourseVersionRestoreCopiesPrivateAssessmentKeys(t *testing.T) {
+	t.Setenv("STARBURST_LLM_BASE_URL", "")
+	t.Setenv("STARBURST_LLM_API_KEY", "")
+	t.Setenv("STARBURST_LLM_MODEL", "")
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	user := createTestRecord(t, app, "users", map[string]any{"email": "assessment-restore@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	course := createTestRecord(t, app, "courses", map[string]any{"owner": user.Id, "title": "Fractions"})
+	for i := 0; i < 2; i++ {
+		job := createTestRecord(t, app, "learning_jobs", map[string]any{"owner": user.Id, "kind": "course_generation", "status": "queued", "course": course.Id})
+		runCourseGenerationJob(t.Context(), app, job.Id, course.Id, user.Id, course.GetString("title"))
+	}
+	versionsBefore, versionErr := app.FindRecordsByFilter("course_versions", "owner = {:owner} && course = {:course}", "", 0, 0, dbx.Params{"owner": user.Id, "course": course.Id})
+	if versionErr != nil || len(versionsBefore) == 0 {
+		t.Fatalf("expected course snapshot: %v (%d)", versionErr, len(versionsBefore))
+	}
+	request := httptest.NewRequest("POST", "/api/learning/courses/"+course.Id+"/versions/1/restore", strings.NewReader(`{}`))
+	request.SetPathValue("id", course.Id)
+	request.SetPathValue("version", "1")
+	event := &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	if err := restoreCourseVersionRoute(event); err != nil {
+		t.Fatal(err)
+	}
+	current, err := app.FindRecordById("courses", course.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys, err := app.FindRecordsByFilter("course_assessments", "owner = {:owner} && course = {:course} && version = {:version}", "", 10, 0, dbx.Params{"owner": user.Id, "course": course.Id, "version": current.GetFloat("version")})
+	if err != nil || len(keys) != 1 {
+		t.Fatalf("restored version lost its private answer keys: %v (%d)", err, len(keys))
+	}
+}
+
+func TestManualCourseWritesKeepAnswerKeysPrivateAndVersionEdits(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	user := createTestRecord(t, app, "users", map[string]any{"email": "manual-assessment@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	content, _ := json.Marshal(fixtureCourseContent("Fractions"))
+	request := httptest.NewRequest("POST", "/api/learning/courses", strings.NewReader(`{"title":"Manual course","content":`+string(content)+`}`))
+	createResponse := httptest.NewRecorder()
+	event := &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: request, Response: createResponse}}
+	if err := createLearningRoute("courses")(event); err != nil {
+		t.Fatal(err)
+	}
+	var created map[string]any
+	if err := json.Unmarshal(createResponse.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	courseID, _ := created["id"].(string)
+	if courseID == "" || created["version"] != float64(1) {
+		t.Fatalf("manual assessed course was not published as version 1: %#v", created)
+	}
+	contentRecord := created["content"].(map[string]any)
+	module := contentRecord["modules"].([]any)[0].(map[string]any)
+	question := module["assessment"].(map[string]any)["questions"].([]any)[0].(map[string]any)
+	if _, leaked := question["correct_answer"]; leaked {
+		t.Fatal("manual course creation exposed its answer key")
+	}
+	request = httptest.NewRequest("PATCH", "/api/learning/courses/"+courseID, strings.NewReader(`{"title":"Edited course","content":`+string(content)+`}`))
+	request.SetPathValue("id", courseID)
+	updateResponse := httptest.NewRecorder()
+	event = &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: request, Response: updateResponse}}
+	if err := updateLearningRoute("courses")(event); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := app.FindRecordById("courses", courseID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.GetFloat("version") != 2 || updated.GetString("title") != "Edited course" {
+		t.Fatalf("course edit did not create version 2: version=%v title=%q", updated.GetFloat("version"), updated.GetString("title"))
+	}
+	history, err := app.FindRecordsByFilter("course_versions", "owner = {:owner} && course = {:course} && version = 1", "", 1, 0, dbx.Params{"owner": user.Id, "course": courseID})
+	if err != nil || len(history) != 1 {
+		t.Fatalf("course edit did not preserve version 1: %v (%d)", err, len(history))
+	}
+	keys, err := app.FindRecordsByFilter("course_assessments", "owner = {:owner} && course = {:course} && version = 2", "", 10, 0, dbx.Params{"owner": user.Id, "course": courseID})
+	if err != nil || len(keys) != 1 {
+		t.Fatalf("course edit did not save private answer keys: %v (%d)", err, len(keys))
+	}
+}
+
+func TestGeneratedCourseAcceptsRegisteredWidgetTypes(t *testing.T) {
+	for _, kind := range []string{"explanation", "model", "reflection", "number_line", "binary_explorer", "matching", "timeline", "function_plotter"} {
+		content := map[string]any{"modules": []any{map[string]any{"scenes": []any{map[string]any{"widget": map[string]any{"type": kind}}}}}}
+		if err := validateGeneratedCourse(content); err != nil {
+			t.Errorf("registered widget %q rejected: %v", kind, err)
+		}
+	}
+}
+
+func TestLearningListAndDetailAreOwnerScoped(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	first := createTestRecord(t, app, "users", map[string]any{"email": "first@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	second := createTestRecord(t, app, "users", map[string]any{"email": "second@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	owned := createTestRecord(t, app, "courses", map[string]any{"owner": first.Id, "title": "Owned course"})
+	_, queryErr := app.FindRecordsByFilter("courses", "owner = {:owner}", "", 0, 0, dbx.Params{"owner": first.Id})
+	if queryErr != nil {
+		t.Fatalf("query: %v", queryErr)
+	}
+	createTestRecord(t, app, "courses", map[string]any{"owner": second.Id, "title": "Private course"})
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest("GET", "/api/learning/courses", nil)
+	event := &core.RequestEvent{App: app, Auth: first, Event: router.Event{Request: request, Response: recorder}}
+	if err := listLearningRoute("courses")(event); err != nil {
+		t.Fatalf("%#v", err)
+	}
+	var listed []map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || listed[0]["id"] != owned.Id {
+		t.Fatalf("list leaked or omitted courses: %#v", listed)
+	}
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest("GET", "/api/learning/courses/"+owned.Id, nil)
+	request.SetPathValue("id", owned.Id)
+	event = &core.RequestEvent{App: app, Auth: second, Event: router.Event{Request: request, Response: recorder}}
+	err = getLearningRoute("courses")(event)
+	apiErr, ok := err.(*router.ApiError)
+	if !ok || apiErr.Status != 404 {
+		t.Fatalf("other user's course should be hidden; err=%v", err)
+	}
+}
+
+func TestKnowledgeEvidenceHistoryIsOwnerScoped(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	owner := createTestRecord(t, app, "users", map[string]any{"email": "evidence-owner@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	other := createTestRecord(t, app, "users", map[string]any{"email": "evidence-other@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	unit := createTestRecord(t, app, "knowledge_units", map[string]any{"owner": owner.Id, "title": "Cell division", "unit_type": "concept"})
+	createTestRecord(t, app, "learner_evidence", map[string]any{"owner": owner.Id, "unit": unit.Id, "evidence_type": "assessment", "score": 0.75, "details": map[string]any{"question": "Which stage?"}})
+	request := httptest.NewRequest(http.MethodGet, "/api/learning/knowledge-units/"+unit.Id+"/evidence", nil)
+	request.SetPathValue("id", unit.Id)
+	response := httptest.NewRecorder()
+	event := &core.RequestEvent{App: app, Auth: owner, Event: router.Event{Request: request, Response: response}}
+	if err := listKnowledgeEvidenceRoute(event); err != nil {
+		t.Fatal(err)
+	}
+	var result []map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result) != 1 || result[0]["owner"] != nil || result[0]["evidence_type"] != "assessment" {
+		t.Fatalf("unexpected evidence history: %#v", result)
+	}
+	request = httptest.NewRequest(http.MethodGet, "/api/learning/knowledge-units/"+unit.Id+"/evidence", nil)
+	request.SetPathValue("id", unit.Id)
+	event = &core.RequestEvent{App: app, Auth: other, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	if err := listKnowledgeEvidenceRoute(event); err == nil {
+		t.Fatal("another user's evidence should not be readable")
+	}
+}
+
+func TestCourseProgressPersistsAndIsOwnerScoped(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	first := createTestRecord(t, app, "users", map[string]any{"email": "progress-a@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	second := createTestRecord(t, app, "users", map[string]any{"email": "progress-b@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	course := createTestRecord(t, app, "courses", map[string]any{"owner": first.Id, "title": "Progress", "content": fixtureCourseContent("Progress")})
+	if _, queryErr := app.FindRecordsByFilter("course_progress", "owner = {:owner} && course = {:course}", "", 1, 0, dbx.Params{"owner": first.Id, "course": course.Id}); queryErr != nil {
+		t.Fatalf("preflight query course_progress: %v", queryErr)
+	}
+	request := httptest.NewRequest("PUT", "/api/learning/courses/"+course.Id+"/progress", strings.NewReader(`{"scene_index":1,"position_seconds":12.5,"completed":false}`))
+	request.SetPathValue("id", course.Id)
+	event := &core.RequestEvent{App: app, Auth: first, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	if err := saveCourseProgressRoute(event); err != nil {
+		t.Fatalf("save progress failed: %#v", err)
+	}
+	request = httptest.NewRequest("PUT", "/api/learning/courses/"+course.Id+"/progress", strings.NewReader(`{"scene_index":1,"position_seconds":72.5,"completed":false}`))
+	request.SetPathValue("id", course.Id)
+	event = &core.RequestEvent{App: app, Auth: first, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	if err := saveCourseProgressRoute(event); err != nil {
+		t.Fatal(err)
+	}
+	request = httptest.NewRequest("GET", "/api/learning/courses/"+course.Id+"/progress", nil)
+	request.SetPathValue("id", course.Id)
+	recorder := httptest.NewRecorder()
+	event = &core.RequestEvent{App: app, Auth: first, Event: router.Event{Request: request, Response: recorder}}
+	if err := getCourseProgressRoute(event); err != nil {
+		t.Fatal(err)
+	}
+	var saved map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved["scene_index"] != float64(1) || saved["position_seconds"] != 72.5 {
+		t.Fatalf("progress did not resume at saved position: %#v", saved)
+	}
+	progressRecords, findErr := app.FindRecordsByFilter("course_progress", "owner = {:owner} && course = {:course}", "", 0, 0, dbx.Params{"owner": first.Id, "course": course.Id})
+	if findErr != nil || len(progressRecords) != 1 {
+		t.Fatalf("progress should upsert one row: %v (%d)", findErr, len(progressRecords))
+	}
+	request = httptest.NewRequest("GET", "/api/learning/courses/"+course.Id+"/progress", nil)
+	request.SetPathValue("id", course.Id)
+	event = &core.RequestEvent{App: app, Auth: second, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	err = getCourseProgressRoute(event)
+	apiErr, ok := err.(*router.ApiError)
+	if !ok || apiErr.Status != 404 {
+		t.Fatalf("another user must not read course progress: %v", err)
+	}
+}
+
+func TestImportSourceCreatesProvenanceAndDeleteCleansDependents(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	user := createTestRecord(t, app, "users", map[string]any{"email": "source@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest("POST", "/api/learning/sources", strings.NewReader(`{"title":"Cell notes","content":"Cells store information.","source_type":"text/markdown"}`))
+	event := &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: request, Response: recorder}}
+	if err := importLearningSourceRoute(event); err != nil {
+		t.Fatal(err)
+	}
+	sources, err := app.FindRecordsByFilter("learning_sources", "owner = {:owner}", "", 0, 0, dbx.Params{"owner": user.Id})
+	if err != nil || len(sources) != 1 {
+		t.Fatalf("source was not saved: %v (%d)", err, len(sources))
+	}
+	units, err := app.FindRecordsByFilter("knowledge_units", "owner = {:owner}", "", 0, 0, dbx.Params{"owner": user.Id})
+	if err != nil || len(units) != 1 {
+		t.Fatalf("linked concept missing: %v (%d)", err, len(units))
+	}
+	var meta map[string]any
+	if err := units[0].UnmarshalJSONField("metadata", &meta); err != nil {
+		t.Fatal(err)
+	}
+	if meta["source_id"] != sources[0].Id {
+		t.Fatalf("missing provenance: %#v", meta)
+	}
+	createTestRecord(t, app, "knowledge_mastery", map[string]any{"owner": user.Id, "unit": units[0].Id, "mastery": 0.5})
+	job := createTestRecord(t, app, "learning_jobs", map[string]any{"owner": user.Id, "kind": "course_generation", "status": "completed", "payload": map[string]any{"generation_context": map[string]any{"sources": []any{map[string]any{"id": sources[0].Id, "content": "Cells store information."}}, "concepts": []any{map[string]any{"id": units[0].Id, "description": "Cells store information."}}}}})
+	episode := createTestRecord(t, app, "podcast_episodes", map[string]any{"owner": user.Id, "title": "Cell notes", "topic": "Cell information", "status": "ready", "source_ids": []string{sources[0].Id}, "concept_ids": []string{units[0].Id}, "outline": map[string]any{"title": "Cell notes"}, "transcript": map[string]any{"turns": []any{}}})
+	request = httptest.NewRequest("DELETE", "/api/learning/sources/"+sources[0].Id, nil)
+	request.SetPathValue("id", sources[0].Id)
+	event = &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	if err := deleteLearningSourceRoute(event); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.FindRecordById("learning_sources", sources[0].Id); err == nil {
+		t.Fatal("source still exists")
+	}
+	if _, err := app.FindRecordById("knowledge_units", units[0].Id); err == nil {
+		t.Fatal("source-derived concept still exists")
+	}
+	job, err = app.FindRecordById("learning_jobs", job.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var jobPayload map[string]any
+	if err := job.UnmarshalJSONField("payload", &jobPayload); err != nil {
+		t.Fatal(err)
+	}
+	jobContext := jobPayload["generation_context"].(map[string]any)
+	if len(contextRows(jobContext["sources"])) != 0 || len(contextRows(jobContext["concepts"])) != 0 {
+		t.Fatalf("deleted source content remained in a generation job: %#v", jobContext)
+	}
+	if _, err := app.FindRecordById("podcast_episodes", episode.Id); err == nil {
+		t.Fatal("source-derived podcast episode still exists")
+	}
+	remaining, err := app.FindRecordsByFilter("knowledge_mastery", "owner = {:owner}", "", 0, 0, dbx.Params{"owner": user.Id})
+	if err != nil || len(remaining) != 0 {
+		t.Fatalf("dependent mastery was not removed: %v (%d)", err, len(remaining))
+	}
+}
+
+func TestKnowledgeEdgeRejectsAnotherUsersConcept(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	owner := createTestRecord(t, app, "users", map[string]any{"email": "edge-owner@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	other := createTestRecord(t, app, "users", map[string]any{"email": "edge-other@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	from := createTestRecord(t, app, "knowledge_units", map[string]any{"owner": owner.Id, "title": "A", "unit_type": "concept"})
+	to := createTestRecord(t, app, "knowledge_units", map[string]any{"owner": other.Id, "title": "B", "unit_type": "concept"})
+	request := httptest.NewRequest("POST", "/api/learning/edges", strings.NewReader(`{"from_unit":"`+from.Id+`","to_unit":"`+to.Id+`","relationship":"requires"}`))
+	event := &core.RequestEvent{App: app, Auth: owner, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	err = createKnowledgeEdgeRoute(event)
+	apiErr, ok := err.(*router.ApiError)
+	if !ok || apiErr.Status != 400 {
+		t.Fatalf("cross-user edge should be rejected: %v", err)
+	}
+}
+
+func TestVocabularySetCreatesSharedKnowledgeUnits(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	user := createTestRecord(t, app, "users", map[string]any{"email": "vocab@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	request := httptest.NewRequest("POST", "/api/languages/vocabulary", strings.NewReader(`{"language":"Spanish","set_name":"Travel","words":[{"term":"hola","translation":"hello"},{"term":"gracias","translation":"thank you"}]}`))
+	event := &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	if err := createVocabularyRoute(event); err != nil {
+		t.Fatal(err)
+	}
+	records, err := app.FindRecordsByFilter("knowledge_units", "owner = {:owner} && unit_type = {:type}", "", 0, 0, dbx.Params{"owner": user.Id, "type": "vocabulary"})
+	if err != nil || len(records) != 2 {
+		t.Fatalf("expected two shared vocabulary units: %v (%d)", err, len(records))
+	}
+	var metadata map[string]any
+	if err := records[0].UnmarshalJSONField("metadata", &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata["language"] != "Spanish" || metadata["set_name"] != "Travel" {
+		t.Fatalf("vocabulary provenance missing: %#v", metadata)
+	}
+}
+
+func TestNextReviewScheduleUsesRecallQuality(t *testing.T) {
+	interval, ease, reps, mastery := nextReviewSchedule(0, 2.5, 0, 0.4, 4)
+	if interval != 1 || reps != 1 || ease != 2.5 || mastery <= 0.4 {
+		t.Fatalf("first success schedule: %v %v %d %v", interval, ease, reps, mastery)
+	}
+	interval, ease, reps, mastery = nextReviewSchedule(interval, ease, reps, mastery, 5)
+	if interval != 6 || reps != 2 {
+		t.Fatalf("second success schedule: interval=%v repetitions=%d", interval, reps)
+	}
+	interval, ease, reps, mastery = nextReviewSchedule(interval, ease, reps, mastery, 2)
+	if interval != 1 || reps != 0 || ease >= 2.5 || mastery >= 0.5 {
+		t.Fatalf("failed recall should reset interval and lower mastery: %v %v %d %v", interval, ease, reps, mastery)
+	}
+}
+
+func TestGrammarAnswerRecordsDeterministicEvidence(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	user := createTestRecord(t, app, "users", map[string]any{"email": "grammar@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	unit := createTestRecord(t, app, "knowledge_units", map[string]any{"owner": user.Id, "title": "She ___ to school.", "unit_type": "grammar", "metadata": map[string]any{"language": "English", "answer": "goes", "explanation": "Third-person singular uses -s."}})
+	request := httptest.NewRequest("POST", "/api/languages/grammar/"+unit.Id+"/answer", strings.NewReader(`{"answer":"Goes."}`))
+	request.SetPathValue("id", unit.Id)
+	recorder := httptest.NewRecorder()
+	event := &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: request, Response: recorder}}
+	if err := answerGrammarRoute(event); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Correct bool `json:"correct"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if !result.Correct {
+		t.Fatal("case/punctuation-normalized correct answer was rejected")
+	}
+	evidence, err := app.FindRecordsByFilter("learner_evidence", "owner = {:owner} && unit = {:unit}", "", 0, 0, dbx.Params{"owner": user.Id, "unit": unit.Id})
+	if err != nil || len(evidence) != 1 || evidence[0].GetFloat("score") != 1 {
+		t.Fatalf("grammar evidence not saved: %v", err)
+	}
+}
+
+func TestImportCourseValidatesAndCreatesOwnedCourse(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	user := createTestRecord(t, app, "users", map[string]any{"email": "import-course@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	payload := `{"format":"starburst-course","format_version":1,"course":{"title":"Imported","description":"Test","content":{"modules":[{"scenes":[{"widget":{"type":"explanation"}}]}]}}}`
+	request := httptest.NewRequest("POST", "/api/learning/courses/import", strings.NewReader(payload))
+	event := &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	if err := importCourseRoute(event); err != nil {
+		t.Fatal(err)
+	}
+	records, err := app.FindRecordsByFilter("courses", "owner = {:owner}", "", 0, 0, dbx.Params{"owner": user.Id})
+	if err != nil || len(records) != 1 {
+		t.Fatalf("course import did not create an owned record: %v (%d)", err, len(records))
+	}
+	request = httptest.NewRequest("POST", "/api/learning/courses/import", strings.NewReader(strings.Replace(payload, `"explanation"`, `"arbitrary_code"`, 1)))
+	event = &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	err = importCourseRoute(event)
+	apiErr, ok := err.(*router.ApiError)
+	if !ok || apiErr.Status != 400 {
+		t.Fatalf("unregistered widget should be rejected: %v", err)
+	}
+}
+
+func TestLearningArchiveExportIsOwnerScoped(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	first := createTestRecord(t, app, "users", map[string]any{"email": "archive-a@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	second := createTestRecord(t, app, "users", map[string]any{"email": "archive-b@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	own := createTestRecord(t, app, "courses", map[string]any{"owner": first.Id, "title": "Mine"})
+	createTestRecord(t, app, "courses", map[string]any{"owner": second.Id, "title": "Not mine"})
+	recorder := httptest.NewRecorder()
+	event := &core.RequestEvent{App: app, Auth: first, Event: router.Event{Request: httptest.NewRequest("GET", "/api/account/learning-export", nil), Response: recorder}}
+	if err := exportLearningDataRoute(event); err != nil {
+		t.Fatal(err)
+	}
+	var archive map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &archive); err != nil {
+		t.Fatal(err)
+	}
+	courses, ok := archive["courses"].([]any)
+	if !ok || len(courses) != 1 || courses[0].(map[string]any)["id"] != own.Id {
+		t.Fatalf("archive leaked or omitted course data: %#v", archive["courses"])
+	}
+	if archive["format"] != "starburst-learning-archive" {
+		t.Fatalf("unexpected archive format: %#v", archive["format"])
+	}
+}
+
+func TestLearningArchiveImportRemapsRecordsAndScopesOwnership(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	user := createTestRecord(t, app, "users", map[string]any{"email": "archive-import@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	other := createTestRecord(t, app, "users", map[string]any{"email": "archive-other@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	content, _ := json.Marshal(fixtureCourseContent("Imported"))
+	payload := `{"format":"starburst-learning-archive","format_version":1,"user_id":"forged-owner","learning_sources":[{"id":"source-old","title":"Notes","source_type":"text/plain","content":"Source text"}],"knowledge_units":[{"id":"unit-old","title":"Fractions","unit_type":"concept","metadata":{"source_id":"source-old"}},{"id":"unit-old-2","title":"Numerators","unit_type":"concept"}],"courses":[{"id":"course-old","title":"Fractions","status":"published","version":2,"content":` + string(content) + `}],"course_versions":[{"course":"course-old","version":1,"title":"Fractions","content":` + string(content) + `}],"course_progress":[{"course":"course-old","scene_index":1,"position_seconds":72.5,"completed":false}],"knowledge_edges":[{"from_unit":"unit-old","to_unit":"unit-old-2","relationship":"prerequisite"}],"learner_evidence":[{"unit":"unit-old","evidence_type":"assessment","score":0.8,"details":{"course_id":"course-old"}}],"knowledge_mastery":[{"unit":"unit-old","mastery":0.7,"confidence":0.8,"review_interval_days":3,"ease_factor":2.5,"repetitions":2}]}`
+	event := &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: httptest.NewRequest("POST", "/api/account/learning-import", strings.NewReader(payload)), Response: httptest.NewRecorder()}}
+	if err := importLearningDataRoute(event); err != nil {
+		t.Fatal(err)
+	}
+	for _, collection := range []string{"courses", "course_versions", "course_progress", "course_assessments", "knowledge_units", "knowledge_edges", "learning_sources", "learner_evidence", "knowledge_mastery"} {
+		owned, findErr := app.FindRecordsByFilter(collection, "owner = {:owner}", "", 0, 0, dbx.Params{"owner": user.Id})
+		if findErr != nil || len(owned) == 0 {
+			t.Fatalf("expected imported %s: %v (%d)", collection, findErr, len(owned))
+		}
+		foreign, findErr := app.FindRecordsByFilter(collection, "owner = {:owner}", "", 0, 0, dbx.Params{"owner": other.Id})
+		if findErr != nil || len(foreign) != 0 {
+			t.Fatalf("archive import affected another user in %s", collection)
+		}
+	}
+	units, _ := app.FindRecordsByFilter("knowledge_units", "owner = {:owner}", "", 0, 0, dbx.Params{"owner": user.Id})
+	var metadata map[string]any
+	_ = units[0].UnmarshalJSONField("metadata", &metadata)
+	if metadata["source_id"] == "source-old" {
+		t.Fatal("source reference retained its untrusted archive ID")
+	}
+	evidence, _ := app.FindRecordsByFilter("learner_evidence", "owner = {:owner}", "", 0, 0, dbx.Params{"owner": user.Id})
+	var details map[string]any
+	_ = evidence[0].UnmarshalJSONField("details", &details)
+	if details["course_id"] == "course-old" {
+		t.Fatal("evidence course reference retained its archive ID")
+	}
+}
+
+func TestLearningArchiveImportRollsBackInvalidCourse(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	user := createTestRecord(t, app, "users", map[string]any{"email": "archive-rollback@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	payload := `{"format":"starburst-learning-archive","format_version":1,"learning_sources":[{"id":"source","title":"Notes","source_type":"text/plain","content":"x"}],"courses":[{"id":"course","title":"Broken","content":{"modules":[]}}]}`
+	event := &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: httptest.NewRequest("POST", "/api/account/learning-import", strings.NewReader(payload)), Response: httptest.NewRecorder()}}
+	err = importLearningDataRoute(event)
+	apiErr, ok := err.(*router.ApiError)
+	if !ok || apiErr.Status != 400 {
+		t.Fatalf("invalid course should reject archive: %v", err)
+	}
+	sources, findErr := app.FindRecordsByFilter("learning_sources", "owner = {:owner}", "", 0, 0, dbx.Params{"owner": user.Id})
+	if findErr != nil || len(sources) != 0 {
+		t.Fatalf("failed import left partial source records: %v (%d)", findErr, len(sources))
+	}
+}
+
+func TestValidateGeneratedCourseRejectsUnsupportedWidget(t *testing.T) {
+	content := map[string]any{"modules": []any{map[string]any{"scenes": []any{map[string]any{"widget": map[string]any{"type": "arbitrary-code"}}}}}}
+	if err := validateGeneratedCourse(content); err == nil {
+		t.Fatal("expected unsupported widget to fail validation")
+	}
+}
+
+func TestValidateGeneratedCourseRejectsEmptyModules(t *testing.T) {
+	if err := validateGeneratedCourse(map[string]any{"modules": []any{}}); err == nil {
+		t.Fatal("expected empty course to fail validation")
+	}
+}
+
+func TestSceneCaptionSegmentsRequireOrderedBoundedTimestamps(t *testing.T) {
+	valid := map[string]any{"duration_seconds": float64(8), "captions": []any{
+		map[string]any{"start_seconds": float64(0), "end_seconds": float64(2), "text": "First line."},
+		map[string]any{"start_seconds": float64(2.5), "end_seconds": float64(8), "text": "Second line."},
+	}}
+	if err := validateSceneCaptions(valid); err != nil {
+		t.Fatalf("valid caption segments rejected: %v", err)
+	}
+	invalid := []map[string]any{
+		{"duration_seconds": float64(5), "captions": []any{map[string]any{"start_seconds": float64(2), "end_seconds": float64(1), "text": "Reversed"}}},
+		{"duration_seconds": float64(5), "captions": []any{map[string]any{"start_seconds": float64(0), "end_seconds": float64(6), "text": "Too long"}}},
+		{"duration_seconds": float64(5), "captions": []any{map[string]any{"start_seconds": float64(0), "end_seconds": float64(1), "text": "First"}, map[string]any{"start_seconds": float64(0.5), "end_seconds": float64(2), "text": "Overlap"}}},
+	}
+	for _, scene := range invalid {
+		if err := validateSceneCaptions(scene); err == nil {
+			t.Errorf("invalid caption timing was accepted: %#v", scene)
+		}
+	}
+}
+
+func TestRecoverableLearningJobStates(t *testing.T) {
+	for _, test := range []struct {
+		kind, status string
+		want         bool
+	}{{"course_generation", "queued", true}, {"course_generation", "running", true}, {"course_generation", "failed", false}, {"podcast_generation", "queued", false}} {
+		if got := isRecoverableLearningJob(test.kind, test.status); got != test.want {
+			t.Errorf("isRecoverableLearningJob(%q,%q)=%v want %v", test.kind, test.status, got, test.want)
+		}
+	}
+}
+
+func TestCourseGenerationBuildsValidatedMultiModuleCurriculumFromGoal(t *testing.T) {
+	outline := map[string]any{
+		"prerequisites": []any{"whole-number multiplication"},
+		"knowledge_units": []any{
+			map[string]any{"id": "fraction-basics", "title": "Fraction basics", "definition": "Fractions represent equal parts of a whole."},
+			map[string]any{"id": "equivalent-fractions", "title": "Equivalent fractions", "definition": "Equivalent fractions name the same quantity with different terms."},
+			map[string]any{"id": "fraction-models", "title": "Fraction models", "definition": "Area and number-line models can represent fractions."},
+			map[string]any{"id": "fraction-comparison", "title": "Comparing fractions", "definition": "Fractions can be compared using a common unit or model."},
+		},
+		"modules": []any{
+			map[string]any{"id": "fraction-foundations", "title": "Build fraction models", "objectives": []any{"Interpret a fraction as equal parts", "Represent a fraction on an area model"}, "knowledge_unit_ids": []any{"fraction-basics", "fraction-models"}},
+			map[string]any{"id": "fraction-equivalence", "title": "Compare equivalent fractions", "objectives": []any{"Generate an equivalent fraction", "Compare two fractions using a shared unit"}, "knowledge_unit_ids": []any{"equivalent-fractions", "fraction-comparison"}},
+		},
+	}
+	modules := make([]any, 0, 2)
+	for _, raw := range outline["modules"].([]any) {
+		module := raw.(map[string]any)
+		objectives := module["objectives"].([]any)
+		questions := make([]any, 0, 3)
+		for index := 0; index < 3; index++ {
+			questions = append(questions, map[string]any{"id": module["id"].(string) + "-q" + strconv.Itoa(index+1), "type": "multiple_choice", "prompt": "Choose the correct mathematical claim.", "objective": objectives[index%len(objectives)], "choices": []any{"answer", "distractor"}, "correct_answer": "answer", "rationale": "The answer follows from the model shown in the lesson.", "points": float64(1)})
+		}
+		scenes := []any{}
+		for index := 0; index < 3; index++ {
+			scenes = append(scenes, map[string]any{"id": module["id"].(string) + "-scene-" + strconv.Itoa(index+1), "title": "Explore the model", "duration_seconds": 30, "widget": map[string]any{"type": "explanation", "version": 1, "config": map[string]any{"body": "A fraction model"}}, "checkpoints": []any{}})
+		}
+		modules = append(modules, map[string]any{"id": module["id"], "title": module["title"], "objectives": objectives, "knowledge_unit_ids": module["knowledge_unit_ids"], "scenes": scenes, "assessment": map[string]any{"questions": questions}})
+	}
+	lesson := map[string]any{"version": 1, "modules": modules}
+	var call int
+	var prompts []string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/chat/completions" || request.Header.Get("Authorization") != "Bearer test-key" {
+			http.Error(writer, "invalid provider request", http.StatusBadRequest)
+			return
+		}
+		var payload struct {
+			Messages []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil || len(payload.Messages) != 2 {
+			http.Error(writer, "invalid chat payload", http.StatusBadRequest)
+			return
+		}
+		prompts = append(prompts, payload.Messages[1].Content)
+		var result any = outline
+		call++
+		if call == 2 {
+			result = lesson
+		}
+		encoded, err := json.Marshal(result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": string(encoded)}}}})
+	}))
+	defer server.Close()
+	t.Setenv("STARBURST_LLM_BASE_URL", server.URL)
+	t.Setenv("STARBURST_LLM_API_KEY", "test-key")
+	t.Setenv("STARBURST_LLM_MODEL", "test-model")
+	var generationProgress []int
+	generationContext := map[string]any{"sources": []map[string]any{{"id": "source-1", "title": "Class notes", "content": "Use shaded strips to compare unlike fractions."}}, "concepts": []map[string]any{{"id": "concept-1", "title": "Equivalent fractions", "description": "Different numerators and denominators can represent the same quantity."}}, "preferences": map[string]any{"difficulty": "advanced", "target_minutes": 30, "learner_context": map[string]any{"interests": []string{"astronomy"}, "goals": []string{"explain clearly"}, "prior_knowledge": []string{"basic algebra"}, "preferred_language": "fr-CA"}}}
+	content, err := generateCourseContent(t.Context(), "Fractions", "Compare fractions using visual models", func(value int) { generationProgress = append(generationProgress, value) }, generationContext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if call != 2 || len(prompts) != 2 {
+		t.Fatalf("expected planning and lesson-generation calls, got %d", call)
+	}
+	if len(generationProgress) < 3 || generationProgress[0] < 1 || generationProgress[len(generationProgress)-1] != 88 {
+		t.Fatalf("expected progress updates for outline and lesson validation, got %v", generationProgress)
+	}
+	for _, prompt := range prompts {
+		if !strings.Contains(prompt, "Compare fractions using visual models") {
+			t.Fatalf("learner goal was omitted from generation prompt %q", prompt)
+		}
+		if !strings.Contains(prompt, "Use shaded strips to compare unlike fractions") || !strings.Contains(prompt, "Equivalent fractions") {
+			t.Fatalf("selected source or concept context was omitted from prompt %q", prompt)
+		}
+		if !strings.Contains(prompt, `"difficulty":"advanced"`) || !strings.Contains(prompt, `"target_minutes":30`) {
+			t.Fatalf("course preferences were omitted from prompt %q", prompt)
+		}
+		if !strings.Contains(prompt, "astronomy") || !strings.Contains(prompt, "fr-CA") {
+			t.Fatalf("learner profile context was omitted from prompt %q", prompt)
+		}
+	}
+	if len(content["modules"].([]any)) != 2 || content["generator"] != "openai-compatible" {
+		t.Fatalf("generated course did not preserve the multi-module outline: %#v", content)
+	}
+	if err := validateGeneratedCourseMatchesOutline(content, outline); err != nil {
+		t.Fatalf("generated course did not match its outline: %v", err)
+	}
+}
+
+func TestCurriculumOutlineRejectsUnknownKnowledgeReferences(t *testing.T) {
+	outline := map[string]any{
+		"knowledge_units": []any{map[string]any{"id": "known-unit", "title": "Known", "definition": "A known idea."}, map[string]any{"id": "other-unit", "title": "Other", "definition": "Another idea."}},
+		"modules": []any{
+			map[string]any{"id": "module-one", "title": "One", "objectives": []any{"First objective", "Second objective"}, "knowledge_unit_ids": []any{"unknown-unit"}},
+			map[string]any{"id": "module-two", "title": "Two", "objectives": []any{"First objective", "Second objective"}, "knowledge_unit_ids": []any{"known-unit"}},
+		},
+	}
+	if err := validateCurriculumOutline(outline); err == nil {
+		t.Fatal("outline with a dangling knowledge-unit reference should fail validation")
+	}
+}
+
+func TestCurriculumContextRejectsInventedCitations(t *testing.T) {
+	outline := map[string]any{"knowledge_units": []any{map[string]any{"source_ids": []any{"not-selected"}}}}
+	context := map[string]any{"sources": []map[string]any{{"id": "selected-source"}}}
+	if err := validateCurriculumContextRefs(outline, context); err == nil {
+		t.Fatal("outline cited a source the learner did not select")
+	}
+}
+
+func TestCourseGenerationContextIsOwnerScopedAndBounded(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	owner := createTestRecord(t, app, "users", map[string]any{"email": "context-owner@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	other := createTestRecord(t, app, "users", map[string]any{"email": "context-other@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	source := createTestRecord(t, app, "learning_sources", map[string]any{"owner": owner.Id, "title": "My notes", "source_type": "text/plain", "content": "Private source content"})
+	concept := createTestRecord(t, app, "knowledge_units", map[string]any{"owner": owner.Id, "title": "My concept", "description": "Private concept detail", "unit_type": "concept"})
+	selected, err := loadCourseGenerationContext(app, owner.Id, []string{source.Id}, []string{concept.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(selected["sources"].([]map[string]any)) != 1 || len(selected["concepts"].([]map[string]any)) != 1 {
+		t.Fatalf("selected context missing: %#v", selected)
+	}
+	if _, err := loadCourseGenerationContext(app, other.Id, []string{source.Id}, nil); err == nil {
+		t.Fatal("other user could select a source")
+	}
+	if _, err := loadCourseGenerationContext(app, other.Id, nil, []string{concept.Id}); err == nil {
+		t.Fatal("other user could select a concept")
+	}
+	if _, err := loadCourseGenerationContext(app, owner.Id, []string{source.Id, source.Id}, nil); err == nil {
+		t.Fatal("duplicate source IDs should be rejected")
+	}
+}
+
+func TestCourseGenerationPreferencesAreValidatedAndDefaulted(t *testing.T) {
+	defaults, err := normalizeCourseGenerationPreferences("", 0)
+	if err != nil || defaults["difficulty"] != "beginner" || defaults["target_minutes"] != 15 {
+		t.Fatalf("unexpected defaults: %#v, %v", defaults, err)
+	}
+	preferences, err := normalizeCourseGenerationPreferences("ADVANCED", 30)
+	if err != nil || preferences["difficulty"] != "advanced" || preferences["target_minutes"] != 30 {
+		t.Fatalf("unexpected preferences: %#v, %v", preferences, err)
+	}
+	for _, test := range []struct {
+		difficulty string
+		minutes    int
+	}{{"expert", 10}, {"beginner", 4}, {"beginner", 61}} {
+		if _, err := normalizeCourseGenerationPreferences(test.difficulty, test.minutes); err == nil {
+			t.Errorf("invalid preferences were accepted: %#v", test)
+		}
+	}
+}
+
+func TestGenerateRoutePersistsLearnerGoalInRecoverableJob(t *testing.T) {
+	learningWorkerSlots <- struct{}{}
+	learningWorkerSlots <- struct{}{}
+	defer func() { <-learningWorkerSlots; <-learningWorkerSlots }()
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	user := createTestRecord(t, app, "users", map[string]any{"email": "generation-goal@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	user.Set("preferences", map[string]any{
+		"learningInterests": []string{"astronomy"}, "learningGoals": []string{"explain ideas clearly"},
+		"priorKnowledge": []string{"basic algebra"}, "preferredLanguage": "fr-CA",
+		"defaultDifficulty": "advanced", "targetMinutes": 35, "narration": false, "captions": true,
+	})
+	if err := app.Save(user); err != nil {
+		t.Fatal(err)
+	}
+	course := createTestRecord(t, app, "courses", map[string]any{"owner": user.Id, "title": "Fractions", "description": "Compare fractions using visual models", "status": "draft"})
+	source := createTestRecord(t, app, "learning_sources", map[string]any{"owner": user.Id, "title": "Fraction notes", "source_type": "text/plain", "content": "Use strip diagrams to compare fractions."})
+	concept := createTestRecord(t, app, "knowledge_units", map[string]any{"owner": user.Id, "title": "Equivalent fractions", "description": "Different forms can show the same quantity.", "unit_type": "concept"})
+	request := httptest.NewRequest("POST", "/api/learning/courses/"+course.Id+"/generate", strings.NewReader(`{"source_ids":["`+source.Id+`"],"concept_ids":["`+concept.Id+`"]}`))
+	request.SetPathValue("id", course.Id)
+	event := &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	if err := generateCourseRoute(event); err != nil {
+		t.Fatal(err)
+	}
+	jobs, err := app.FindRecordsByFilter("learning_jobs", "owner = {:owner} && course = {:course}", "", 1, 0, dbx.Params{"owner": user.Id, "course": course.Id})
+	if err != nil || len(jobs) != 1 {
+		t.Fatalf("expected one generation job: %v (%d)", err, len(jobs))
+	}
+	var payload map[string]any
+	if err := jobs[0].UnmarshalJSONField("payload", &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["learning_goal"] != "Compare fractions using visual models" {
+		t.Fatalf("generation job did not persist the learner's goal: %#v", payload)
+	}
+	generationContext, ok := payload["generation_context"].(map[string]any)
+	if !ok || len(generationContext["sources"].([]any)) != 1 || len(generationContext["concepts"].([]any)) != 1 {
+		t.Fatalf("generation job did not persist its selected source and concept context: %#v", payload["generation_context"])
+	}
+	preferences, ok := generationContext["preferences"].(map[string]any)
+	if !ok || preferences["difficulty"] != "advanced" || preferences["target_minutes"] != float64(35) {
+		t.Fatalf("learner profile defaults were not persisted: %#v", generationContext["preferences"])
+	}
+	learnerContext, ok := preferences["learner_context"].(map[string]any)
+	if !ok || learnerContext["preferred_language"] != "fr-CA" || learnerContext["narration"] != false {
+		t.Fatalf("learner profile context was not persisted: %#v", preferences["learner_context"])
+	}
+	if got := learnerContext["interests"].([]any); len(got) != 1 || got[0] != "astronomy" {
+		t.Fatalf("learner interests missing from generation context: %#v", learnerContext["interests"])
+	}
+	request = httptest.NewRequest("POST", "/api/learning/jobs/"+jobs[0].Id+"/cancel", strings.NewReader(`{}`))
+	request.SetPathValue("id", jobs[0].Id)
+	event = &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	if err := cancelLearningJobRoute(event); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		learningWorkerMu.Lock()
+		_, workerRunning := learningWorkerCancels[jobs[0].Id]
+		learningWorkerMu.Unlock()
+		if !workerRunning {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("cancelled generation worker did not stop")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestCourseGenerationJobPersistsPublishedFixture(t *testing.T) {
+	t.Setenv("STARBURST_LLM_BASE_URL", "")
+	t.Setenv("STARBURST_LLM_API_KEY", "")
+	t.Setenv("STARBURST_LLM_MODEL", "")
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	user := createTestRecord(t, app, "users", map[string]any{"email": "learner@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	course := createTestRecord(t, app, "courses", map[string]any{"owner": user.Id, "title": "Fractions", "status": "draft"})
+	job := createTestRecord(t, app, "learning_jobs", map[string]any{"owner": user.Id, "kind": "course_generation", "status": "queued", "course": course.Id})
+	runCourseGenerationJob(t.Context(), app, job.Id, course.Id, user.Id, course.GetString("title"))
+	updated, err := app.FindRecordById("courses", course.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.GetString("status") != "published" {
+		t.Fatalf("status=%q", updated.GetString("status"))
+	}
+	if updated.GetFloat("version") != 1 {
+		t.Fatalf("version=%v", updated.GetFloat("version"))
+	}
+	job, err = app.FindRecordById("learning_jobs", job.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.GetString("status") != "completed" || job.GetFloat("progress") != 100 {
+		t.Fatalf("job did not complete: %s at %v", job.GetString("status"), job.GetFloat("progress"))
+	}
+}
