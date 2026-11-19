@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -27,6 +28,98 @@ func TestPodcastFixtureAndScriptValidation(t *testing.T) {
 	transcript.Turns[1].Speaker = "host"
 	if err := validatePodcastTranscript(transcript); err == nil {
 		t.Fatal("expected repeated speaker validation error")
+	}
+}
+
+func TestCancelPodcastScriptJobCancelsItsEpisode(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	owner := createTestRecord(t, app, "users", map[string]any{"email": "podcast-cancel@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	episode, err := savePodcastEpisode(app, owner.Id, podcastCreateBody{Title: "Cancel", Topic: "A test"}, podcastOutline{}, podcastTranscript{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	episode.Set("status", "generating")
+	if err := app.Save(episode); err != nil {
+		t.Fatal(err)
+	}
+	job := createTestRecord(t, app, "learning_jobs", map[string]any{"owner": owner.Id, "kind": "podcast_script", "status": "queued", "payload": map[string]any{"episode_id": episode.Id}})
+	request := httptest.NewRequest(http.MethodPost, "/api/learning/jobs/"+job.Id+"/cancel", strings.NewReader(`{}`))
+	request.SetPathValue("id", job.Id)
+	event := &core.RequestEvent{App: app, Auth: owner, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	if err := cancelLearningJobRoute(event); err != nil {
+		t.Fatal(err)
+	}
+	job, err = app.FindRecordById("learning_jobs", job.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.GetString("status") != "cancelled" {
+		t.Fatalf("job status=%q", job.GetString("status"))
+	}
+	episode, err = app.FindRecordById("podcast_episodes", episode.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if episode.GetString("status") != "cancelled" {
+		t.Fatalf("episode status=%q", episode.GetString("status"))
+	}
+}
+
+func TestRecoverLearningJobsResumesPodcastScriptSnapshot(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	owner := createTestRecord(t, app, "users", map[string]any{"email": "podcast-recover@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	episode, err := savePodcastEpisode(app, owner.Id, podcastCreateBody{Title: "Resume", Topic: "A saved snapshot"}, podcastOutline{}, podcastTranscript{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	episode.Set("status", "generating")
+	if err := app.Save(episode); err != nil {
+		t.Fatal(err)
+	}
+	job := createTestRecord(t, app, "learning_jobs", map[string]any{
+		"owner": owner.Id, "kind": "podcast_script", "status": "running", "progress": 40,
+		"payload": map[string]any{"episode_id": episode.Id, "title": "Resume", "topic": "A saved snapshot", "references": podcastContext{Gaps: []podcastReference{{Title: "Saved concept", Content: "A saved definition."}}}},
+	})
+	t.Setenv("STARBURST_LLM_BASE_URL", "")
+	t.Setenv("STARBURST_LLM_API_KEY", "")
+	t.Setenv("STARBURST_LLM_MODEL", "")
+	if err := recoverLearningJobs(app); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		job, err = app.FindRecordById("learning_jobs", job.Id)
+		if err == nil && (job.GetString("status") == "completed" || job.GetString("status") == "failed") {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil || job == nil || job.GetString("status") != "completed" {
+		t.Fatalf("recovered podcast job did not complete: %v", err)
+	}
+	episode, err = app.FindRecordById("podcast_episodes", episode.Id)
+	if err != nil || episode.GetString("status") != "ready" {
+		t.Fatalf("recovered podcast episode status=%v err=%v", episode, err)
+	}
+	var transcript podcastTranscript
+	err = episode.UnmarshalJSONField("transcript", &transcript)
+	transcriptData, marshalErr := json.Marshal(transcript)
+	if err != nil || marshalErr != nil || len(transcript.Turns) == 0 || !strings.Contains(string(transcriptData), "Saved concept") {
+		t.Fatalf("recovery did not use the persisted context snapshot: %#v err=%v marshalErr=%v", transcript, err, marshalErr)
 	}
 }
 
@@ -68,19 +161,48 @@ func TestPodcastGenerationUsesOwnerScopedDueKnowledgeGapsAndKeepsSnapshotOnRegen
 	if err := createPodcastEpisodeRoute(event); err != nil {
 		t.Fatalf("due-gap episode generation failed: %v", err)
 	}
-	if !strings.Contains(event.Response.(*httptest.ResponseRecorder).Body.String(), "Fraction equivalence") {
+	if event.Response.(*httptest.ResponseRecorder).Code != http.StatusAccepted {
+		t.Fatalf("podcast creation must return an accepted job, got %d", event.Response.(*httptest.ResponseRecorder).Code)
+	}
+	var queued map[string]any
+	if err := json.Unmarshal(event.Response.(*httptest.ResponseRecorder).Body.Bytes(), &queued); err != nil {
+		t.Fatal(err)
+	}
+	jobID := queued["id"].(string)
+	deadline := time.Now().Add(5 * time.Second)
+	var job *core.Record
+	for time.Now().Before(deadline) {
+		job, err = app.FindRecordById("learning_jobs", jobID)
+		if err == nil && (job.GetString("status") == "completed" || job.GetString("status") == "failed") {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil || job == nil || job.GetString("status") != "completed" {
+		t.Fatalf("podcast script job did not complete: %v status=%v", err, job)
+	}
+	var jobResult map[string]any
+	if err := job.UnmarshalJSONField("result", &jobResult); err != nil {
+		t.Fatal(err)
+	}
+	episodeID, _ := jobResult["episode_id"].(string)
+	episode, err := app.FindRecordById("podcast_episodes", episodeID)
+	if err != nil || episode.GetString("status") != "ready" {
+		t.Fatalf("completed job did not publish its episode: %v", err)
+	}
+	if !strings.Contains(fmt.Sprint(episode.Get("transcript")), "Fraction equivalence") {
 		t.Fatal("generated podcast did not use its selected due-gap context")
 	}
+	responseBytes, err := json.Marshal(podcastEpisodeExport(episode))
+	if err != nil {
+		t.Fatal(err)
+	}
 	var response map[string]any
-	if err := json.Unmarshal(event.Response.(*httptest.ResponseRecorder).Body.Bytes(), &response); err != nil {
+	if err := json.Unmarshal(responseBytes, &response); err != nil {
 		t.Fatal(err)
 	}
 	if got := response["knowledge_gap_ids"].([]any); len(got) != 1 || got[0] != unit.Id {
 		t.Fatalf("episode response omitted its knowledge gap: %#v", response["knowledge_gap_ids"])
-	}
-	episode, err := app.FindRecordById("podcast_episodes", response["id"].(string))
-	if err != nil {
-		t.Fatal(err)
 	}
 	if err := episode.UnmarshalJSONField("knowledge_gap_context", &references.Gaps); err != nil || len(references.Gaps) != 1 {
 		t.Fatalf("episode did not preserve the gap context snapshot: %#v %v", references.Gaps, err)
@@ -95,7 +217,26 @@ func TestPodcastGenerationUsesOwnerScopedDueKnowledgeGapsAndKeepsSnapshotOnRegen
 	if err := regeneratePodcastEpisodeRoute(event); err != nil {
 		t.Fatalf("regeneration should use the saved knowledge gap snapshot: %v", err)
 	}
-	if !strings.Contains(event.Response.(*httptest.ResponseRecorder).Body.String(), "Fraction equivalence") {
+	if event.Response.(*httptest.ResponseRecorder).Code != http.StatusAccepted {
+		t.Fatalf("regeneration should return an accepted job, got %d", event.Response.(*httptest.ResponseRecorder).Code)
+	}
+	var regeneration map[string]any
+	if err := json.Unmarshal(event.Response.(*httptest.ResponseRecorder).Body.Bytes(), &regeneration); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		job, err = app.FindRecordById("learning_jobs", regeneration["id"].(string))
+		if err == nil && (job.GetString("status") == "completed" || job.GetString("status") == "failed") {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil || job == nil || job.GetString("status") != "completed" {
+		t.Fatalf("podcast regeneration did not complete: %v", err)
+	}
+	episode, err = app.FindRecordById("podcast_episodes", episode.Id)
+	if err != nil || !strings.Contains(fmt.Sprint(episode.Get("transcript")), "Fraction equivalence") {
 		t.Fatal("regenerated podcast did not use its saved due-gap snapshot")
 	}
 

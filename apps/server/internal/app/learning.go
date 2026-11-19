@@ -2780,11 +2780,19 @@ func archiveNumber(value any) (float64, bool) {
 }
 
 func recoverLearningJobs(app core.App) error {
-	jobs, err := app.FindRecordsByFilter("learning_jobs", "kind = {:kind} && (status = {:queued} || status = {:running})", "", 100, 0, dbx.Params{"kind": "course_generation", "queued": "queued", "running": "running"})
+	jobs, err := app.FindRecordsByFilter("learning_jobs", "(kind = {:courseKind} || kind = {:podcastKind}) && (status = {:queued} || status = {:running})", "", 100, 0, dbx.Params{"courseKind": "course_generation", "podcastKind": "podcast_script", "queued": "queued", "running": "running"})
 	if err != nil {
 		return fmt.Errorf("could not recover learning jobs: %w", err)
 	}
 	for _, job := range jobs {
+		if job.GetString("kind") == "podcast_script" {
+			job.Set("status", "queued")
+			if err := app.Save(job); err != nil {
+				return err
+			}
+			launchPodcastScriptJob(app, job.Id)
+			continue
+		}
 		course, findErr := app.FindRecordsByFilter("courses", "id = {:id} && owner = {:owner}", "", 1, 0, dbx.Params{"id": job.GetString("course"), "owner": job.GetString("owner")})
 		if findErr != nil {
 			return findErr
@@ -2818,7 +2826,7 @@ func recoverLearningJobs(app core.App) error {
 }
 
 func isRecoverableLearningJob(kind, status string) bool {
-	return kind == "course_generation" && (status == "queued" || status == "running")
+	return (kind == "course_generation" || kind == "podcast_script") && (status == "queued" || status == "running")
 }
 
 func runCourseGenerationJob(ctx context.Context, app core.App, jobID, courseID, ownerID, title string, goals ...string) {
@@ -3036,6 +3044,19 @@ func cancelLearningJobRoute(event *core.RequestEvent) error {
 		cancelCourseGenerationWorker(job.Id)
 		if err := event.App.Save(job); err != nil {
 			return event.InternalServerError("could not cancel job", err)
+		}
+		if job.GetString("kind") == "podcast_script" {
+			var payload map[string]any
+			if job.UnmarshalJSONField("payload", &payload) == nil {
+				if episodeID, ok := payload["episode_id"].(string); ok {
+					if episode, findErr := event.App.FindRecordsByFilter("podcast_episodes", "id = {:id} && owner = {:owner}", "", 1, 0, dbx.Params{"id": episodeID, "owner": user.Id}); findErr == nil && len(episode) > 0 {
+						episode[0].Set("status", "cancelled")
+						if saveErr := event.App.Save(episode[0]); saveErr != nil {
+							return event.InternalServerError("could not cancel podcast episode", saveErr)
+						}
+					}
+				}
+			}
 		}
 	}
 	return event.JSON(http.StatusOK, job.PublicExport())

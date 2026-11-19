@@ -16,6 +16,7 @@ import (
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/filesystem"
+	"github.com/pocketbase/pocketbase/tools/router"
 	"github.com/slopstack/slopstack/apps/server/internal/wyoming"
 )
 
@@ -92,6 +93,7 @@ type podcastVoiceAssignments struct {
 type podcastListInput struct{}
 type podcastListOutput struct{ Body []podcastEpisode }
 type podcastSingleOutput struct{ Body podcastEpisode }
+type podcastJobOutput struct{ Body map[string]any }
 type podcastIDInput struct {
 	ID string `path:"id"`
 }
@@ -145,10 +147,10 @@ func registerPodcastAPI(api huma.API) {
 	security := []map[string][]string{{"pocketbaseAuth": {}}}
 	errorSet := []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusNotFound, http.StatusConflict, http.StatusInternalServerError}
 	huma.Register(api, huma.Operation{OperationID: "listPodcastEpisodes", Method: http.MethodGet, Path: "/api/audio/episodes", Tags: []string{"Audio"}, Summary: "List the current user's podcast episodes", Security: security, Errors: errorSet}, func(context.Context, *podcastListInput) (*podcastListOutput, error) { return nil, nil })
-	huma.Register(api, huma.Operation{OperationID: "createPodcastEpisode", Method: http.MethodPost, Path: "/api/audio/episodes", Tags: []string{"Audio"}, Summary: "Generate and save a podcast episode", Security: security, Errors: errorSet, DefaultStatus: http.StatusCreated}, func(context.Context, *podcastCreateInput) (*podcastSingleOutput, error) { return nil, nil })
+	huma.Register(api, huma.Operation{OperationID: "createPodcastEpisode", Method: http.MethodPost, Path: "/api/audio/episodes", Tags: []string{"Audio"}, Summary: "Queue generation of a podcast episode", Security: security, Errors: errorSet, DefaultStatus: http.StatusAccepted}, func(context.Context, *podcastCreateInput) (*podcastJobOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "getPodcastEpisode", Method: http.MethodGet, Path: "/api/audio/episodes/{id}", Tags: []string{"Audio"}, Summary: "Get an owned podcast episode", Security: security, Errors: errorSet}, func(context.Context, *podcastIDInput) (*podcastSingleOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "deletePodcastEpisode", Method: http.MethodDelete, Path: "/api/audio/episodes/{id}", Tags: []string{"Audio"}, Summary: "Delete an owned podcast episode", Security: security, Errors: errorSet, DefaultStatus: http.StatusNoContent}, func(context.Context, *podcastIDInput) (*podcastDeletedOutput, error) { return nil, nil })
-	huma.Register(api, huma.Operation{OperationID: "regeneratePodcastEpisode", Method: http.MethodPost, Path: "/api/audio/episodes/{id}/regenerate", Tags: []string{"Audio"}, Summary: "Regenerate an owned podcast episode", Security: security, Errors: errorSet}, func(context.Context, *podcastIDInput) (*podcastSingleOutput, error) { return nil, nil })
+	huma.Register(api, huma.Operation{OperationID: "regeneratePodcastEpisode", Method: http.MethodPost, Path: "/api/audio/episodes/{id}/regenerate", Tags: []string{"Audio"}, Summary: "Queue regeneration of an owned podcast episode", Security: security, Errors: errorSet, DefaultStatus: http.StatusAccepted}, func(context.Context, *podcastIDInput) (*podcastJobOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "updatePodcastScript", Method: http.MethodPut, Path: "/api/audio/episodes/{id}/script", Tags: []string{"Audio"}, Summary: "Save edits to an owned podcast outline and transcript", Security: security, Errors: errorSet}, func(context.Context, *podcastScriptInput) (*podcastSingleOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "updatePodcastVoices", Method: http.MethodPut, Path: "/api/audio/episodes/{id}/voices", Tags: []string{"Audio"}, Summary: "Save host and guest voices for an owned podcast episode", Security: security, Errors: errorSet}, func(context.Context, *podcastVoiceInput) (*podcastSingleOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "generatePodcastAudio", Method: http.MethodPost, Path: "/api/audio/episodes/{id}/audio", Tags: []string{"Audio"}, Summary: "Generate and persist complete WAV audio for an owned podcast episode", Security: security, Errors: errorSet, DefaultStatus: http.StatusCreated}, func(context.Context, *podcastAudioInput) (*podcastSingleOutput, error) { return nil, nil })
@@ -171,6 +173,9 @@ func updatePodcastVoicesRoute(event *core.RequestEvent) error {
 	record, err := findOwnedPodcastEpisode(event)
 	if err != nil {
 		return err
+	}
+	if record.GetString("status") == "generating" {
+		return router.NewApiError(http.StatusConflict, "podcast script is still generating", nil)
 	}
 	var input podcastVoiceAssignments
 	if err := decodePodcastBody(event, &input); err != nil {
@@ -197,6 +202,9 @@ func generatePodcastAudioRoute(config Config) func(*core.RequestEvent) error {
 		}
 		if record.GetString("audio") != "" {
 			return event.JSON(http.StatusOK, podcastEpisodeExport(record))
+		}
+		if record.GetString("status") == "generating" {
+			return router.NewApiError(http.StatusConflict, "podcast script is still generating", nil)
 		}
 		if _, loaded := podcastAudioGenerations.LoadOrStore(record.Id, struct{}{}); loaded {
 			return event.JSON(http.StatusConflict, map[string]string{"message": "podcast audio is already being generated"})
@@ -419,15 +427,156 @@ func createPodcastEpisodeRoute(event *core.RequestEvent) error {
 		return event.BadRequestError("a module requires a course selection", nil)
 	}
 	input.KnowledgeGapContext = references.Gaps
-	outline, transcript, err := generatePodcastScript(event.Request.Context(), input.Title, input.Topic, references)
-	if err != nil {
-		return event.InternalServerError("podcast generation failed", err)
-	}
-	record, err := savePodcastEpisode(event.App, user.Id, input, outline, transcript)
+	record, err := savePodcastEpisode(event.App, user.Id, input, podcastOutline{}, podcastTranscript{})
 	if err != nil {
 		return event.InternalServerError("could not save podcast episode", err)
 	}
-	return event.JSON(http.StatusCreated, podcastEpisodeExport(record))
+	record.Set("status", "generating")
+	if err := event.App.Save(record); err != nil {
+		_ = event.App.Delete(record)
+		return event.InternalServerError("could not queue podcast episode", err)
+	}
+	job, err := queuePodcastScriptJob(event.App, user.Id, record, input.Title, input.Topic, references)
+	if err != nil {
+		_ = event.App.Delete(record)
+		return event.InternalServerError("could not queue podcast generation", err)
+	}
+	return event.JSON(http.StatusAccepted, job.PublicExport())
+}
+
+func queuePodcastScriptJob(app core.App, ownerID string, episode *core.Record, title, topic string, references podcastContext) (*core.Record, error) {
+	active, err := app.FindRecordsByFilter("learning_jobs", "owner = {:owner} && kind = {:kind} && (status = {:queued} || status = {:running})", "-id", 100, 0, dbx.Params{"owner": ownerID, "kind": "podcast_script", "queued": "queued", "running": "running"})
+	if err != nil {
+		return nil, err
+	}
+	for _, job := range active {
+		var payload podcastScriptJobPayload
+		if job.UnmarshalJSONField("payload", &payload) == nil && payload.EpisodeID == episode.Id {
+			return job, nil
+		}
+	}
+	collection, err := app.FindCollectionByNameOrId("learning_jobs")
+	if err != nil {
+		return nil, err
+	}
+	job := core.NewRecord(collection)
+	job.Set("owner", ownerID)
+	job.Set("kind", "podcast_script")
+	job.Set("status", "queued")
+	job.Set("progress", 0)
+	job.Set("payload", map[string]any{"episode_id": episode.Id, "title": title, "topic": topic, "references": references})
+	if err := app.Save(job); err != nil {
+		return nil, err
+	}
+	launchPodcastScriptJob(app, job.Id)
+	return job, nil
+}
+
+type podcastScriptJobPayload struct {
+	EpisodeID  string         `json:"episode_id"`
+	Title      string         `json:"title"`
+	Topic      string         `json:"topic"`
+	References podcastContext `json:"references"`
+}
+
+func launchPodcastScriptJob(app core.App, jobID string) {
+	ctx, cancel := context.WithCancel(context.Background())
+	learningWorkerMu.Lock()
+	learningWorkerCancels[jobID] = cancel
+	learningWorkerMu.Unlock()
+	go func() {
+		defer func() {
+			learningWorkerMu.Lock()
+			delete(learningWorkerCancels, jobID)
+			learningWorkerMu.Unlock()
+		}()
+		select {
+		case learningWorkerSlots <- struct{}{}:
+			defer func() { <-learningWorkerSlots }()
+		case <-ctx.Done():
+			return
+		}
+		runPodcastScriptJob(ctx, app, jobID)
+	}()
+}
+
+func runPodcastScriptJob(ctx context.Context, app core.App, jobID string) {
+	job, err := app.FindRecordById("learning_jobs", jobID)
+	if err != nil || job.GetString("status") == "cancelled" {
+		return
+	}
+	var payload podcastScriptJobPayload
+	if err := job.UnmarshalJSONField("payload", &payload); err != nil || payload.EpisodeID == "" || payload.Title == "" || payload.Topic == "" {
+		failPodcastScriptJob(app, jobID, "podcast generation request is invalid")
+		return
+	}
+	episodes, err := app.FindRecordsByFilter("podcast_episodes", "id = {:id} && owner = {:owner}", "", 1, 0, dbx.Params{"id": payload.EpisodeID, "owner": job.GetString("owner")})
+	if err != nil || len(episodes) == 0 {
+		failPodcastScriptJob(app, jobID, "podcast episode no longer exists")
+		return
+	}
+	job.Set("status", "running")
+	job.Set("progress", 10)
+	job.Set("attempts", job.GetFloat("attempts")+1)
+	if err := app.Save(job); err != nil {
+		return
+	}
+	outline, transcript, err := generatePodcastScript(ctx, payload.Title, payload.Topic, payload.References)
+	if err != nil {
+		if ctx.Err() == nil {
+			failPodcastScriptJob(app, jobID, "podcast generation failed: "+err.Error())
+		}
+		return
+	}
+	if ctx.Err() != nil {
+		return
+	}
+	err = app.RunInTransaction(func(tx core.App) error {
+		currentJob, findErr := tx.FindRecordById("learning_jobs", jobID)
+		if findErr != nil || currentJob.GetString("status") == "cancelled" {
+			return fmt.Errorf("podcast job was cancelled")
+		}
+		currentEpisode, findErr := tx.FindRecordById("podcast_episodes", payload.EpisodeID)
+		if findErr != nil || currentEpisode.GetString("owner") != currentJob.GetString("owner") {
+			return fmt.Errorf("podcast episode no longer exists")
+		}
+		currentEpisode.Set("outline", outline)
+		currentEpisode.Set("transcript", transcript)
+		currentEpisode.Set("duration_seconds", podcastDuration(transcript))
+		currentEpisode.Set("status", "ready")
+		if err := tx.Save(currentEpisode); err != nil {
+			return err
+		}
+		currentJob.Set("status", "completed")
+		currentJob.Set("progress", 100)
+		currentJob.Set("result", map[string]any{"episode_id": payload.EpisodeID})
+		return tx.Save(currentJob)
+	})
+	if err != nil {
+		failPodcastScriptJob(app, jobID, "could not save generated podcast")
+	}
+}
+
+func failPodcastScriptJob(app core.App, jobID, message string) {
+	_ = app.RunInTransaction(func(tx core.App) error {
+		job, err := tx.FindRecordById("learning_jobs", jobID)
+		if err != nil || job.GetString("status") == "cancelled" {
+			return nil
+		}
+		var payload podcastScriptJobPayload
+		_ = job.UnmarshalJSONField("payload", &payload)
+		if payload.EpisodeID != "" {
+			if episode, findErr := tx.FindRecordsByFilter("podcast_episodes", "id = {:id} && owner = {:owner}", "", 1, 0, dbx.Params{"id": payload.EpisodeID, "owner": job.GetString("owner")}); findErr == nil && len(episode) > 0 {
+				episode[0].Set("status", "failed")
+				if saveErr := tx.Save(episode[0]); saveErr != nil {
+					return saveErr
+				}
+			}
+		}
+		job.Set("status", "failed")
+		job.Set("error", message)
+		return tx.Save(job)
+	})
 }
 
 func getPodcastEpisodeRoute(event *core.RequestEvent) error {
@@ -443,6 +592,24 @@ func deletePodcastEpisodeRoute(event *core.RequestEvent) error {
 	if err != nil {
 		return err
 	}
+	user, err := CurrentUser(event)
+	if err != nil {
+		return err
+	}
+	jobs, err := event.App.FindRecordsByFilter("learning_jobs", "owner = {:owner} && kind = {:kind} && (status = {:queued} || status = {:running})", "", 100, 0, dbx.Params{"owner": user.Id, "kind": "podcast_script", "queued": "queued", "running": "running"})
+	if err != nil {
+		return event.InternalServerError("could not check podcast jobs", err)
+	}
+	for _, job := range jobs {
+		var payload podcastScriptJobPayload
+		if job.UnmarshalJSONField("payload", &payload) == nil && payload.EpisodeID == record.Id {
+			job.Set("status", "cancelled")
+			if err := event.App.Save(job); err != nil {
+				return event.InternalServerError("could not cancel podcast job", err)
+			}
+			cancelCourseGenerationWorker(job.Id)
+		}
+	}
 	if err := event.App.Delete(record); err != nil {
 		return event.InternalServerError("could not delete podcast episode", err)
 	}
@@ -453,6 +620,9 @@ func regeneratePodcastEpisodeRoute(event *core.RequestEvent) error {
 	record, err := findOwnedPodcastEpisode(event)
 	if err != nil {
 		return err
+	}
+	if record.GetString("status") == "generating" {
+		return router.NewApiError(http.StatusConflict, "podcast script is already generating", nil)
 	}
 	user, err := CurrentUser(event)
 	if err != nil {
@@ -482,26 +652,26 @@ func regeneratePodcastEpisodeRoute(event *core.RequestEvent) error {
 	if err := record.UnmarshalJSONField("knowledge_gap_context", &references.Gaps); err != nil {
 		return event.InternalServerError("stored podcast knowledge gap context is invalid", err)
 	}
-	outline, transcript, err := generatePodcastScript(event.Request.Context(), input.Title, input.Topic, references)
-	if err != nil {
-		return event.InternalServerError("podcast generation failed", err)
-	}
-	record.Set("outline", outline)
-	record.Set("transcript", transcript)
-	record.Set("duration_seconds", podcastDuration(transcript))
-	record.Set("status", "ready")
+	record.Set("status", "generating")
 	record.Set("audio", "")
 	record.Set("audio_metadata", nil)
 	if err := event.App.Save(record); err != nil {
-		return event.InternalServerError("could not save regenerated podcast", err)
+		return event.InternalServerError("could not queue regenerated podcast", err)
 	}
-	return event.JSON(http.StatusOK, podcastEpisodeExport(record))
+	job, err := queuePodcastScriptJob(event.App, user.Id, record, input.Title, input.Topic, references)
+	if err != nil {
+		return event.InternalServerError("could not queue regenerated podcast", err)
+	}
+	return event.JSON(http.StatusAccepted, job.PublicExport())
 }
 
 func updatePodcastScriptRoute(event *core.RequestEvent) error {
 	record, err := findOwnedPodcastEpisode(event)
 	if err != nil {
 		return err
+	}
+	if record.GetString("status") == "generating" {
+		return router.NewApiError(http.StatusConflict, "podcast script is still generating", nil)
 	}
 	var input podcastScriptBody
 	if err := decodePodcastBodyLimit(event, &input, maxPodcastScriptBody); err != nil {
