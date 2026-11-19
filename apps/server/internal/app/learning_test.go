@@ -928,6 +928,7 @@ func TestLearningArchiveImportIncludesPodcastAndPreferencesAndRemapsLinks(t *tes
 			"id": "episode-old", "title": "Space notes", "topic": "Stars and galaxies", "status": "ready",
 			"source_ids": []string{"source-old", "foreign-source"}, "concept_ids": []string{"unit-old", "foreign-unit"},
 			"outline": outline, "transcript": transcript, "duration_seconds": 1,
+			"course_context": map[string]any{"title": "Imported course — Module", "content": "Grounded objective."},
 		}},
 	}
 	body, err := json.Marshal(archive)
@@ -960,6 +961,10 @@ func TestLearningArchiveImportIncludesPodcastAndPreferencesAndRemapsLinks(t *tes
 	}
 	if podcasts[0].GetString("owner") != user.Id || podcasts[0].GetString("status") != "ready" || podcasts[0].GetFloat("duration_seconds") == 1 {
 		t.Fatalf("podcast archive data was not safely restored: %#v", podcasts[0].PublicExport())
+	}
+	var restoredContext podcastReference
+	if err := podcasts[0].UnmarshalJSONField("course_context", &restoredContext); err != nil || restoredContext.Title != "Imported course — Module" || restoredContext.Content != "Grounded objective." {
+		t.Fatalf("podcast course context was not restored: %#v err=%v", restoredContext, err)
 	}
 	otherPodcasts, err := app.FindRecordsByFilter("podcast_episodes", "owner = {:owner}", "", 0, 0, dbx.Params{"owner": other.Id})
 	if err != nil || len(otherPodcasts) != 0 {

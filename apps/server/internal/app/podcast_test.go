@@ -28,6 +28,37 @@ func TestPodcastFixtureAndScriptValidation(t *testing.T) {
 	}
 }
 
+func TestPodcastCourseContextIsOwnerScopedAndModuleBounded(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	owner := createTestRecord(t, app, "users", map[string]any{"email": "pod-course@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	other := createTestRecord(t, app, "users", map[string]any{"email": "pod-other@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	content := map[string]any{"modules": []any{
+		map[string]any{"id": "m1", "title": "Foundations", "objectives": []any{"Name the parts"}, "scenes": []any{map[string]any{"title": "First scene", "widget": map[string]any{"config": map[string]any{"body": "Explain the key parts."}}}}},
+		map[string]any{"id": "m2", "title": "Applications", "objectives": []any{"Apply the model"}, "scenes": []any{map[string]any{"title": "Second scene", "widget": map[string]any{"config": map[string]any{"body": "Test a new example."}}}}},
+	}}
+	course := createTestRecord(t, app, "courses", map[string]any{"owner": owner.Id, "title": "Learning models", "content": content})
+	reference, err := loadPodcastCourseContext(app, owner.Id, course.Id, "m2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reference.Title != "Learning models — Applications" || !strings.Contains(reference.Content, "Test a new example") || strings.Contains(reference.Content, "Explain the key parts") {
+		t.Fatalf("module context was not bounded: %#v", reference)
+	}
+	if _, err := loadPodcastCourseContext(app, other.Id, course.Id, ""); err == nil {
+		t.Fatal("another owner's course context was returned")
+	}
+	if _, err := loadPodcastCourseContext(app, owner.Id, course.Id, "missing"); err == nil {
+		t.Fatal("missing module should fail")
+	}
+}
+
 func TestPodcastOpenAPIContracts(t *testing.T) {
 	api := humago.New(http.NewServeMux(), huma.DefaultConfig("Starburst API", "test"))
 	api.OpenAPI().Components.SecuritySchemes = map[string]*huma.SecurityScheme{"pocketbaseAuth": {Type: "http", Scheme: "bearer", BearerFormat: "JWT"}}

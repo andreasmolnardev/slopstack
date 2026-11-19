@@ -2145,11 +2145,23 @@ func importLearningDataRoute(event *core.RequestEvent) error {
 			if len(mappedSourceIDs) > maxPodcastSources || len(mappedConceptIDs) > maxPodcastConcepts {
 				return fmt.Errorf("podcast episode has too many linked sources or concepts")
 			}
-			if _, saveErr := create("podcast_episodes", map[string]any{
+			var courseContext *podcastReference
+			if rawContext, exists := values["course_context"]; exists && rawContext != nil {
+				decoded, decodeErr := decodePodcastArchiveObject[podcastReference](rawContext)
+				if decodeErr != nil || strings.TrimSpace(decoded.Title) == "" || strings.TrimSpace(decoded.Content) == "" || len([]rune(decoded.Title)) > 300 || len([]rune(decoded.Content)) > 12_000 {
+					return fmt.Errorf("invalid podcast course context")
+				}
+				courseContext = &decoded
+			}
+			fields := map[string]any{
 				"title": title, "topic": topic, "status": "ready", "source_ids": mappedSourceIDs,
 				"concept_ids": mappedConceptIDs, "outline": outline, "transcript": transcript,
 				"duration_seconds": podcastDuration(transcript),
-			}); saveErr != nil {
+			}
+			if courseContext != nil {
+				fields["course_context"] = courseContext
+			}
+			if _, saveErr := create("podcast_episodes", fields); saveErr != nil {
 				return saveErr
 			}
 		}

@@ -28,10 +28,13 @@ const (
 )
 
 type podcastCreateBody struct {
-	Title      string   `json:"title"`
-	Topic      string   `json:"topic"`
-	SourceIDs  []string `json:"source_ids,omitempty"`
-	ConceptIDs []string `json:"concept_ids,omitempty"`
+	Title         string            `json:"title"`
+	Topic         string            `json:"topic"`
+	SourceIDs     []string          `json:"source_ids,omitempty"`
+	ConceptIDs    []string          `json:"concept_ids,omitempty"`
+	CourseID      string            `json:"course_id,omitempty"`
+	ModuleID      string            `json:"module_id,omitempty"`
+	CourseContext *podcastReference `json:"-"`
 }
 
 type podcastSegment struct {
@@ -108,6 +111,7 @@ type podcastReference struct {
 type podcastContext struct {
 	Sources  []podcastReference `json:"sources,omitempty"`
 	Concepts []podcastReference `json:"concepts,omitempty"`
+	Course   *podcastReference  `json:"course,omitempty"`
 }
 
 type podcastLLMConfig struct {
@@ -225,6 +229,16 @@ func createPodcastEpisodeRoute(event *core.RequestEvent) error {
 	if err != nil {
 		return event.BadRequestError("selected sources or concepts are unavailable", err)
 	}
+	if input.CourseID != "" {
+		reference, contextErr := loadPodcastCourseContext(event.App, user.Id, input.CourseID, input.ModuleID)
+		if contextErr != nil {
+			return event.BadRequestError("selected course or module is unavailable", contextErr)
+		}
+		input.CourseContext = &reference
+		references.Course = &reference
+	} else if input.ModuleID != "" {
+		return event.BadRequestError("a module requires a course selection", nil)
+	}
 	outline, transcript, err := generatePodcastScript(event.Request.Context(), input.Title, input.Topic, references)
 	if err != nil {
 		return event.InternalServerError("podcast generation failed", err)
@@ -274,6 +288,13 @@ func regeneratePodcastEpisodeRoute(event *core.RequestEvent) error {
 	references, err := loadPodcastReferences(event.App, user.Id, input.SourceIDs, input.ConceptIDs)
 	if err != nil {
 		return event.BadRequestError("a selected source or concept is no longer available", err)
+	}
+	var courseContext podcastReference
+	if err := record.UnmarshalJSONField("course_context", &courseContext); err != nil {
+		return event.InternalServerError("stored podcast course context is invalid", err)
+	}
+	if courseContext.Title != "" {
+		references.Course = &courseContext
 	}
 	outline, transcript, err := generatePodcastScript(event.Request.Context(), input.Title, input.Topic, references)
 	if err != nil {
@@ -430,6 +451,72 @@ func loadPodcastReferences(app core.App, ownerID string, sourceIDs, conceptIDs [
 		return podcastContext{}, fmt.Errorf("selected context is too large")
 	}
 	return result, nil
+}
+
+func loadPodcastCourseContext(app core.App, ownerID, courseID, moduleID string) (podcastReference, error) {
+	records, err := app.FindRecordsByFilter("courses", "id = {:id} && owner = {:owner}", "", 1, 0, dbx.Params{"id": courseID, "owner": ownerID})
+	if err != nil {
+		return podcastReference{}, err
+	}
+	if len(records) == 0 {
+		return podcastReference{}, fmt.Errorf("course not found")
+	}
+	var content map[string]any
+	if err := records[0].UnmarshalJSONField("content", &content); err != nil {
+		return podcastReference{}, err
+	}
+	modules, _ := content["modules"].([]any)
+	selected := make([]string, 0, len(modules))
+	found := moduleID == ""
+	for _, raw := range modules {
+		module, _ := raw.(map[string]any)
+		id, _ := module["id"].(string)
+		if moduleID != "" && id != moduleID {
+			continue
+		}
+		if moduleID != "" {
+			found = true
+		}
+		title, _ := module["title"].(string)
+		selected = append(selected, "Module: "+title)
+		for _, objective := range assessmentStrings(module["objectives"]) {
+			selected = append(selected, "Objective: "+objective)
+		}
+		scenes, _ := module["scenes"].([]any)
+		for _, rawScene := range scenes {
+			scene, _ := rawScene.(map[string]any)
+			sceneTitle, _ := scene["title"].(string)
+			if sceneTitle != "" {
+				selected = append(selected, "Scene: "+sceneTitle)
+			}
+			widget, _ := scene["widget"].(map[string]any)
+			config, _ := widget["config"].(map[string]any)
+			for _, key := range []string{"body", "prompt", "question"} {
+				if value, ok := config[key].(string); ok && strings.TrimSpace(value) != "" {
+					selected = append(selected, truncateRunes(strings.TrimSpace(value), 500))
+				}
+			}
+		}
+	}
+	if !found {
+		return podcastReference{}, fmt.Errorf("module not found")
+	}
+	text := truncateRunes(strings.Join(selected, "\n"), 12_000)
+	if text == "" {
+		return podcastReference{}, fmt.Errorf("course has no usable learning content")
+	}
+	title := records[0].GetString("title")
+	if moduleID != "" {
+		for _, raw := range modules {
+			if module, ok := raw.(map[string]any); ok && module["id"] == moduleID {
+				if name, ok := module["title"].(string); ok {
+					title += " — " + name
+				}
+				break
+			}
+		}
+	}
+	return podcastReference{Title: title, Content: text}, nil
 }
 
 func truncatePodcastContext(value string, limit int) string {
@@ -643,6 +730,9 @@ func savePodcastEpisode(app core.App, ownerID string, input podcastCreateBody, o
 	record.Set("status", "ready")
 	record.Set("source_ids", input.SourceIDs)
 	record.Set("concept_ids", input.ConceptIDs)
+	if input.CourseContext != nil {
+		record.Set("course_context", input.CourseContext)
+	}
 	record.Set("outline", outline)
 	record.Set("transcript", transcript)
 	record.Set("duration_seconds", podcastDuration(transcript))
@@ -673,5 +763,6 @@ func podcastEpisodeExport(record *core.Record) map[string]any {
 		"id": record.Id, "title": record.GetString("title"), "topic": record.GetString("topic"), "status": record.GetString("status"),
 		"source_ids": record.Get("source_ids"), "concept_ids": record.Get("concept_ids"), "outline": record.Get("outline"),
 		"transcript": record.Get("transcript"), "duration_seconds": record.GetFloat("duration_seconds"), "voice_assignments": voiceAssignments,
+		"course_context": record.Get("course_context"),
 	}
 }

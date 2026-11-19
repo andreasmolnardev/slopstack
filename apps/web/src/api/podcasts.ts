@@ -10,7 +10,7 @@ export type PodcastEpisode = {
   concept_ids: string[]; outline: { title: string; summary: string; segments: { title: string; talking_points: string[] }[] };
   transcript: { turns: PodcastTurn[] }; duration_seconds: number; voice_assignments: PodcastVoiceAssignments;
 };
-export type PodcastDraft = { title: string; topic: string; source_ids: string[]; concept_ids: string[] };
+export type PodcastDraft = { title: string; topic: string; source_ids: string[]; concept_ids: string[]; course_id?: string; module_id?: string };
 export type PodcastScriptDraft = Pick<PodcastEpisode, 'outline' | 'transcript'>;
 
 export const podcastQueryOptions = {
