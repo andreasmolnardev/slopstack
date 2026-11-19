@@ -223,6 +223,7 @@ type OfflineQuestion = {
   id: string;
   type: string;
   prompt: string;
+  audio_text?: string;
   objective?: string;
   points?: number;
   choices?: string[];
@@ -258,6 +259,15 @@ function OfflineAssessment({ download, ownerId, onExit, onSubmit }: {
 
   function answer(question: OfflineQuestion, value: unknown) {
     setAnswers((current) => ({ ...current, [question.id]: value }));
+  }
+
+  function playListening(question: OfflineQuestion) {
+    if (!('speechSynthesis' in window)) {
+      setNotice('This browser has no installed speech voice for offline listening.');
+      return;
+    }
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(new SpeechSynthesisUtterance(question.audio_text ?? ''));
   }
 
   async function submit(event: React.FormEvent) {
@@ -297,12 +307,14 @@ function OfflineAssessment({ download, ownerId, onExit, onSubmit }: {
           <legend className="px-1 text-sm text-[#efc778]">Question {index + 1} · {question.type.replaceAll('_', ' ')}</legend>
           <p className="font-medium">{question.prompt}</p>
           {question.objective && <p className="mt-1 text-xs text-[#b7adcc]">{question.objective}</p>}
+          {question.type === 'listening' && <button type="button" onClick={() => playListening(question)} className="mt-3 rounded bg-[#6350c8] px-3 py-2">Listen to prompt</button>}
+          {question.type === 'listening' && <div className="mt-3 grid gap-2">{question.choices?.map((choice) => <label key={choice} className="flex gap-2 text-sm"><input type="radio" name={question.id} checked={answers[question.id] === choice} onChange={() => answer(question, choice)}/>{choice}</label>)}</div>}
           {question.type === 'multiple_choice' && <select required aria-label={`Answer question ${index + 1}`} value={String(answers[question.id] ?? '')} onChange={(event) => answer(question, event.target.value)} className="mt-3 w-full rounded-lg bg-[#0e0621] p-3"><option value="">Choose an answer</option>{question.choices?.map((choice) => <option key={choice} value={choice}>{choice}</option>)}</select>}
           {question.type === 'true_false' && <select required aria-label={`Answer question ${index + 1}`} value={answers[question.id] === undefined ? '' : String(answers[question.id])} onChange={(event) => answer(question, event.target.value === 'true')} className="mt-3 rounded-lg bg-[#0e0621] p-3"><option value="">Choose true or false</option><option value="true">True</option><option value="false">False</option></select>}
           {question.type === 'multiple_select' && <div className="mt-3 grid gap-2">{question.choices?.map((choice) => { const selected = (answers[question.id] as string[] | undefined) ?? []; return <label key={choice} className="flex gap-2 text-sm"><input type="checkbox" checked={selected.includes(choice)} onChange={(event) => answer(question, event.target.checked ? [...selected, choice] : selected.filter((item) => item !== choice))}/>{choice}</label>; })}</div>}
           {question.type === 'ordering' && <div className="mt-3 grid gap-2"><p className="text-xs text-[#b7adcc]">Enter the items in the order you choose, separated by commas.</p><input aria-label={`Ordered answer for question ${index + 1}`} value={Array.isArray(answers[question.id]) ? (answers[question.id] as string[]).join(', ') : (answers[question.id] as string | undefined) ?? ''} onChange={(event) => answer(question, event.target.value.split(',').map((item) => item.trim()).filter(Boolean))} className="rounded-lg bg-[#0e0621] p-3" placeholder={question.items?.join(', ')}/></div>}
           {question.type === 'matching' && <div className="mt-3 grid gap-2">{question.left_items?.map((left) => <label key={left} className="grid gap-1 text-sm sm:grid-cols-[1fr_1fr] sm:items-center"><span>{left}</span><select required aria-label={`Match ${left}`} value={(answers[question.id] as Record<string, string> | undefined)?.[left] ?? ''} onChange={(event) => answer(question, { ...answers[question.id] as Record<string, string>, [left]: event.target.value })} className="rounded-lg bg-[#0e0621] p-2"><option value="">Choose a match</option>{question.right_items?.map((right) => <option key={right} value={right}>{right}</option>)}</select></label>)}</div>}
-          {!['multiple_choice', 'true_false', 'multiple_select', 'ordering', 'matching'].includes(question.type) && <input required aria-label={`Answer question ${index + 1}`} value={String(answers[question.id] ?? '')} onChange={(event) => answer(question, event.target.value)} className="mt-3 w-full rounded-lg bg-[#0e0621] p-3" placeholder="Your answer"/>}
+          {!['multiple_choice', 'listening', 'true_false', 'multiple_select', 'ordering', 'matching'].includes(question.type) && <input required aria-label={`Answer question ${index + 1}`} value={String(answers[question.id] ?? '')} onChange={(event) => answer(question, event.target.value)} className="mt-3 w-full rounded-lg bg-[#0e0621] p-3" placeholder="Your answer"/>}
         </fieldset>)}
         {questions.length === 0 && <p className="rounded-xl border border-dashed border-white/15 p-5">This download has no assessment questions.</p>}
         <div className="flex flex-wrap gap-3"><button disabled={busy || submitted || questions.length === 0 || !allAnswered} className="rounded-lg bg-[#6350c8] px-4 py-2 disabled:opacity-50">{busy ? 'Saving…' : submitted ? 'Assessment saved' : 'Submit for grading'}</button><button type="button" onClick={onExit} className="rounded-lg border border-white/15 px-4 py-2">Back</button></div>

@@ -145,10 +145,11 @@ describe('offline learning storage', () => {
         { id: 'mc', correct_answer: 'x', correct_answers: ['x'], accepted_answers: ['x'], rationale: 'why' },
         { id: 'order', correct_order: ['a', 'b'] },
         { id: 'match', correct_matches: { a: 'b' } },
+        { id: 'listen', type: 'listening', audio_text: 'The train arrives at noon.', choices: ['At noon', 'At two'], correct_answer: 'At noon' },
       ] } }] },
     });
     const questions = (safe.content?.modules as { assessment: { questions: Record<string, unknown>[] } }[])[0].assessment.questions;
-    expect(questions).toEqual([{ id: 'mc' }, { id: 'order' }, { id: 'match' }]);
+    expect(questions).toEqual([{ id: 'mc' }, { id: 'order' }, { id: 'match' }, { id: 'listen', type: 'listening', audio_text: 'The train arrives at noon.', choices: ['At noon', 'At two'] }]);
   });
 
   it('queues assessments by owner and submits only once when connectivity returns', async () => {

@@ -132,6 +132,8 @@ func TestAssessmentAnswerEvaluationTypes(t *testing.T) {
 		correct  bool
 	}{
 		{"choice", map[string]any{"type": "multiple_choice", "correct_answer": "a"}, "a", true},
+		{"listening choice", map[string]any{"type": "listening", "correct_answer": "the train arrives at noon"}, "the train arrives at noon", true},
+		{"listening wrong choice", map[string]any{"type": "listening", "correct_answer": "the train arrives at noon"}, "the train arrives at two", false},
 		{"multi select order independent", map[string]any{"type": "multiple_select", "correct_answers": []string{"a", "b"}}, []any{"b", "a"}, true},
 		{"multi select exact set", map[string]any{"type": "multiple_select", "correct_answers": []string{"a", "b"}}, []any{"a"}, false},
 		{"boolean", map[string]any{"type": "true_false", "correct_answer": true}, true, true},
@@ -161,6 +163,7 @@ func TestExpandedAssessmentTypesValidateAndKeepAnswerKeysPrivate(t *testing.T) {
 		"id": "module-one", "objectives": []any{"Apply the idea"},
 		"assessment": map[string]any{"questions": []any{
 			map[string]any{"id": "fill", "type": "fill_blank", "prompt": "Fill the missing word.", "objective": "Apply the idea", "accepted_answers": []any{"answer"}, "points": float64(1)},
+			map[string]any{"id": "listen", "type": "listening", "prompt": "Listen and choose the arrival time.", "objective": "Apply the idea", "audio_text": "The train arrives at noon.", "choices": []any{"At noon", "At two"}, "correct_answer": "At noon", "rationale": "The speaker says noon.", "points": float64(1)},
 			map[string]any{"id": "grammar", "type": "grammar_transform", "prompt": "Change the sentence to the present perfect: She goes home.", "objective": "Apply the idea", "accepted_answers": []any{"She has gone home."}, "points": float64(1)},
 			map[string]any{"id": "formula", "type": "formula", "prompt": "Enter the simplified expression.", "objective": "Apply the idea", "correct_answer": "x*(x+1)", "accepted_answers": []any{"x^2+x"}, "solution": "x squared plus x", "points": float64(1)},
 			map[string]any{"id": "order", "type": "ordering", "prompt": "Order the process.", "objective": "Apply the idea", "items": []any{"observe", "model", "test"}, "correct_order": []any{"observe", "model", "test"}, "points": float64(1)},
@@ -178,22 +181,29 @@ func TestExpandedAssessmentTypesValidateAndKeepAnswerKeysPrivate(t *testing.T) {
 	for _, indexAndKey := range []struct {
 		index int
 		key   string
-	}{{0, "accepted_answers"}, {1, "correct_answer"}, {1, "accepted_answers"}, {3, "correct_order"}, {4, "correct_matches"}} {
+	}{{0, "accepted_answers"}, {1, "correct_answer"}, {1, "accepted_answers"}, {4, "correct_order"}, {5, "correct_matches"}} {
 		question := publicQuestions[indexAndKey.index].(map[string]any)
 		if _, leaked := question[indexAndKey.key]; leaked {
 			t.Fatalf("public question %q exposed private field %q", question["id"], indexAndKey.key)
 		}
 	}
+	listening := publicQuestions[1].(map[string]any)
+	if listening["audio_text"] != "The train arrives at noon." || listening["choices"] == nil {
+		t.Fatalf("listening prompt fields were not published: %#v", listening)
+	}
+	if _, leaked := listening["correct_answer"]; leaked {
+		t.Fatal("listening answer key was exposed")
+	}
 	privateQuestions := groups[0]["questions"].([]map[string]any)
 	if _, leaked := publicQuestions[1].(map[string]any)["solution"]; leaked {
 		t.Fatal("public question renderer allowed an unknown private field through")
 	}
-	publicOrder := assessmentStrings(publicQuestions[3].(map[string]any)["items"])
-	correctOrder := assessmentStrings(privateQuestions[3]["correct_order"])
+	publicOrder := assessmentStrings(publicQuestions[4].(map[string]any)["items"])
+	correctOrder := assessmentStrings(privateQuestions[4]["correct_order"])
 	if equalStringOrder(publicOrder, correctOrder) {
 		t.Fatal("public ordering items still reveal the answer order")
 	}
-	if _, exists := privateQuestions[4]["correct_matches"]; !exists {
+	if _, exists := privateQuestions[5]["correct_matches"]; !exists {
 		t.Fatal("private matching key was not preserved")
 	}
 	bad := map[string]any{"modules": []any{map[string]any{"objectives": []any{"Apply the idea"}, "assessment": map[string]any{"questions": []any{map[string]any{"id": "broken", "type": "matching", "prompt": "Match.", "objective": "Apply the idea", "left_items": []any{"a", "b"}, "right_items": []any{"x", "y"}, "correct_matches": map[string]any{"a": "x"}, "points": float64(1)}}}}}}

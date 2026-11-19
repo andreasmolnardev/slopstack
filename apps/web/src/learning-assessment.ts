@@ -2,6 +2,7 @@ export type AssessmentQuestion = {
   id: string;
   type: string;
   prompt: string;
+  audio_text?: string;
   objective: string;
   points: number;
   choices?: string[];
