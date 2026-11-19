@@ -57,7 +57,7 @@ Offline lesson downloads can optionally include Piper narration generated with t
 
 ## Adaptive practice
 
-`POST /api/learning/practice/quizzes` creates a private recall quiz from `selected`, `due`, `weak`, or `mixed` knowledge units. The response contains question choices and progressive hints without answer keys. Submit choices to `POST /api/learning/practice/quizzes/{id}/submit`; the owner-scoped response includes scoring, targeted remediation, and evidence updates.
+`POST /api/learning/practice/quizzes` creates a private recall quiz from `selected`, `due`, `weak`, `gap`, `mixed`, `course`, or `module` knowledge units. `course` and `module` modes require an owned `course_id`; `module` also requires its `module_id`. Course and module modes include up to 40 generated course concepts; other modes include up to 20 concepts. The response contains question choices and progressive hints without answer keys. Submit one choice for every question to `POST /api/learning/practice/quizzes/{id}/submit`; scoring, mastery changes, review scheduling, and quiz completion are saved atomically.
 
 ## Source editing
 

@@ -17,7 +17,12 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-const maxPracticeUnits = 20
+const (
+	maxPracticeUnits       = 20
+	maxCoursePracticeUnits = 40
+	weakPracticeThreshold  = 0.6
+	gapPracticeThreshold   = 0.5
+)
 
 type practiceQuestion struct {
 	ID            string   `json:"id"`
@@ -41,8 +46,10 @@ type practiceQuestionPublic struct {
 
 type adaptivePracticeCreateInput struct {
 	Body struct {
-		Mode    string   `json:"mode"`
-		UnitIDs []string `json:"unit_ids,omitempty"`
+		Mode     string   `json:"mode"`
+		UnitIDs  []string `json:"unit_ids,omitempty"`
+		CourseID string   `json:"course_id,omitempty"`
+		ModuleID string   `json:"module_id,omitempty"`
 	} `json:"body"`
 }
 
@@ -57,7 +64,7 @@ type adaptivePracticeOutput struct{ Body map[string]any }
 
 func registerAdaptivePracticeAPI(api huma.API) {
 	security := []map[string][]string{{"pocketbaseAuth": {}}}
-	huma.Register(api, huma.Operation{OperationID: "createAdaptivePracticeQuiz", Method: http.MethodPost, Path: "/api/learning/practice/quizzes", Tags: []string{"Learning"}, Summary: "Create a private adaptive practice quiz", Security: security, Errors: []int{http.StatusBadRequest, http.StatusUnauthorized}, DefaultStatus: http.StatusCreated}, func(context.Context, *adaptivePracticeCreateInput) (*adaptivePracticeOutput, error) { return nil, nil })
+	huma.Register(api, huma.Operation{OperationID: "createAdaptivePracticeQuiz", Method: http.MethodPost, Path: "/api/learning/practice/quizzes", Tags: []string{"Learning"}, Summary: "Create a private adaptive practice quiz", Security: security, Errors: []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusNotFound}, DefaultStatus: http.StatusCreated}, func(context.Context, *adaptivePracticeCreateInput) (*adaptivePracticeOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "submitAdaptivePracticeQuiz", Method: http.MethodPost, Path: "/api/learning/practice/quizzes/{id}/submit", Tags: []string{"Learning"}, Summary: "Score an adaptive practice quiz", Security: security, Errors: []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusNotFound}}, func(context.Context, *adaptivePracticeIDInput) (*adaptivePracticeOutput, error) { return nil, nil })
 }
 
@@ -118,15 +125,30 @@ func createAdaptivePracticeQuizRoute(event *core.RequestEvent) error {
 	if mode == "" {
 		mode = "selected"
 	}
-	units, err := selectPracticeUnits(event.App, user.Id, mode, input.Body.UnitIDs)
+	var units []*core.Record
+	if mode == "course" || mode == "module" {
+		if len(input.Body.UnitIDs) > 0 {
+			return event.BadRequestError("course and module practice do not accept unit_ids", nil)
+		}
+		units, err = selectCoursePracticeUnits(event.App, user.Id, input.Body.CourseID, input.Body.ModuleID, mode == "module")
+	} else {
+		if input.Body.CourseID != "" || input.Body.ModuleID != "" {
+			return event.BadRequestError("course_id and module_id require course or module practice mode", nil)
+		}
+		units, err = selectPracticeUnits(event.App, user.Id, mode, input.Body.UnitIDs)
+	}
 	if err != nil {
 		return event.BadRequestError("invalid practice selection", err)
 	}
 	if len(units) == 0 {
 		return event.BadRequestError("no knowledge items match this practice selection", nil)
 	}
-	if len(units) > maxPracticeUnits {
-		return event.BadRequestError(fmt.Sprintf("select no more than %d knowledge items", maxPracticeUnits), nil)
+	unitLimit := maxPracticeUnits
+	if mode == "course" || mode == "module" {
+		unitLimit = maxCoursePracticeUnits
+	}
+	if len(units) > unitLimit {
+		return event.BadRequestError(fmt.Sprintf("practice is limited to %d knowledge items", unitLimit), nil)
 	}
 	questions := makePracticeQuestions(units)
 	if len(questions) == 0 {
@@ -149,7 +171,6 @@ func createAdaptivePracticeQuizRoute(event *core.RequestEvent) error {
 	for _, question := range questions {
 		answerKeys[question.ID] = question.CorrectChoice
 		publicQuestions = append(publicQuestions, practiceQuestionPublic{ID: question.ID, UnitID: question.UnitID, UnitTitle: question.UnitTitle, Prompt: question.Prompt, Options: question.Options, Hints: question.Hints})
-		question.CorrectChoice = ""
 	}
 	quiz.Set("unit_ids", unitIDs)
 	quiz.Set("questions", questions)
@@ -159,6 +180,95 @@ func createAdaptivePracticeQuizRoute(event *core.RequestEvent) error {
 		return event.InternalServerError("could not save practice quiz", err)
 	}
 	return event.JSON(http.StatusCreated, map[string]any{"id": quiz.Id, "mode": mode, "questions": publicQuestions})
+}
+
+func selectCoursePracticeUnits(app core.App, ownerID, courseID, moduleID string, moduleOnly bool) ([]*core.Record, error) {
+	courseID = strings.TrimSpace(courseID)
+	moduleID = strings.TrimSpace(moduleID)
+	if courseID == "" {
+		return nil, errors.New("course_id is required")
+	}
+	if moduleOnly && moduleID == "" {
+		return nil, errors.New("module_id is required for module practice")
+	}
+	if !moduleOnly && moduleID != "" {
+		return nil, errors.New("module_id is only valid for module practice")
+	}
+	courses, err := app.FindRecordsByFilter("courses", "id = {:id} && owner = {:owner}", "", 1, 0, dbx.Params{"id": courseID, "owner": ownerID})
+	if err != nil {
+		return nil, err
+	}
+	if len(courses) == 0 {
+		return nil, errors.New("course is unavailable")
+	}
+	var content map[string]any
+	if err := courses[0].UnmarshalJSONField("content", &content); err != nil {
+		return nil, fmt.Errorf("course curriculum is invalid: %w", err)
+	}
+	curriculum, ok := content["curriculum"].(map[string]any)
+	if !ok {
+		return nil, errors.New("course has no knowledge curriculum")
+	}
+	rawModules, ok := curriculum["modules"].([]any)
+	if !ok || len(rawModules) == 0 {
+		return nil, errors.New("course has no knowledge modules")
+	}
+	outlineIDs := make([]string, 0)
+	moduleFound := !moduleOnly
+	seen := make(map[string]bool)
+	for _, raw := range rawModules {
+		module, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		id, _ := module["id"].(string)
+		if moduleOnly && id == moduleID {
+			moduleFound = true
+		}
+		if moduleOnly && id != moduleID {
+			continue
+		}
+		for _, outlineID := range assessmentStrings(module["knowledge_unit_ids"]) {
+			if outlineID != "" && !seen[outlineID] {
+				seen[outlineID] = true
+				outlineIDs = append(outlineIDs, outlineID)
+			}
+		}
+	}
+	if !moduleFound {
+		return nil, errors.New("module is unavailable in this course")
+	}
+	if len(outlineIDs) == 0 {
+		return nil, errors.New("selected curriculum has no linked knowledge units")
+	}
+	if len(outlineIDs) > maxCoursePracticeUnits {
+		return nil, fmt.Errorf("course practice is limited to %d knowledge items", maxCoursePracticeUnits)
+	}
+	ownedUnits, err := app.FindRecordsByFilter("knowledge_units", "owner = {:owner}", "", 0, 0, dbx.Params{"owner": ownerID})
+	if err != nil {
+		return nil, err
+	}
+	unitByOutlineID := make(map[string]*core.Record, len(outlineIDs))
+	for _, unit := range ownedUnits {
+		var metadata map[string]any
+		if err := unit.UnmarshalJSONField("metadata", &metadata); err != nil {
+			continue
+		}
+		outlineID, _ := metadata["outline_unit_id"].(string)
+		if metadata["generated"] == true && metadata["course_id"] == courseID && seen[outlineID] {
+			unitByOutlineID[outlineID] = unit
+		}
+	}
+	units := make([]*core.Record, 0, len(outlineIDs))
+	for _, outlineID := range outlineIDs {
+		if unit := unitByOutlineID[outlineID]; unit != nil {
+			units = append(units, unit)
+		}
+	}
+	if len(units) == 0 {
+		return nil, errors.New("selected course has no available generated knowledge units")
+	}
+	return units, nil
 }
 
 func selectPracticeUnits(app core.App, ownerID, mode string, requestedIDs []string) ([]*core.Record, error) {
@@ -186,6 +296,8 @@ func selectPracticeUnits(app core.App, ownerID, mode string, requestedIDs []stri
 		return units, nil
 	case "due", "weak":
 		return selectPracticeByMastery(app, ownerID, mode)
+	case "gap":
+		return selectPracticeGaps(app, ownerID)
 	case "mixed":
 		units, err := selectPracticeByMastery(app, ownerID, "due")
 		if err != nil {
@@ -214,8 +326,51 @@ func selectPracticeUnits(app core.App, ownerID, mode string, requestedIDs []stri
 		}
 		return units, nil
 	default:
-		return nil, errors.New("mode must be selected, due, weak, or mixed")
+		return nil, errors.New("mode must be selected, due, weak, mixed, gap, course, or module")
 	}
+}
+
+func selectPracticeGaps(app core.App, ownerID string) ([]*core.Record, error) {
+	units, err := app.FindRecordsByFilter("knowledge_units", "owner = {:owner}", "title", 0, 0, dbx.Params{"owner": ownerID})
+	if err != nil {
+		return nil, err
+	}
+	masteryRecords, err := app.FindRecordsByFilter("knowledge_mastery", "owner = {:owner}", "mastery, next_review", 0, 0, dbx.Params{"owner": ownerID})
+	if err != nil {
+		return nil, err
+	}
+	masteryByUnit := make(map[string]float64, len(masteryRecords))
+	for _, record := range masteryRecords {
+		masteryByUnit[record.GetString("unit")] = record.GetFloat("mastery")
+	}
+	result := make([]*core.Record, 0, maxPracticeUnits)
+	seen := make(map[string]bool)
+	for _, unit := range units {
+		if _, practiced := masteryByUnit[unit.Id]; practiced {
+			continue
+		}
+		result = append(result, unit)
+		seen[unit.Id] = true
+		if len(result) == maxPracticeUnits {
+			return result, nil
+		}
+	}
+	for _, record := range masteryRecords {
+		unitID := record.GetString("unit")
+		if record.GetFloat("mastery") >= gapPracticeThreshold || seen[unitID] {
+			continue
+		}
+		unit, findErr := ownedPracticeUnit(app, ownerID, unitID)
+		if findErr != nil {
+			continue
+		}
+		result = append(result, unit)
+		seen[unitID] = true
+		if len(result) == maxPracticeUnits {
+			break
+		}
+	}
+	return result, nil
 }
 
 func selectPracticeByMastery(app core.App, ownerID, mode string) ([]*core.Record, error) {
@@ -231,7 +386,7 @@ func selectPracticeByMastery(app core.App, ownerID, mode string) ([]*core.Record
 	}
 	units := make([]*core.Record, 0, maxPracticeUnits)
 	for _, mastery := range records {
-		if mode == "weak" && mastery.GetFloat("mastery") > 0.6 {
+		if mode == "weak" && mastery.GetFloat("mastery") > weakPracticeThreshold {
 			continue
 		}
 		unit, findErr := ownedPracticeUnit(app, ownerID, mastery.GetString("unit"))
@@ -299,7 +454,7 @@ func makePracticeQuestions(units []*core.Record) []practiceQuestion {
 			}
 		}
 		for len(question.Options) < 4 {
-			question.Options = append(question.Options, "A different idea not described by this knowledge item.")
+			question.Options = append(question.Options, fmt.Sprintf("A different explanation that does not describe %q (%d).", title, len(question.Options)))
 		}
 		question.Options = stablePracticeShuffle(question.Options, unit.Id)
 		questions = append(questions, question)
@@ -367,28 +522,50 @@ func submitAdaptivePracticeQuizRoute(event *core.RequestEvent) error {
 	correct := 0
 	for _, question := range questions {
 		answer, known := input.Answers[question.ID]
-		if known && !containsString(question.Options, answer) {
+		if !known {
+			return event.BadRequestError("answer every question before submitting", nil)
+		}
+		if !containsString(question.Options, answer) {
 			return event.BadRequestError("answer is not a choice for this question", nil)
 		}
-		isCorrect := known && answer == answerKeys[question.ID]
+		isCorrect := answer == answerKeys[question.ID]
 		if isCorrect {
 			correct++
 		}
 		results = append(results, map[string]any{"question_id": question.ID, "unit_id": question.UnitID, "correct": isCorrect, "feedback": practiceFeedback(isCorrect, question.Remediation), "remediation": question.Remediation})
-		if err := savePracticeEvidence(event.App, user.Id, quiz.Id, question, isCorrect); err != nil {
-			return event.InternalServerError("could not save practice evidence", err)
-		}
 	}
 	score := 0.0
 	if len(questions) > 0 {
 		score = float64(correct) / float64(len(questions))
 	}
-	attempts := make([]map[string]any, 0)
-	_ = quiz.UnmarshalJSONField("attempts", &attempts)
-	attempts = append(attempts, map[string]any{"score": score, "submitted_at": time.Now().UTC(), "answers": input.Answers})
-	quiz.Set("attempts", attempts)
-	quiz.Set("status", "submitted")
-	if err := event.App.Save(quiz); err != nil {
+	errAlreadySubmitted := errors.New("practice quiz is already submitted")
+	err = event.App.RunInTransaction(func(tx core.App) error {
+		current, findErr := tx.FindRecordsByFilter("adaptive_practice_quizzes", "id = {:id} && owner = {:owner}", "", 1, 0, dbx.Params{"id": quiz.Id, "owner": user.Id})
+		if findErr != nil {
+			return findErr
+		}
+		if len(current) == 0 {
+			return event.NotFoundError("practice quiz not found", nil)
+		}
+		if current[0].GetString("status") != "open" {
+			return errAlreadySubmitted
+		}
+		for _, question := range questions {
+			if saveErr := savePracticeEvidence(tx, user.Id, current[0].Id, question, input.Answers[question.ID] == answerKeys[question.ID]); saveErr != nil {
+				return saveErr
+			}
+		}
+		attempts := make([]map[string]any, 0)
+		_ = current[0].UnmarshalJSONField("attempts", &attempts)
+		attempts = append(attempts, map[string]any{"score": score, "submitted_at": time.Now().UTC(), "answers": input.Answers})
+		current[0].Set("attempts", attempts)
+		current[0].Set("status", "submitted")
+		return tx.Save(current[0])
+	})
+	if errors.Is(err, errAlreadySubmitted) {
+		return event.BadRequestError("practice quiz is already submitted", nil)
+	}
+	if err != nil {
 		return event.InternalServerError("could not save practice results", err)
 	}
 	return event.JSON(http.StatusOK, map[string]any{"score": score, "correct": correct, "total": len(questions), "results": results})

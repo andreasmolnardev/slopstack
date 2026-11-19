@@ -137,6 +137,176 @@ func TestAdaptivePracticeSelectionChecksOwnershipAndReviewState(t *testing.T) {
 	}
 }
 
+func TestAdaptivePracticeCanTargetOwnedCourseAndModuleKnowledge(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureAdaptivePracticeCollection(app); err != nil {
+		t.Fatal(err)
+	}
+	owner := createRecordForPracticeTest(t, app, "adaptive-course@example.com")
+	other := createRecordForPracticeTest(t, app, "adaptive-course-other@example.com")
+	unitOne := createCoursePracticeUnit(t, app, owner.Id, "Limits", "A limit describes a function's behavior near a point.", "course-a", "outline-one", []string{"module-one"})
+	unitTwo := createCoursePracticeUnit(t, app, owner.Id, "Continuity", "Continuity means the function's value matches its nearby limit.", "course-a", "outline-two", []string{"module-two"})
+	foreignUnit := createCoursePracticeUnit(t, app, other.Id, "Private concept", "A private explanation.", "course-a", "outline-three", []string{"module-one"})
+	course := createTestRecord(t, app, "courses", map[string]any{
+		"owner": owner.Id, "title": "Calculus", "status": "published", "version": 1,
+		"content": map[string]any{"curriculum": map[string]any{
+			"knowledge_units": []any{map[string]any{"id": "outline-one"}, map[string]any{"id": "outline-two"}, map[string]any{"id": "outline-three"}},
+			"modules": []any{
+				map[string]any{"id": "module-one", "knowledge_unit_ids": []string{"outline-one", "outline-three"}},
+				map[string]any{"id": "module-two", "knowledge_unit_ids": []string{"outline-two"}},
+			},
+		}},
+	})
+	unitOne.Set("metadata", map[string]any{"course_id": course.Id, "generated": true, "outline_unit_id": "outline-one", "module_ids": []string{"module-one"}})
+	unitTwo.Set("metadata", map[string]any{"course_id": course.Id, "generated": true, "outline_unit_id": "outline-two", "module_ids": []string{"module-two"}})
+	foreignUnit.Set("metadata", map[string]any{"course_id": course.Id, "generated": true, "outline_unit_id": "outline-three", "module_ids": []string{"module-one"}})
+	for _, unit := range []*core.Record{unitOne, unitTwo, foreignUnit} {
+		if err := app.Save(unit); err != nil {
+			t.Fatal(err)
+		}
+	}
+	courseUnits, err := selectCoursePracticeUnits(app, owner.Id, course.Id, "", false)
+	if err != nil || len(courseUnits) != 2 || courseUnits[0].Id != unitOne.Id || courseUnits[1].Id != unitTwo.Id {
+		t.Fatalf("course practice did not resolve the ordered owner-scoped concepts: %v (%#v)", err, courseUnits)
+	}
+	moduleUnits, err := selectCoursePracticeUnits(app, owner.Id, course.Id, "module-one", true)
+	if err != nil || len(moduleUnits) != 1 || moduleUnits[0].Id != unitOne.Id {
+		t.Fatalf("module practice selected an invalid or foreign concept: %v (%#v; foreign=%s)", err, moduleUnits, foreignUnit.Id)
+	}
+	if _, err := selectCoursePracticeUnits(app, other.Id, course.Id, "", false); err == nil {
+		t.Fatal("another learner's course must not be usable for practice")
+	}
+	if _, err := selectCoursePracticeUnits(app, owner.Id, course.Id, "missing-module", true); err == nil {
+		t.Fatal("unknown module must not produce a practice set")
+	}
+
+	body := `{"mode":"module","course_id":"` + course.Id + `","module_id":"module-two"}`
+	request := httptest.NewRequest(http.MethodPost, "/api/learning/practice/quizzes", strings.NewReader(body))
+	event := &core.RequestEvent{App: app, Auth: owner, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	if err := createAdaptivePracticeQuizRoute(event); err != nil {
+		t.Fatalf("module quiz creation failed: %v", err)
+	}
+	var created struct {
+		ID        string                   `json:"id"`
+		Mode      string                   `json:"mode"`
+		Questions []practiceQuestionPublic `json:"questions"`
+	}
+	if err := json.Unmarshal(event.Response.(*httptest.ResponseRecorder).Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Mode != "module" || len(created.Questions) != 1 || created.Questions[0].UnitID != unitTwo.Id {
+		t.Fatalf("module quiz contained the wrong concepts: %#v", created)
+	}
+	stored, err := app.FindRecordById("adaptive_practice_quizzes", created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var answerKeys map[string]string
+	if err := stored.UnmarshalJSONField("answer_keys", &answerKeys); err != nil || answerKeys[created.Questions[0].ID] == "" {
+		t.Fatalf("module quiz did not keep its key privately: %#v (%v)", answerKeys, err)
+	}
+	request = httptest.NewRequest(http.MethodPost, "/api/learning/practice/quizzes/"+created.ID+"/submit", strings.NewReader(`{"answers":{"`+created.Questions[0].ID+`":`+mustJSON(t, answerKeys[created.Questions[0].ID])+`}}`))
+	request.SetPathValue("id", created.ID)
+	event = &core.RequestEvent{App: app, Auth: owner, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	if err := submitAdaptivePracticeQuizRoute(event); err != nil {
+		t.Fatalf("module quiz submission failed: %v", err)
+	}
+	evidence, err := app.FindRecordsByFilter("learner_evidence", "owner = {:owner} && unit = {:unit} && evidence_type = {:type}", "", 10, 0, dbx.Params{"owner": owner.Id, "unit": unitTwo.Id, "type": "adaptive_practice"})
+	if err != nil || len(evidence) != 1 {
+		t.Fatalf("module quiz did not record evidence for its concept: %v (%d)", err, len(evidence))
+	}
+}
+
+func TestAdaptivePracticeGapModeIncludesNewAndWeakUnitsOnly(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	owner := createRecordForPracticeTest(t, app, "adaptive-gap@example.com")
+	other := createRecordForPracticeTest(t, app, "adaptive-gap-other@example.com")
+	newUnit := createPracticeUnit(t, app, owner.Id, "New concept", "This has never been practiced.")
+	weakUnit := createPracticeUnit(t, app, owner.Id, "Weak concept", "Mastery is below the gap threshold.")
+	strongUnit := createPracticeUnit(t, app, owner.Id, "Strong concept", "Mastery is already high.")
+	createPracticeUnit(t, app, other.Id, "Foreign concept", "This belongs to another learner.")
+	setPracticeMastery(t, app, owner.Id, weakUnit.Id, 0.2)
+	setPracticeMastery(t, app, owner.Id, strongUnit.Id, 0.9)
+	units, err := selectPracticeUnits(app, owner.Id, "gap", nil)
+	if err != nil || len(units) != 2 || units[0].Id != newUnit.Id || units[1].Id != weakUnit.Id {
+		t.Fatalf("gap mode selected the wrong concepts: %v (%#v)", err, units)
+	}
+}
+
+func TestAdaptivePracticeRejectsUnansweredWithoutChangingMastery(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureAdaptivePracticeCollection(app); err != nil {
+		t.Fatal(err)
+	}
+	owner := createRecordForPracticeTest(t, app, "adaptive-unanswered@example.com")
+	unit := createPracticeUnit(t, app, owner.Id, "Single concept", "A saved explanation for the concept.")
+	questions := makePracticeQuestions([]*core.Record{unit})
+	if len(questions) != 1 || len(questions[0].Options) != 4 {
+		t.Fatalf("expected four options: %#v", questions)
+	}
+	seen := map[string]bool{}
+	for _, option := range questions[0].Options {
+		if seen[option] {
+			t.Fatalf("practice options must be distinct: %#v", questions[0].Options)
+		}
+		seen[option] = true
+	}
+	collection, err := app.FindCollectionByNameOrId("adaptive_practice_quizzes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	quiz := core.NewRecord(collection)
+	quiz.Set("owner", owner.Id)
+	quiz.Set("mode", "selected")
+	quiz.Set("status", "open")
+	quiz.Set("unit_ids", []string{unit.Id})
+	quiz.Set("questions", questions)
+	quiz.Set("answer_keys", map[string]string{questions[0].ID: questions[0].CorrectChoice})
+	quiz.Set("attempts", []any{})
+	if err := app.Save(quiz); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/learning/practice/quizzes/"+quiz.Id+"/submit", strings.NewReader(`{"answers":{}}`))
+	request.SetPathValue("id", quiz.Id)
+	event := &core.RequestEvent{App: app, Auth: owner, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	if err := submitAdaptivePracticeQuizRoute(event); err == nil {
+		t.Fatal("submission without answers should be rejected")
+	}
+	stored, err := app.FindRecordById("adaptive_practice_quizzes", quiz.Id)
+	if err != nil || stored.GetString("status") != "open" {
+		t.Fatalf("rejected submission should leave quiz open: %v (%v)", err, stored)
+	}
+	evidence, err := app.FindRecordsByFilter("learner_evidence", "owner = {:owner} && unit = {:unit}", "", 10, 0, dbx.Params{"owner": owner.Id, "unit": unit.Id})
+	if err != nil || len(evidence) != 0 {
+		t.Fatalf("rejected submission changed learner evidence: %v (%d)", err, len(evidence))
+	}
+	mastery, err := app.FindRecordsByFilter("knowledge_mastery", "owner = {:owner} && unit = {:unit}", "", 1, 0, dbx.Params{"owner": owner.Id, "unit": unit.Id})
+	if err != nil || len(mastery) != 0 {
+		t.Fatalf("rejected submission changed mastery: %v (%d)", err, len(mastery))
+	}
+}
+
 func TestAdaptivePracticeOpenAPIContracts(t *testing.T) {
 	api := humago.New(http.NewServeMux(), huma.DefaultConfig("Starburst API", "test"))
 	registerAdaptivePracticeAPI(api)
@@ -159,6 +329,30 @@ func createRecordForPracticeTest(t *testing.T, app core.App, email string) *core
 func createPracticeUnit(t *testing.T, app core.App, ownerID, title, description string) *core.Record {
 	t.Helper()
 	return createTestRecord(t, app, "knowledge_units", map[string]any{"owner": ownerID, "title": title, "description": description, "unit_type": "concept"})
+}
+
+func createCoursePracticeUnit(t *testing.T, app core.App, ownerID, title, description, courseID, outlineID string, moduleIDs []string) *core.Record {
+	t.Helper()
+	return createTestRecord(t, app, "knowledge_units", map[string]any{
+		"owner": ownerID, "title": title, "description": description, "unit_type": "concept",
+		"metadata": map[string]any{"course_id": courseID, "generated": true, "outline_unit_id": outlineID, "module_ids": moduleIDs},
+	})
+}
+
+func setPracticeMastery(t *testing.T, app core.App, ownerID, unitID string, value float64) {
+	t.Helper()
+	collection, err := app.FindCollectionByNameOrId("knowledge_mastery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mastery := core.NewRecord(collection)
+	mastery.Set("owner", ownerID)
+	mastery.Set("unit", unitID)
+	mastery.Set("mastery", value)
+	mastery.Set("next_review", time.Now().UTC().Add(time.Hour))
+	if err := app.Save(mastery); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func mustJSON(t *testing.T, value string) string {
