@@ -1404,7 +1404,7 @@ func TestRecoverableLearningJobStates(t *testing.T) {
 	for _, test := range []struct {
 		kind, status string
 		want         bool
-	}{{"course_generation", "queued", true}, {"course_generation", "running", true}, {"course_generation", "failed", false}, {"podcast_script", "queued", true}, {"podcast_script", "running", true}, {"podcast_script", "completed", false}, {"podcast_generation", "queued", false}} {
+	}{{"course_generation", "queued", true}, {"course_generation", "running", true}, {"course_generation", "failed", false}, {"podcast_script", "queued", true}, {"podcast_script", "running", true}, {"podcast_script", "completed", false}, {"podcast_audio", "queued", true}, {"podcast_audio", "running", true}, {"podcast_audio", "completed", false}, {"podcast_generation", "queued", false}} {
 		if got := isRecoverableLearningJob(test.kind, test.status); got != test.want {
 			t.Errorf("isRecoverableLearningJob(%q,%q)=%v want %v", test.kind, test.status, got, test.want)
 		}

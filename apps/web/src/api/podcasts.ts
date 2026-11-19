@@ -42,5 +42,5 @@ export const regeneratePodcast = (id: string) => pb.send<PodcastGenerationJob>(`
 export const savePodcastScript = (id: string, draft: PodcastScriptDraft) => pb.send<PodcastEpisode>(`/api/audio/episodes/${id}/script`, { method: 'PUT', body: draft });
 export const savePodcastVoices = (id: string, assignments: PodcastVoiceAssignments) => pb.send<PodcastEpisode>(`/api/audio/episodes/${id}/voices`, { method: 'PUT', body: assignments });
 export const cancelPodcastGeneration = (jobId: string) => pb.send<PodcastGenerationJob>(`/api/learning/jobs/${jobId}/cancel`, { method: 'POST', body: {} });
-export const generatePodcastAudio = (id: string) => pb.send<PodcastEpisode>(`/api/audio/episodes/${id}/audio`, { method: 'POST' });
+export const generatePodcastAudio = (id: string) => pb.send<PodcastGenerationJob>(`/api/audio/episodes/${id}/audio`, { method: 'POST' });
 export const deletePodcast = (id: string) => pb.send<void>(`/api/audio/episodes/${id}`, { method: 'DELETE' });

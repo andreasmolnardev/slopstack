@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -19,8 +18,6 @@ import (
 	"github.com/pocketbase/pocketbase/tools/router"
 	"github.com/slopstack/slopstack/apps/server/internal/wyoming"
 )
-
-var podcastAudioGenerations sync.Map
 
 const (
 	maxPodcastBody       = 32 << 10
@@ -153,7 +150,7 @@ func registerPodcastAPI(api huma.API) {
 	huma.Register(api, huma.Operation{OperationID: "regeneratePodcastEpisode", Method: http.MethodPost, Path: "/api/audio/episodes/{id}/regenerate", Tags: []string{"Audio"}, Summary: "Queue regeneration of an owned podcast episode", Security: security, Errors: errorSet, DefaultStatus: http.StatusAccepted}, func(context.Context, *podcastIDInput) (*podcastJobOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "updatePodcastScript", Method: http.MethodPut, Path: "/api/audio/episodes/{id}/script", Tags: []string{"Audio"}, Summary: "Save edits to an owned podcast outline and transcript", Security: security, Errors: errorSet}, func(context.Context, *podcastScriptInput) (*podcastSingleOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "updatePodcastVoices", Method: http.MethodPut, Path: "/api/audio/episodes/{id}/voices", Tags: []string{"Audio"}, Summary: "Save host and guest voices for an owned podcast episode", Security: security, Errors: errorSet}, func(context.Context, *podcastVoiceInput) (*podcastSingleOutput, error) { return nil, nil })
-	huma.Register(api, huma.Operation{OperationID: "generatePodcastAudio", Method: http.MethodPost, Path: "/api/audio/episodes/{id}/audio", Tags: []string{"Audio"}, Summary: "Generate and persist complete WAV audio for an owned podcast episode", Security: security, Errors: errorSet, DefaultStatus: http.StatusCreated}, func(context.Context, *podcastAudioInput) (*podcastSingleOutput, error) { return nil, nil })
+	huma.Register(api, huma.Operation{OperationID: "generatePodcastAudio", Method: http.MethodPost, Path: "/api/audio/episodes/{id}/audio", Tags: []string{"Audio"}, Summary: "Queue WAV audio generation for an owned podcast episode", Security: security, Errors: errorSet, DefaultStatus: http.StatusAccepted}, func(context.Context, *podcastAudioInput) (*podcastJobOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "getPodcastAudio", Method: http.MethodGet, Path: "/api/audio/episodes/{id}/audio", Tags: []string{"Audio"}, Summary: "Stream persisted audio for an owned podcast episode", Security: security, Errors: errorSet, Responses: map[string]*huma.Response{"200": {Description: "WAV audio stream", Content: map[string]*huma.MediaType{"audio/wav": {Schema: &huma.Schema{Type: "string", Format: "binary"}}}}}}, func(context.Context, *podcastAudioInput) (*huma.StreamResponse, error) { return nil, nil })
 }
 
@@ -206,12 +203,7 @@ func generatePodcastAudioRoute(config Config) func(*core.RequestEvent) error {
 		if record.GetString("status") == "generating" {
 			return router.NewApiError(http.StatusConflict, "podcast script is still generating", nil)
 		}
-		if _, loaded := podcastAudioGenerations.LoadOrStore(record.Id, struct{}{}); loaded {
-			return event.JSON(http.StatusConflict, map[string]string{"message": "podcast audio is already being generated"})
-		}
-		defer podcastAudioGenerations.Delete(record.Id)
-		address := piperAddress(config)
-		if address == "" {
+		if piperAddress(config) == "" {
 			return event.BadRequestError("Piper is not configured", nil)
 		}
 		var transcript podcastTranscript
@@ -228,90 +220,217 @@ func generatePodcastAudioRoute(config Config) func(*core.RequestEvent) error {
 		voices, _ = normalizePodcastVoiceAssignments(voices)
 		preferences := readUserPreferences(event.Auth)
 		defaultVoice := podcastRoleVoice{Voice: preferences.NarrationVoice, Speaker: preferences.NarrationSpeaker}
-		effectiveVoices := []podcastRoleVoice{voices.Host, voices.Guest}
-		for index := range effectiveVoices {
-			if effectiveVoices[index].Voice == "" {
-				effectiveVoices[index] = defaultVoice
-			}
-		}
-		validatedVoices := make(map[string]struct{})
-		for _, voice := range effectiveVoices {
-			if voice.Voice == "" {
-				continue
-			}
-			key := voice.Voice + "\x00" + voice.Speaker
-			if _, ok := validatedVoices[key]; ok {
-				continue
-			}
-			validatedVoices[key] = struct{}{}
-			discoveryCtx, discoveryCancel := context.WithTimeout(event.Request.Context(), 3*time.Second)
-			info, discoveryErr := wyoming.Discover(discoveryCtx, address, 3*time.Second)
-			discoveryCancel()
-			if discoveryErr != nil {
-				return event.InternalServerError("could not discover Piper voices", discoveryErr)
-			}
-			if selectionErr := validatePiperSelection(info, voice.Voice, voice.Speaker); selectionErr != nil {
-				return event.BadRequestError("saved podcast voice is no longer available", selectionErr)
-			}
-		}
-		ctx, cancel := context.WithTimeout(event.Request.Context(), 10*time.Minute)
-		defer cancel()
-		segments := make([][]byte, 0, len(transcript.Turns))
-		segmentBytes := 0
-		rate, width, channels := 0, 0, 0
-		for index, turn := range transcript.Turns {
-			voice := voices.Host
-			if turn.Speaker == "guest" {
-				voice = voices.Guest
-			}
-			if voice.Voice == "" {
-				voice = defaultVoice
-			}
-			audio, sampleRate, sampleWidth, sampleChannels, synthErr := wyoming.Synthesize(ctx, address, turn.Text, voice.Voice, voice.Speaker, 45*time.Second)
-			if synthErr != nil {
-				return event.InternalServerError(fmt.Sprintf("Piper synthesis failed for turn %d", index+1), synthErr)
-			}
-			if index == 0 {
-				rate, width, channels = sampleRate, sampleWidth, sampleChannels
-			}
-			segmentBytes += len(audio)
-			if segmentBytes > (25<<20)-44 {
-				return event.BadRequestError("podcast audio exceeds the 25 MiB limit", nil)
-			}
-			segments = append(segments, audio)
-		}
-		assembled, err := wyoming.AssembleWAV(segments, 25<<20)
+		job, err := queuePodcastAudioJob(event.App, event.Auth.Id, record, transcript, voices, defaultVoice, config)
 		if err != nil {
-			return event.BadRequestError("could not assemble podcast audio", err)
+			return event.InternalServerError("could not queue podcast audio", err)
 		}
-		file, err := filesystem.NewFileFromBytes(assembled, "episode.wav")
-		if err != nil {
-			return event.InternalServerError("could not prepare podcast audio file", err)
+		return event.JSON(http.StatusAccepted, job.PublicExport())
+	}
+}
+
+type podcastAudioJobPayload struct {
+	EpisodeID  string                  `json:"episode_id"`
+	Transcript podcastTranscript       `json:"transcript"`
+	Voices     podcastVoiceAssignments `json:"voices"`
+	Default    podcastRoleVoice        `json:"default_voice"`
+}
+
+func queuePodcastAudioJob(app core.App, ownerID string, episode *core.Record, transcript podcastTranscript, voices podcastVoiceAssignments, defaultVoice podcastRoleVoice, config Config) (*core.Record, error) {
+	active, err := app.FindRecordsByFilter("learning_jobs", "owner = {:owner} && kind = {:kind} && (status = {:queued} || status = {:running})", "-id", 100, 0, dbx.Params{"owner": ownerID, "kind": "podcast_audio", "queued": "queued", "running": "running"})
+	if err != nil {
+		return nil, err
+	}
+	for _, job := range active {
+		var payload podcastAudioJobPayload
+		if job.UnmarshalJSONField("payload", &payload) == nil && payload.EpisodeID == episode.Id {
+			return job, nil
 		}
-		record.Set("audio", file)
-		record.Set("audio_metadata", map[string]any{"format": "audio/wav", "sample_rate": rate, "sample_width_bytes": width, "channels": channels, "duration_seconds": float64(len(assembled)-44) / float64(rate*width*channels), "bytes": len(assembled), "generated_at": time.Now().UTC().Format(time.RFC3339)})
-		current, err := event.App.FindRecordById("podcast_episodes", record.Id)
-		if err != nil || current.GetString("owner") != event.Auth.Id {
-			return event.NotFoundError("podcast episode was removed during audio generation", err)
+	}
+	collection, err := app.FindCollectionByNameOrId("learning_jobs")
+	if err != nil {
+		return nil, err
+	}
+	job := core.NewRecord(collection)
+	job.Set("owner", ownerID)
+	job.Set("kind", "podcast_audio")
+	job.Set("status", "queued")
+	job.Set("progress", 0)
+	job.Set("payload", podcastAudioJobPayload{EpisodeID: episode.Id, Transcript: transcript, Voices: voices, Default: defaultVoice})
+	if err := app.Save(job); err != nil {
+		return nil, err
+	}
+	launchPodcastAudioJob(app, job.Id, config)
+	return job, nil
+}
+
+func launchPodcastAudioJob(app core.App, jobID string, config Config) {
+	ctx, cancel := context.WithCancel(context.Background())
+	learningWorkerMu.Lock()
+	learningWorkerCancels[jobID] = cancel
+	learningWorkerMu.Unlock()
+	go func() {
+		defer func() {
+			learningWorkerMu.Lock()
+			delete(learningWorkerCancels, jobID)
+			learningWorkerMu.Unlock()
+		}()
+		select {
+		case learningWorkerSlots <- struct{}{}:
+			defer func() { <-learningWorkerSlots }()
+		case <-ctx.Done():
+			return
 		}
-		var currentTranscript podcastTranscript
-		var currentVoices podcastVoiceAssignments
-		if err := current.UnmarshalJSONField("transcript", &currentTranscript); err != nil {
-			return event.InternalServerError("stored podcast transcript is invalid", err)
+		runPodcastAudioJob(ctx, app, jobID, config)
+	}()
+}
+
+func runPodcastAudioJob(ctx context.Context, app core.App, jobID string, config Config) {
+	job, err := app.FindRecordById("learning_jobs", jobID)
+	if err != nil || job.GetString("status") == "cancelled" {
+		return
+	}
+	var payload podcastAudioJobPayload
+	if err := job.UnmarshalJSONField("payload", &payload); err != nil || payload.EpisodeID == "" || validatePodcastTranscript(payload.Transcript) != nil {
+		failPodcastAudioJob(app, jobID, "podcast audio request is invalid")
+		return
+	}
+	address := piperAddress(config)
+	if address == "" {
+		failPodcastAudioJob(app, jobID, "Piper is not configured")
+		return
+	}
+	episode, err := app.FindRecordsByFilter("podcast_episodes", "id = {:id} && owner = {:owner}", "", 1, 0, dbx.Params{"id": payload.EpisodeID, "owner": job.GetString("owner")})
+	if err != nil || len(episode) == 0 {
+		failPodcastAudioJob(app, jobID, "podcast episode no longer exists")
+		return
+	}
+	job.Set("status", "running")
+	job.Set("progress", 5)
+	job.Set("attempts", job.GetFloat("attempts")+1)
+	if err := app.Save(job); err != nil {
+		return
+	}
+	effectiveVoices := []podcastRoleVoice{payload.Voices.Host, payload.Voices.Guest}
+	for index := range effectiveVoices {
+		if effectiveVoices[index].Voice == "" {
+			effectiveVoices[index] = payload.Default
 		}
-		if err := current.UnmarshalJSONField("voice_assignments", &currentVoices); err != nil {
-			return event.InternalServerError("stored podcast voices are invalid", err)
+		if effectiveVoices[index].Voice == "" {
+			failPodcastAudioJob(app, jobID, "no Piper voice is configured for this episode")
+			return
 		}
-		currentVoices, _ = normalizePodcastVoiceAssignments(currentVoices)
-		if !samePodcastAudioInputs(transcript, voices, currentTranscript, currentVoices) {
-			return event.JSON(http.StatusConflict, map[string]string{"message": "podcast script or voices changed during audio generation; retry"})
+	}
+	validatedVoices := make(map[string]struct{})
+	for _, voice := range effectiveVoices {
+		key := voice.Voice + "\x00" + voice.Speaker
+		if _, ok := validatedVoices[key]; ok {
+			continue
+		}
+		validatedVoices[key] = struct{}{}
+		discoveryCtx, discoveryCancel := context.WithTimeout(ctx, 3*time.Second)
+		info, discoveryErr := wyoming.Discover(discoveryCtx, address, 3*time.Second)
+		discoveryCancel()
+		if discoveryErr != nil {
+			failPodcastAudioJob(app, jobID, "could not discover Piper voices")
+			return
+		}
+		if selectionErr := validatePiperSelection(info, voice.Voice, voice.Speaker); selectionErr != nil {
+			failPodcastAudioJob(app, jobID, "saved podcast voice is no longer available")
+			return
+		}
+	}
+	audioCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+	segments := make([][]byte, 0, len(payload.Transcript.Turns))
+	segmentBytes := 0
+	rate, width, channels := 0, 0, 0
+	for index, turn := range payload.Transcript.Turns {
+		voice := payload.Voices.Host
+		if turn.Speaker == "guest" {
+			voice = payload.Voices.Guest
+		}
+		if voice.Voice == "" {
+			voice = payload.Default
+		}
+		audio, sampleRate, sampleWidth, sampleChannels, synthErr := wyoming.Synthesize(audioCtx, address, turn.Text, voice.Voice, voice.Speaker, 45*time.Second)
+		if synthErr != nil {
+			if ctx.Err() == nil {
+				failPodcastAudioJob(app, jobID, fmt.Sprintf("Piper synthesis failed for turn %d", index+1))
+			}
+			return
+		}
+		if index == 0 {
+			rate, width, channels = sampleRate, sampleWidth, sampleChannels
+		}
+		segmentBytes += len(audio)
+		if segmentBytes > (25<<20)-44 {
+			failPodcastAudioJob(app, jobID, "podcast audio exceeds the 25 MiB limit")
+			return
+		}
+		segments = append(segments, audio)
+		updatePodcastAudioProgress(app, jobID, 5+(index+1)*80/len(payload.Transcript.Turns))
+	}
+	assembled, err := wyoming.AssembleWAV(segments, 25<<20)
+	if err != nil {
+		failPodcastAudioJob(app, jobID, "could not assemble podcast audio")
+		return
+	}
+	file, err := filesystem.NewFileFromBytes(assembled, "episode.wav")
+	if err != nil {
+		failPodcastAudioJob(app, jobID, "could not prepare podcast audio file")
+		return
+	}
+	metadata := map[string]any{"format": "audio/wav", "sample_rate": rate, "sample_width_bytes": width, "channels": channels, "duration_seconds": float64(len(assembled)-44) / float64(rate*width*channels), "bytes": len(assembled), "generated_at": time.Now().UTC().Format(time.RFC3339)}
+	err = app.RunInTransaction(func(tx core.App) error {
+		currentJob, findErr := tx.FindRecordById("learning_jobs", jobID)
+		if findErr != nil || currentJob.GetString("status") == "cancelled" {
+			return nil
+		}
+		current, findErr := tx.FindRecordById("podcast_episodes", payload.EpisodeID)
+		if findErr != nil || current.GetString("owner") != currentJob.GetString("owner") {
+			return fmt.Errorf("podcast episode was removed")
+		}
+		var transcript podcastTranscript
+		var voices podcastVoiceAssignments
+		if findErr := current.UnmarshalJSONField("transcript", &transcript); findErr != nil {
+			return findErr
+		}
+		if findErr := current.UnmarshalJSONField("voice_assignments", &voices); findErr != nil {
+			return findErr
+		}
+		voices, _ = normalizePodcastVoiceAssignments(voices)
+		if !samePodcastAudioInputs(payload.Transcript, payload.Voices, transcript, voices) {
+			return fmt.Errorf("podcast script or voices changed during audio generation")
 		}
 		current.Set("audio", file)
-		current.Set("audio_metadata", record.Get("audio_metadata"))
-		if err := event.App.Save(current); err != nil {
-			return event.InternalServerError("could not persist podcast audio", err)
+		current.Set("audio_metadata", metadata)
+		if err := tx.Save(current); err != nil {
+			return err
 		}
-		return event.JSON(http.StatusCreated, podcastEpisodeExport(current))
+		currentJob.Set("status", "completed")
+		currentJob.Set("progress", 100)
+		currentJob.Set("result", map[string]any{"episode_id": payload.EpisodeID})
+		return tx.Save(currentJob)
+	})
+	if err != nil {
+		failPodcastAudioJob(app, jobID, err.Error())
+	}
+}
+
+func updatePodcastAudioProgress(app core.App, jobID string, progress int) {
+	job, err := app.FindRecordById("learning_jobs", jobID)
+	if err == nil && job.GetString("status") == "running" {
+		job.Set("progress", progress)
+		_ = app.Save(job)
+	}
+}
+
+func failPodcastAudioJob(app core.App, jobID, message string) {
+	job, err := app.FindRecordById("learning_jobs", jobID)
+	if err == nil && job.GetString("status") != "cancelled" {
+		job.Set("status", "failed")
+		job.Set("error", message)
+		_ = app.Save(job)
 	}
 }
 
@@ -596,13 +715,13 @@ func deletePodcastEpisodeRoute(event *core.RequestEvent) error {
 	if err != nil {
 		return err
 	}
-	jobs, err := event.App.FindRecordsByFilter("learning_jobs", "owner = {:owner} && kind = {:kind} && (status = {:queued} || status = {:running})", "", 100, 0, dbx.Params{"owner": user.Id, "kind": "podcast_script", "queued": "queued", "running": "running"})
+	jobs, err := event.App.FindRecordsByFilter("learning_jobs", "owner = {:owner} && (kind = {:scriptKind} || kind = {:audioKind}) && (status = {:queued} || status = {:running})", "", 100, 0, dbx.Params{"owner": user.Id, "scriptKind": "podcast_script", "audioKind": "podcast_audio", "queued": "queued", "running": "running"})
 	if err != nil {
 		return event.InternalServerError("could not check podcast jobs", err)
 	}
 	for _, job := range jobs {
-		var payload podcastScriptJobPayload
-		if job.UnmarshalJSONField("payload", &payload) == nil && payload.EpisodeID == record.Id {
+		var payload map[string]any
+		if job.UnmarshalJSONField("payload", &payload) == nil && payload["episode_id"] == record.Id {
 			job.Set("status", "cancelled")
 			if err := event.App.Save(job); err != nil {
 				return event.InternalServerError("could not cancel podcast job", err)

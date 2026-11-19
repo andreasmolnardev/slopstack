@@ -2779,8 +2779,12 @@ func archiveNumber(value any) (float64, bool) {
 	return number, true
 }
 
-func recoverLearningJobs(app core.App) error {
-	jobs, err := app.FindRecordsByFilter("learning_jobs", "(kind = {:courseKind} || kind = {:podcastKind}) && (status = {:queued} || status = {:running})", "", 100, 0, dbx.Params{"courseKind": "course_generation", "podcastKind": "podcast_script", "queued": "queued", "running": "running"})
+func recoverLearningJobs(app core.App, configs ...Config) error {
+	config := Config{}
+	if len(configs) > 0 {
+		config = configs[0]
+	}
+	jobs, err := app.FindRecordsByFilter("learning_jobs", "(kind = {:courseKind} || kind = {:podcastScriptKind} || kind = {:podcastAudioKind}) && (status = {:queued} || status = {:running})", "", 100, 0, dbx.Params{"courseKind": "course_generation", "podcastScriptKind": "podcast_script", "podcastAudioKind": "podcast_audio", "queued": "queued", "running": "running"})
 	if err != nil {
 		return fmt.Errorf("could not recover learning jobs: %w", err)
 	}
@@ -2791,6 +2795,14 @@ func recoverLearningJobs(app core.App) error {
 				return err
 			}
 			launchPodcastScriptJob(app, job.Id)
+			continue
+		}
+		if job.GetString("kind") == "podcast_audio" {
+			job.Set("status", "queued")
+			if err := app.Save(job); err != nil {
+				return err
+			}
+			launchPodcastAudioJob(app, job.Id, config)
 			continue
 		}
 		course, findErr := app.FindRecordsByFilter("courses", "id = {:id} && owner = {:owner}", "", 1, 0, dbx.Params{"id": job.GetString("course"), "owner": job.GetString("owner")})
@@ -2826,7 +2838,7 @@ func recoverLearningJobs(app core.App) error {
 }
 
 func isRecoverableLearningJob(kind, status string) bool {
-	return (kind == "course_generation" || kind == "podcast_script") && (status == "queued" || status == "running")
+	return (kind == "course_generation" || kind == "podcast_script" || kind == "podcast_audio") && (status == "queued" || status == "running")
 }
 
 func runCourseGenerationJob(ctx context.Context, app core.App, jobID, courseID, ownerID, title string, goals ...string) {

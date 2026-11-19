@@ -1,10 +1,13 @@
 package app
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +18,7 @@ import (
 	"github.com/pocketbase/pocketbase/tests"
 	"github.com/pocketbase/pocketbase/tools/filesystem"
 	"github.com/pocketbase/pocketbase/tools/router"
+	"github.com/slopstack/slopstack/apps/server/internal/wyoming"
 )
 
 func TestPodcastFixtureAndScriptValidation(t *testing.T) {
@@ -402,6 +406,104 @@ func TestPodcastAudioGenerationReturnsSavedAudioAndRejectsMissingPiper(t *testin
 	}
 	if event.Response.(*httptest.ResponseRecorder).Code != http.StatusOK {
 		t.Fatalf("saved audio response status = %d", event.Response.(*httptest.ResponseRecorder).Code)
+	}
+}
+
+func TestPodcastAudioGenerationRunsAsRecoverableJob(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	owner := createTestRecord(t, app, "users", map[string]any{"email": "audio-job@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	host, portText, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverErr := make(chan error, 1)
+	go func() {
+		for index := 0; index < 11; index++ {
+			conn, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				serverErr <- acceptErr
+				return
+			}
+			request, readErr := wyoming.ReadEvent(bufio.NewReader(conn))
+			if readErr != nil {
+				conn.Close()
+				serverErr <- readErr
+				return
+			}
+			if request.Type == "describe" {
+				_ = wyoming.WriteEvent(conn, wyoming.Event{Type: "info", Data: map[string]any{"tts": map[string]any{"models": []any{map[string]any{"name": "en_US-sample-medium", "installed": true, "speakers": []any{map[string]any{"name": "speaker-1"}}}}}}})
+			} else if request.Type == "synthesize" {
+				_ = wyoming.WriteEvent(conn, wyoming.Event{Type: "audio-start", Data: map[string]any{"rate": 22050, "width": 2, "channels": 1}})
+				_ = wyoming.WriteEvent(conn, wyoming.Event{Type: "audio-chunk", Payload: []byte{1, 2, 3, 4}})
+				_ = wyoming.WriteEvent(conn, wyoming.Event{Type: "audio-stop"})
+			} else {
+				conn.Close()
+				serverErr <- fmt.Errorf("unexpected Wyoming request %q", request.Type)
+				return
+			}
+			_ = conn.Close()
+		}
+		serverErr <- nil
+	}()
+	outline := fixturePodcastScript("Audio", "a topic", podcastContext{})
+	transcript := fixturePodcastTranscript("Audio", "a topic", podcastContext{})
+	record, err := savePodcastEpisode(app, owner.Id, podcastCreateBody{Title: "Audio", Topic: "a topic"}, outline, transcript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.Set("voice_assignments", podcastVoiceAssignments{Host: podcastRoleVoice{Voice: "en_US-sample-medium", Speaker: "speaker-1"}, Guest: podcastRoleVoice{Voice: "en_US-sample-medium", Speaker: "speaker-1"}})
+	if err := app.Save(record); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/audio/episodes/"+record.Id+"/audio", nil)
+	request.SetPathValue("id", record.Id)
+	response := httptest.NewRecorder()
+	event := &core.RequestEvent{App: app, Auth: owner, Event: router.Event{Request: request, Response: response}}
+	if err := generatePodcastAudioRoute(Config{WyomingPiperHost: host, WyomingPiperPort: port})(event); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("audio generation should return an accepted job, got %d", response.Code)
+	}
+	var queued map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &queued); err != nil {
+		t.Fatal(err)
+	}
+	jobID := queued["id"].(string)
+	deadline := time.Now().Add(10 * time.Second)
+	var job *core.Record
+	for time.Now().Before(deadline) {
+		job, err = app.FindRecordById("learning_jobs", jobID)
+		if err == nil && (job.GetString("status") == "completed" || job.GetString("status") == "failed") {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil || job == nil || job.GetString("status") != "completed" {
+		t.Fatalf("podcast audio job did not complete: err=%v job=%v", err, job)
+	}
+	record, err = app.FindRecordById("podcast_episodes", record.Id)
+	if err != nil || record.GetString("audio") == "" {
+		t.Fatalf("audio job did not persist its WAV: err=%v", err)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatal(err)
 	}
 }
 

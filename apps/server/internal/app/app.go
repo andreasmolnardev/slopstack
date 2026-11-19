@@ -64,7 +64,7 @@ func Register(pb *pocketbase.PocketBase, config Config, api huma.API, plugins ..
 		if err := e.App.RunAppMigrations(); err != nil {
 			return err
 		}
-		if err := recoverLearningJobs(e.App); err != nil {
+		if err := recoverLearningJobs(e.App, config); err != nil {
 			return err
 		}
 		e.App.OnTerminate().BindFunc(func(_ *core.TerminateEvent) error { stopLearningWorkers(); return nil })
