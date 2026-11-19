@@ -7,11 +7,11 @@ export type PodcastVoiceAssignments = { host: PodcastRoleVoice; guest: PodcastRo
 export const emptyPodcastVoiceAssignments = (): PodcastVoiceAssignments => ({ host: { voice: '', speaker: '' }, guest: { voice: '', speaker: '' } });
 export type PodcastEpisode = {
   id: string; title: string; topic: string; status: string; source_ids: string[];
-  concept_ids: string[]; outline: { title: string; summary: string; segments: { title: string; talking_points: string[] }[] };
+  concept_ids: string[]; knowledge_gap_ids?: string[]; outline: { title: string; summary: string; segments: { title: string; talking_points: string[] }[] };
   transcript: { turns: PodcastTurn[] }; duration_seconds: number; voice_assignments: PodcastVoiceAssignments;
   audio_ready?: boolean; audio_metadata?: { format: string; duration_seconds: number; bytes: number };
 };
-export type PodcastDraft = { title: string; topic: string; source_ids: string[]; concept_ids: string[]; course_id?: string; module_id?: string };
+export type PodcastDraft = { title: string; topic: string; source_ids: string[]; concept_ids: string[]; knowledge_gap_ids?: string[]; course_id?: string; module_id?: string };
 export type PodcastScriptDraft = Pick<PodcastEpisode, 'outline' | 'transcript'>;
 
 export const podcastQueryOptions = {

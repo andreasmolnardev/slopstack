@@ -2254,8 +2254,9 @@ func importLearningDataRoute(event *core.RequestEvent) error {
 			}
 			mappedSourceIDs := remapLearningArchiveIDs(assessmentStrings(values["source_ids"]), sourceIDs)
 			mappedConceptIDs := remapLearningArchiveIDs(assessmentStrings(values["concept_ids"]), unitIDs)
-			if len(mappedSourceIDs) > maxPodcastSources || len(mappedConceptIDs) > maxPodcastConcepts {
-				return fmt.Errorf("podcast episode has too many linked sources or concepts")
+			mappedGapIDs := remapLearningArchiveIDs(assessmentStrings(values["knowledge_gap_ids"]), unitIDs)
+			if len(mappedSourceIDs) > maxPodcastSources || len(mappedConceptIDs) > maxPodcastConcepts || len(mappedGapIDs) > maxPodcastGaps {
+				return fmt.Errorf("podcast episode has too many linked sources, concepts, or knowledge gaps")
 			}
 			var courseContext *podcastReference
 			if rawContext, exists := values["course_context"]; exists && rawContext != nil {
@@ -2267,8 +2268,20 @@ func importLearningDataRoute(event *core.RequestEvent) error {
 			}
 			fields := map[string]any{
 				"title": title, "topic": topic, "status": "ready", "source_ids": mappedSourceIDs,
-				"concept_ids": mappedConceptIDs, "outline": outline, "transcript": transcript,
+				"concept_ids": mappedConceptIDs, "knowledge_gap_ids": mappedGapIDs, "outline": outline, "transcript": transcript,
 				"duration_seconds": podcastDuration(transcript),
+			}
+			if rawGapContext, exists := values["knowledge_gap_context"]; exists && rawGapContext != nil {
+				gapContext, decodeErr := decodePodcastArchiveObject[[]podcastReference](rawGapContext)
+				if decodeErr != nil || len(gapContext) > maxPodcastGaps {
+					return fmt.Errorf("invalid podcast knowledge gap context")
+				}
+				for _, reference := range gapContext {
+					if strings.TrimSpace(reference.Title) == "" || len([]rune(reference.Title)) > 300 || len([]rune(reference.Content)) > 1_000 {
+						return fmt.Errorf("invalid podcast knowledge gap context")
+					}
+				}
+				fields["knowledge_gap_context"] = gapContext
 			}
 			if audio, exists := audioAssets[oldID(values)]; exists {
 				file, fileErr := filesystem.NewFileFromBytes(audio, "episode.wav")

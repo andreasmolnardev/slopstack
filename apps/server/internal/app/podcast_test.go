@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
@@ -26,6 +27,65 @@ func TestPodcastFixtureAndScriptValidation(t *testing.T) {
 	transcript.Turns[1].Speaker = "host"
 	if err := validatePodcastTranscript(transcript); err == nil {
 		t.Fatal("expected repeated speaker validation error")
+	}
+}
+
+func TestPodcastGenerationUsesOwnerScopedDueKnowledgeGapsAndKeepsSnapshotOnRegeneration(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	owner := createTestRecord(t, app, "users", map[string]any{"email": "podcast-gap-owner@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	other := createTestRecord(t, app, "users", map[string]any{"email": "podcast-gap-other@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	unit := createTestRecord(t, app, "knowledge_units", map[string]any{"owner": owner.Id, "title": "Fraction equivalence", "description": "Recognize equivalent fractions.", "unit_type": "concept"})
+	mastery := createTestRecord(t, app, "knowledge_mastery", map[string]any{"owner": owner.Id, "unit": unit.Id, "mastery": 0.35, "next_review": time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)})
+	references, err := loadPodcastReferences(app, owner.Id, nil, nil, []string{unit.Id})
+	if err != nil || len(references.Gaps) != 1 || references.Gaps[0].Title != "Fraction equivalence" {
+		t.Fatalf("due knowledge gap was not loaded: %#v %v", references.Gaps, err)
+	}
+	if _, err := loadPodcastReferences(app, other.Id, nil, nil, []string{unit.Id}); err == nil {
+		t.Fatal("another learner's due knowledge gap was accepted")
+	}
+	notDue := createTestRecord(t, app, "knowledge_units", map[string]any{"owner": owner.Id, "title": "Not due", "description": "Not due yet.", "unit_type": "concept"})
+	if _, err := loadPodcastReferences(app, owner.Id, nil, nil, []string{notDue.Id}); err == nil {
+		t.Fatal("a concept that is not due should not be accepted as a review gap")
+	}
+	t.Setenv("STARBURST_LLM_BASE_URL", "")
+	t.Setenv("STARBURST_LLM_API_KEY", "")
+	t.Setenv("STARBURST_LLM_MODEL", "")
+	body, _ := json.Marshal(podcastCreateBody{Title: "Review fractions", Topic: "equivalent fractions", KnowledgeGapIDs: []string{unit.Id}})
+	request := httptest.NewRequest(http.MethodPost, "/api/audio/episodes", strings.NewReader(string(body)))
+	event := &core.RequestEvent{App: app, Auth: owner, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	if err := createPodcastEpisodeRoute(event); err != nil {
+		t.Fatalf("due-gap episode generation failed: %v", err)
+	}
+	var response map[string]any
+	if err := json.Unmarshal(event.Response.(*httptest.ResponseRecorder).Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if got := response["knowledge_gap_ids"].([]any); len(got) != 1 || got[0] != unit.Id {
+		t.Fatalf("episode response omitted its knowledge gap: %#v", response["knowledge_gap_ids"])
+	}
+	episode, err := app.FindRecordById("podcast_episodes", response["id"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := episode.UnmarshalJSONField("knowledge_gap_context", &references.Gaps); err != nil || len(references.Gaps) != 1 {
+		t.Fatalf("episode did not preserve the gap context snapshot: %#v %v", references.Gaps, err)
+	}
+	mastery.Set("next_review", time.Now().UTC().Add(time.Hour).Format(time.RFC3339))
+	if err := app.Save(mastery); err != nil {
+		t.Fatal(err)
+	}
+	request = httptest.NewRequest(http.MethodPost, "/api/audio/episodes/"+episode.Id+"/regenerate", nil)
+	request.SetPathValue("id", episode.Id)
+	event = &core.RequestEvent{App: app, Auth: owner, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	if err := regeneratePodcastEpisodeRoute(event); err != nil {
+		t.Fatalf("regeneration should use the saved knowledge gap snapshot: %v", err)
 	}
 }
 

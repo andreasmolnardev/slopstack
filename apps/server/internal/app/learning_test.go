@@ -1100,6 +1100,7 @@ func TestLearningArchiveImportIncludesPodcastAndPreferencesAndRemapsLinks(t *tes
 		"podcast_episodes": []any{map[string]any{
 			"id": "episode-old", "title": "Space notes", "topic": "Stars and galaxies", "status": "ready",
 			"source_ids": []string{"source-old", "foreign-source"}, "concept_ids": []string{"unit-old", "foreign-unit"},
+			"knowledge_gap_ids": []string{"unit-old"}, "knowledge_gap_context": []map[string]any{{"title": "Star", "content": "A luminous sphere."}},
 			"outline": outline, "transcript": transcript, "duration_seconds": 1,
 			"course_context": map[string]any{"title": "Imported course — Module", "content": "Grounded objective."},
 		}},
@@ -1123,8 +1124,19 @@ func TestLearningArchiveImportIncludesPodcastAndPreferencesAndRemapsLinks(t *tes
 	if err := podcasts[0].UnmarshalJSONField("concept_ids", &conceptIDs); err != nil {
 		t.Fatal(err)
 	}
+	var gapIDs []string
+	var gapContext []podcastReference
+	if err := podcasts[0].UnmarshalJSONField("knowledge_gap_ids", &gapIDs); err != nil {
+		t.Fatal(err)
+	}
+	if err := podcasts[0].UnmarshalJSONField("knowledge_gap_context", &gapContext); err != nil {
+		t.Fatal(err)
+	}
 	if len(sourceIDs) != 1 || sourceIDs[0] == "source-old" || len(conceptIDs) != 1 || conceptIDs[0] == "unit-old" {
 		t.Fatalf("podcast links were not remapped or unmapped links were retained: %v %v", sourceIDs, conceptIDs)
+	}
+	if len(gapIDs) != 1 || gapIDs[0] != conceptIDs[0] || len(gapContext) != 1 || gapContext[0].Title != "Star" {
+		t.Fatalf("podcast knowledge gap was not remapped and restored: %v %#v", gapIDs, gapContext)
 	}
 	if _, err := app.FindRecordById("learning_sources", sourceIDs[0]); err != nil {
 		t.Fatalf("podcast source link does not resolve: %v", err)

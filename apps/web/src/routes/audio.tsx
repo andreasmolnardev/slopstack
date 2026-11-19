@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { pb } from '../api/pocketbase';
-import { learningQueryOptions } from '../api/learning-queries';
+import { learningQueryOptions, type DueReview } from '../api/learning-queries';
 import { SpeechVoicePicker } from '../speech-voice-picker';
 import { preferencesQueryOptions } from '../api/preferences';
 import { createPodcast, deletePodcast, emptyPodcastVoiceAssignments, generatePodcastAudio, podcastQueryOptions, regeneratePodcast, savePodcastScript, savePodcastVoices, type PodcastEpisode, type PodcastScriptDraft, type PodcastVoiceAssignments } from '../api/podcasts';
@@ -13,6 +13,7 @@ export const Route = createFileRoute('/audio')({
     context.queryClient.ensureQueryData(podcastQueryOptions.episodes()),
     context.queryClient.ensureQueryData(learningQueryOptions.sources()),
     context.queryClient.ensureQueryData(learningQueryOptions.knowledgeUnits()),
+    context.queryClient.ensureQueryData(learningQueryOptions.dueReviews()),
     context.queryClient.ensureQueryData(learningQueryOptions.courses()),
     context.queryClient.ensureQueryData(learningQueryOptions.piperHealth()),
     context.queryClient.ensureQueryData(preferencesQueryOptions()),
@@ -26,12 +27,14 @@ function AudioStudio() {
   const episodesQuery = useQuery(podcastQueryOptions.episodes());
   const sourcesQuery = useQuery(learningQueryOptions.sources());
   const unitsQuery = useQuery(learningQueryOptions.knowledgeUnits());
+  const dueReviewsQuery = useQuery(learningQueryOptions.dueReviews());
   const coursesQuery = useQuery(learningQueryOptions.courses());
   const piperQuery = useQuery(learningQueryOptions.piperHealth());
   const preferencesQuery = useQuery(preferencesQueryOptions());
   const piperReady = Boolean(piperQuery.data?.configured && piperQuery.data.connected);
   const [title, setTitle] = useState(''); const [topic, setTopic] = useState('');
   const [sourceIds, setSourceIds] = useState<string[]>([]); const [conceptIds, setConceptIds] = useState<string[]>([]);
+  const [knowledgeGapIds, setKnowledgeGapIds] = useState<string[]>([]);
   const [courseId, setCourseId] = useState(''); const [moduleId, setModuleId] = useState('');
   const [active, setActive] = useState<PodcastEpisode | null>(null); const [turn, setTurn] = useState(0);
   const [editing, setEditing] = useState(false); const [scriptDraft, setScriptDraft] = useState<PodcastScriptDraft | null>(null);
@@ -43,6 +46,7 @@ function AudioStudio() {
   const [audioUrl, setAudioUrl] = useState(''); const [fullAudioUrl, setFullAudioUrl] = useState(''); const audioRef = useRef<HTMLAudioElement>(null);
   const playWhenReady = useRef(false);
   const episodes = episodesQuery.data ?? [];
+  const dueReviews = (dueReviewsQuery.data ?? []) as DueReview[];
   const selectedCourse = (coursesQuery.data ?? []).find(course => course.id === courseId);
   const modules = (Array.isArray(selectedCourse?.content?.modules) ? selectedCourse.content.modules : []) as Array<{ id?: string; title?: string }>;
   useEffect(() => {
@@ -70,6 +74,7 @@ function AudioStudio() {
       setTopic('');
       setSourceIds([]);
       setConceptIds([]);
+      setKnowledgeGapIds([]);
       setCourseId(''); setModuleId('');
       setNarrationVoice('');
       setNarrationSpeaker('');
@@ -79,7 +84,7 @@ function AudioStudio() {
   async function refresh() { await client.invalidateQueries({ queryKey: podcastQueryOptions.episodes().queryKey }); }
   async function create(event: React.FormEvent) {
     event.preventDefault(); setBusy(true); setNotice('');
-    try { const episode = await createPodcast({ title, topic, source_ids: sourceIds, concept_ids: conceptIds, ...(courseId ? { course_id: courseId, ...(moduleId ? { module_id: moduleId } : {}) } : {}) }); setTitle(''); setTopic(''); setCourseId(''); setModuleId(''); setActive(episode); setScriptDraft({ outline: episode.outline, transcript: episode.transcript }); setEditing(false); setTurn(0); setQueuePlayback(false); await refresh(); }
+    try { const episode = await createPodcast({ title, topic, source_ids: sourceIds, concept_ids: conceptIds, knowledge_gap_ids: knowledgeGapIds, ...(courseId ? { course_id: courseId, ...(moduleId ? { module_id: moduleId } : {}) } : {}) }); setTitle(''); setTopic(''); setCourseId(''); setModuleId(''); setKnowledgeGapIds([]); setActive(episode); setScriptDraft({ outline: episode.outline, transcript: episode.transcript }); setEditing(false); setTurn(0); setQueuePlayback(false); await refresh(); }
     catch (error) { setNotice(error instanceof Error ? error.message : 'Could not create episode'); } finally { setBusy(false); }
   }
   async function synthesize(index = turn, queued = false) {
@@ -140,6 +145,7 @@ function AudioStudio() {
     <form onSubmit={create} className="mt-8 grid gap-4 rounded-2xl border border-white/10 bg-[#211638] p-6"><h2 className="text-xl font-medium">New episode</h2><input maxLength={120} required value={title} onChange={e => setTitle(e.target.value)} placeholder="Episode title" className="rounded-lg bg-[#0e0621] p-3"/><textarea maxLength={1000} required value={topic} onChange={e => setTopic(e.target.value)} placeholder="What should the conversation teach?" className="min-h-24 rounded-lg bg-[#0e0621] p-3"/>
       <label className="grid gap-2 text-sm">Learning sources (up to 5)<select multiple size={Math.min(4, Math.max(2, sourcesQuery.data?.length ?? 2))} value={sourceIds} onChange={e => setSourceIds(Array.from(e.currentTarget.selectedOptions, option => option.value).slice(0, 5))} className="rounded-lg bg-[#0e0621] p-3">{(sourcesQuery.data ?? []).map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
       <label className="grid gap-2 text-sm">Concepts (up to 10)<select multiple size={Math.min(4, Math.max(2, unitsQuery.data?.length ?? 2))} value={conceptIds} onChange={e => setConceptIds(Array.from(e.currentTarget.selectedOptions, option => option.value).slice(0, 10))} className="rounded-lg bg-[#0e0621] p-3">{(unitsQuery.data ?? []).map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
+      <fieldset className="grid gap-2 rounded-lg border border-white/10 p-3"><legend className="px-1 text-sm">Focus on due knowledge gaps (up to 10)</legend>{dueReviews.length ? dueReviews.map(item => <label key={item.unit.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={knowledgeGapIds.includes(item.unit.id)} disabled={!knowledgeGapIds.includes(item.unit.id) && knowledgeGapIds.length >= 10} onChange={event => setKnowledgeGapIds(current => event.target.checked ? [...current, item.unit.id] : current.filter(id => id !== item.unit.id))}/><span>{item.unit.title} <span className="text-xs text-[#b7adcc]">{Math.round(item.mastery * 100)}% mastery</span></span></label>) : <p className="text-xs text-[#b7adcc]">No concepts are due for review. Mark a concept for review in the knowledge queue to use it here.</p>}</fieldset>
       <label className="grid gap-2 text-sm">Course (optional)<select value={courseId} onChange={event => { setCourseId(event.target.value); setModuleId(''); }} className="rounded-lg bg-[#0e0621] p-3"><option value="">No course context</option>{(coursesQuery.data ?? []).map(course => <option key={course.id} value={course.id}>{course.title}</option>)}</select></label>
       {courseId && <label className="grid gap-2 text-sm">Course material<select value={moduleId} onChange={event => setModuleId(event.target.value)} className="rounded-lg bg-[#0e0621] p-3"><option value="">Entire course</option>{modules.map((module, index) => <option key={module.id ?? index} value={module.id ?? ''}>{module.title ?? `Module ${index + 1}`}</option>)}</select><span className="text-xs text-[#b7adcc]">The selected course or module is copied into a bounded episode context for regeneration.</span></label>}
       <button disabled={busy} className="w-fit rounded-lg bg-[#6350c8] px-5 py-2.5">{busy ? 'Working…' : 'Generate episode'}</button>
