@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { captionAtPosition, checkpointBlocksProgress, flattenCourseScenes, sceneAtTimelinePosition, sceneDurationSeconds, timelineDurationWithSegments, timelinePosition, triangleMetrics } from './learning-timeline';
+import { checkpointBlocksProgress, flattenCourseScenes, sceneAtTimelinePosition, sceneCaptionText, sceneDurationSeconds, timelineDurationWithSegments, timelinePosition, triangleMetrics } from './learning-timeline';
 import type { LessonPlayerMode } from './learning-timeline';
 import type { WidgetConfig } from './learning-timeline';
 import { BinarySearchVisualizer, ClassificationExercise, LogicGateExplorer, ProbabilitySimulation, StateMachineVisualizer, VectorExplorer } from './learning-widgets';
@@ -17,6 +17,7 @@ import { client as generatedClient } from './api/generated/client.gen';
 import { offlineLearningStore, persistProgressOfflineFirst } from './api/offline-learning';
 import { saveCourseProgressOnline } from './api/offline-progress';
 import { LessonAssistant } from './lesson-assistant';
+import { fetchLessonNarration } from './lesson-narration';
 
 export function Starburst({ initialCourse, redirectTo, offlineMode = false, onOfflineExit }: { initialCourse?: LearningRecord; redirectTo?: string; offlineMode?: boolean; onOfflineExit?: () => void }) {
   const navigate = useNavigate();
@@ -197,7 +198,7 @@ function Lesson({course,initialSceneIndex,initialPositionSeconds,captionsByDefau
   const narrationAbortRef=useRef<AbortController|null>(null);
   const scene=scenes[sceneIndex];
   const config=scene?.widget?.config ?? {};
-  const caption=sceneCaption(scene,elapsed);
+  const caption=sceneCaptionText(scene,elapsed);
   const duration=scene?(narrationDurations[sceneIndex]??sceneDurationSeconds(scene)):0;
   const totalDuration=timelineDurationWithSegments(scenes,narrationDurations);
   const position=timelinePosition(scenes,sceneIndex,elapsed,narrationDurations);
@@ -295,14 +296,13 @@ function Lesson({course,initialSceneIndex,initialPositionSeconds,captionsByDefau
   async function prepareNarratedTimeline(saveOffline=false):Promise<boolean>{
     if(!scene||narrationBusy)return false;
     setNarrationBusy(true);setNarrationMessage(`Preparing narration 0/${scenes.length}…`);setCheckpointFeedback('');
-    const urls:string[]=[];const durations:number[]=[];const blobs:Blob[]=[];
+    const urls:string[]=[];const durations:number[]=[];const blobs:Blob[]=[];let cached=0;
     const controller=new AbortController();narrationAbortRef.current=controller;
     try{
       for(let index=0;index<scenes.length;index+=1){
-        const text=[scenes[index].title,sceneCaption(scenes[index])].filter(Boolean).join('. ').slice(0,2000);
-        const response=await fetch(pb.buildUrl('/api/speech/synthesize'),{method:'POST',headers:{'Content-Type':'application/json','Authorization':pb.authStore.token},body:JSON.stringify({text,voice:narrationVoice,speaker:narrationSpeaker}),signal:controller.signal});
-        if(!response.ok)throw new Error(`Narration failed for scene ${index+1}`);
-        const blob=await response.blob();const url=URL.createObjectURL(blob);
+        const narration=await fetchLessonNarration({url:pb.buildUrl(`/api/learning/courses/${course.id}/narration`),token:pb.authStore.token,scene:scenes[index],sceneIndex:index,voice:narrationVoice,speaker:narrationSpeaker,signal:controller.signal});
+        if(narration.cacheHit)cached+=1;
+        const blob=narration.blob;const url=URL.createObjectURL(blob);
         try{durations.push(await readAudioDuration(url));urls.push(url);blobs.push(blob)}catch(error){URL.revokeObjectURL(url);throw error}
         setNarrationMessage(`Preparing narration ${index+1}/${scenes.length}…`);
       }
@@ -312,7 +312,7 @@ function Lesson({course,initialSceneIndex,initialPositionSeconds,captionsByDefau
         await offlineLearningStore.saveNarrationAssets(ownerId,course.id,course.version??1,blobs);
       }
       setNarrationUrls(urls);setNarrationDurations(durations);setElapsed(Math.min(elapsedRef.current,durations[sceneIndex]??0));
-      setNarrationMessage(`${saveOffline?'Narration saved for offline use · ':''}Narrated timeline ready · ${formatTime(durations.reduce((total,value)=>total+value,0))}`);
+      setNarrationMessage(`${saveOffline?'Narration saved for offline use · ':''}Narrated timeline ready${cached?` · ${cached}/${scenes.length} reused`:''} · ${formatTime(durations.reduce((total,value)=>total+value,0))}`);
       return true;
     }catch(e){urls.forEach(url=>URL.revokeObjectURL(url));setNarrationMessage('');if(!controller.signal.aborted)setCheckpointFeedback(e instanceof Error?e.message:'Could not prepare narrated timeline');return false}
     finally{if(narrationAbortRef.current===controller)narrationAbortRef.current=null;setNarrationBusy(false)}
@@ -374,13 +374,6 @@ function readAudioDuration(url:string):Promise<number>{
     audio.onloadedmetadata=()=>Number.isFinite(audio.duration)&&audio.duration>0?finish(audio.duration):finish();
     audio.onerror=()=>finish();audio.src=url;audio.load();
   });
-}
-
-function sceneCaption(scene:ReturnType<typeof flattenCourseScenes>[number]|undefined,seconds=0){
-  const timed=captionAtPosition(scene,seconds);
-  if(typeof timed==='string')return timed;
-  const config=scene?.widget?.config??{};
-  return String(config.body??config.prompt??config.question??config.caption??scene?.title??'');
 }
 
 function formatTime(seconds:number){const value=Math.max(0,Math.floor(seconds));return `${Math.floor(value/60)}:${String(value%60).padStart(2,'0')}`}

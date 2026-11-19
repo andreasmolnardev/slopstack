@@ -26,6 +26,7 @@ func EnsureCollections(app core.App) error {
 		{"course_versions", false, []schemaField{{"owner", "text", true}, {"course", "text", true}, {"version", "number", true}, {"content", "json", true}, {"title", "text", true}, {"description", "text", false}}},
 		{"course_progress", false, []schemaField{{"owner", "text", true}, {"course", "text", true}, {"scene_index", "number", false}, {"position_seconds", "number", false}, {"completed", "bool", false}}},
 		{"course_assessments", false, []schemaField{{"owner", "text", true}, {"course", "text", true}, {"version", "number", true}, {"module_id", "text", true}, {"questions", "json", true}}},
+		{"lesson_narrations", false, []schemaField{{"owner", "text", true}, {"course", "text", true}, {"version", "number", true}, {"scene_id", "text", true}, {"text_hash", "text", true}, {"voice", "text", false}, {"speaker", "text", false}, {"audio", "file", false}, {"audio_metadata", "json", false}}},
 		{"knowledge_units", false, []schemaField{{"owner", "text", true}, {"title", "text", true}, {"description", "text", false}, {"unit_type", "text", true}, {"metadata", "json", false}}},
 		{"learning_sources", false, []schemaField{{"owner", "text", true}, {"title", "text", true}, {"source_type", "text", true}, {"content", "text", true}, {"metadata", "json", false}}},
 		{"knowledge_edges", false, []schemaField{{"owner", "text", true}, {"from_unit", "text", true}, {"to_unit", "text", true}, {"relationship", "text", true}}},
@@ -87,6 +88,16 @@ func EnsureCollections(app core.App) error {
 		assessments.AddIndex("idx_course_assessments_course_version_module", true, "owner, course, version, module_id", "")
 		if err := app.Save(assessments); err != nil {
 			return fmt.Errorf("could not index course assessments: %w", err)
+		}
+	}
+	narrations, err := app.FindCollectionByNameOrId("lesson_narrations")
+	if err != nil {
+		return err
+	}
+	if narrations.GetIndex("idx_lesson_narrations_cache") == "" {
+		narrations.AddIndex("idx_lesson_narrations_cache", true, "owner, course, version, scene_id, text_hash, voice, speaker", "")
+		if err := app.Save(narrations); err != nil {
+			return fmt.Errorf("could not index lesson narrations: %w", err)
 		}
 	}
 	podcasts, err := app.FindCollectionByNameOrId("podcast_episodes")

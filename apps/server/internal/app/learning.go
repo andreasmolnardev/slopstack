@@ -27,14 +27,17 @@ import (
 )
 
 const (
-	maxLearningBody          = 1 << 20
-	maxLearningArchiveBytes  = 100 << 20
-	maxLearningArchiveAssets = 25 << 20
+	maxLearningBody             = 1 << 20
+	maxLearningArchiveBytes     = 100 << 20
+	maxLearningArchiveAssets    = 25 << 20
+	maxLessonNarrationTextRunes = 2_000
+	maxLessonNarrationBytes     = 8 << 20
 )
 
 var learningWorkerMu sync.Mutex
 var learningWorkerCancels = map[string]context.CancelFunc{}
 var learningWorkerSlots = make(chan struct{}, 2)
+var lessonNarrationGenerations sync.Map
 
 func launchCourseGenerationJob(app core.App, jobID, courseID, ownerID, title string, goals ...string) {
 	launchCourseGenerationJobWithContext(app, jobID, courseID, ownerID, title, firstString(goals), nil)
@@ -141,6 +144,20 @@ type learningSpeechInput struct {
 		Speaker string `json:"speaker,omitempty"`
 	}
 }
+type lessonNarrationInput struct {
+	ID   string `path:"id"`
+	Body struct {
+		SceneID string `json:"scene_id"`
+		Text    string `json:"text"`
+		Voice   string `json:"voice,omitempty"`
+		Speaker string `json:"speaker,omitempty"`
+	}
+}
+type lessonNarrationOutput struct {
+	Cache       string `header:"X-Narration-Cache"`
+	ContentType string `header:"Content-Type"`
+	Body        learningWAV
+}
 type learningAudioInput struct {
 	RawBody []byte `contentType:"audio/wav"`
 }
@@ -210,6 +227,7 @@ func registerLearningAPI(api huma.API) {
 	huma.Register(api, huma.Operation{OperationID: "answerGrammar", Method: http.MethodPost, Path: "/api/languages/grammar/{id}/answer", Tags: []string{"Language Learning"}, Summary: "Answer a grammar exercise", Security: security, Errors: errorSet}, func(context.Context, *learningIDBodyInput) (*learningRecordOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "piperHealth", Method: http.MethodGet, Path: "/api/speech/piper", Tags: []string{"Speech"}, Summary: "Check whether the configured Piper service is reachable", Security: security, Errors: []int{http.StatusUnauthorized}}, func(context.Context, *learningListInput) (*learningRecordOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "synthesizeSpeech", Method: http.MethodPost, Path: "/api/speech/synthesize", Tags: []string{"Speech"}, Summary: "Synthesize speech from text", Security: security, Errors: errorSet, DefaultStatus: http.StatusOK}, func(context.Context, *learningSpeechInput) (*learningAudioOutput, error) { return nil, nil })
+	huma.Register(api, huma.Operation{OperationID: "synthesizeLessonNarration", Method: http.MethodPost, Path: "/api/learning/courses/{id}/narration", Tags: []string{"Learning", "Speech"}, Summary: "Get or create persisted WAV narration for an owned course scene", Description: "Caches audio by owner, course, course version, scene identity, text hash, voice, and speaker. A matching request returns the stored WAV; changed text, scene, voice, or version creates a new cache entry.", Security: security, Errors: []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusNotFound, http.StatusConflict, http.StatusInternalServerError}, DefaultStatus: http.StatusOK}, func(context.Context, *lessonNarrationInput) (*lessonNarrationOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "transcribeSpeech", Method: http.MethodPost, Path: "/api/speech/transcribe", Tags: []string{"Speech"}, Summary: "Transcribe a WAV audio upload", Security: security, Errors: errorSet}, func(context.Context, *learningAudioInput) (*learningRecordOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "generateCourse", Method: http.MethodPost, Path: "/api/learning/courses/{id}/generate", Tags: []string{"Learning"}, Summary: "Queue generation for an owned course using selected sources and concepts", Security: security, Errors: errorSet, DefaultStatus: http.StatusAccepted}, func(context.Context, *courseGenerationInput) (*learningRecordOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "getLearningJob", Method: http.MethodGet, Path: "/api/learning/jobs/{id}", Tags: []string{"Learning"}, Summary: "Get an owned learning job", Security: security, Errors: errorSet}, func(context.Context, *learningIDInput) (*learningRecordOutput, error) { return nil, nil })
@@ -248,6 +266,7 @@ func registerLearningRoutes(e *core.ServeEvent, config Config) {
 	e.Router.POST("/api/languages/grammar/{id}/answer", answerGrammarRoute)
 	e.Router.GET("/api/speech/piper", piperHealthRoute(config))
 	e.Router.POST("/api/speech/synthesize", piperSynthesizeRoute(config))
+	e.Router.POST("/api/learning/courses/{id}/narration", lessonNarrationRoute(config))
 	e.Router.POST("/api/speech/transcribe", whisperTranscribeRoute(config))
 	for _, collection := range []string{"courses", "knowledge_units"} {
 		path := "/api/learning/" + collection + "/{id}"
@@ -722,6 +741,216 @@ func piperSynthesizeRoute(config Config) func(*core.RequestEvent) error {
 	}
 }
 
+func lessonNarrationRoute(config Config) func(*core.RequestEvent) error {
+	return func(event *core.RequestEvent) error {
+		user, err := CurrentUser(event)
+		if err != nil {
+			return err
+		}
+		course, err := findOwnedLearningRecord(event, "courses")
+		if err != nil {
+			return err
+		}
+		var input lessonNarrationInput
+		decoder := json.NewDecoder(io.LimitReader(event.Request.Body, 16<<10))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&input.Body); err != nil {
+			return event.BadRequestError("invalid lesson narration request", err)
+		}
+		sceneID := strings.TrimSpace(input.Body.SceneID)
+		text := strings.TrimSpace(input.Body.Text)
+		voice := strings.TrimSpace(input.Body.Voice)
+		speaker := strings.TrimSpace(input.Body.Speaker)
+		if err := validateLessonNarrationInput(sceneID, text, voice, speaker); err != nil {
+			return event.BadRequestError("invalid lesson narration request", err)
+		}
+		if !courseHasScene(course, sceneID) {
+			return event.NotFoundError("course scene not found", nil)
+		}
+		version := course.GetFloat("version")
+		if version <= 0 {
+			version = 1
+		}
+		textHash := lessonNarrationTextHash(text)
+		cached, err := findLessonNarration(event.App, user.Id, course.Id, version, sceneID, textHash, voice, speaker)
+		if err != nil {
+			return event.InternalServerError("could not load narration cache", err)
+		}
+		if cached != nil {
+			if audio, readErr := readLessonNarrationAudio(event.App, cached); readErr == nil {
+				return writeLessonNarrationResponse(event, cached, audio, "hit")
+			}
+			// Replace cache records whose stored audio is missing or unreadable.
+			if err := event.App.Delete(cached); err != nil {
+				return event.InternalServerError("could not clear incomplete narration cache", err)
+			}
+		}
+		lockKey := lessonNarrationCacheKey(user.Id, course.Id, version, sceneID, textHash, voice, speaker)
+		if _, loaded := lessonNarrationGenerations.LoadOrStore(lockKey, struct{}{}); loaded {
+			return event.JSON(http.StatusConflict, map[string]string{"message": "lesson narration is already being generated"})
+		}
+		defer lessonNarrationGenerations.Delete(lockKey)
+		address := piperAddress(config)
+		if address == "" {
+			return event.BadRequestError("Piper is not configured", nil)
+		}
+		if voice != "" {
+			discoveryCtx, discoveryCancel := context.WithTimeout(event.Request.Context(), 3*time.Second)
+			info, discoveryErr := wyoming.Discover(discoveryCtx, address, 3*time.Second)
+			discoveryCancel()
+			if discoveryErr != nil {
+				return event.InternalServerError("could not discover Piper voices", discoveryErr)
+			}
+			if selectionErr := validatePiperSelection(info, voice, speaker); selectionErr != nil {
+				return event.BadRequestError("invalid Piper voice selection", selectionErr)
+			}
+		}
+		ctx, cancel := context.WithTimeout(event.Request.Context(), 45*time.Second)
+		defer cancel()
+		audio, _, _, _, err := wyoming.Synthesize(ctx, address, text, voice, speaker, 45*time.Second)
+		if err != nil {
+			return event.InternalServerError("Piper synthesis failed", err)
+		}
+		pcm, rate, width, channels, err := validateLessonNarrationAudio(audio)
+		if err != nil {
+			return event.BadRequestError("narration audio is invalid", err)
+		}
+		collection, err := event.App.FindCollectionByNameOrId("lesson_narrations")
+		if err != nil {
+			return event.InternalServerError("narration cache is unavailable", err)
+		}
+		file, err := filesystem.NewFileFromBytes(audio, "narration.wav")
+		if err != nil {
+			return event.InternalServerError("could not prepare narration audio", err)
+		}
+		record := core.NewRecord(collection)
+		record.Set("owner", user.Id)
+		record.Set("course", course.Id)
+		record.Set("version", version)
+		record.Set("scene_id", sceneID)
+		record.Set("text_hash", textHash)
+		record.Set("voice", voice)
+		record.Set("speaker", speaker)
+		record.Set("audio", file)
+		record.Set("audio_metadata", map[string]any{
+			"format": "audio/wav", "sample_rate": rate, "sample_width_bytes": width,
+			"channels": channels, "duration_seconds": float64(len(pcm)) / float64(rate*width*channels),
+			"bytes": len(audio), "generated_at": time.Now().UTC().Format(time.RFC3339),
+		})
+		if err := event.App.Save(record); err != nil {
+			// A concurrent request may have stored the same cache key first.
+			existing, findErr := findLessonNarration(event.App, user.Id, course.Id, version, sceneID, textHash, voice, speaker)
+			if findErr == nil && existing != nil {
+				if stored, readErr := readLessonNarrationAudio(event.App, existing); readErr == nil {
+					return writeLessonNarrationResponse(event, existing, stored, "hit")
+				}
+			}
+			return event.InternalServerError("could not save narration cache", err)
+		}
+		return writeLessonNarrationResponse(event, record, audio, "miss")
+	}
+}
+
+func validateLessonNarrationInput(sceneID, text, voice, speaker string) error {
+	if sceneID == "" || len([]rune(sceneID)) > 200 {
+		return fmt.Errorf("scene_id must contain between 1 and 200 characters")
+	}
+	if text == "" || len([]rune(text)) > maxLessonNarrationTextRunes {
+		return fmt.Errorf("text must contain between 1 and %d characters", maxLessonNarrationTextRunes)
+	}
+	if len([]rune(voice)) > 200 || len([]rune(speaker)) > 200 {
+		return fmt.Errorf("voice and speaker names must be 200 characters or fewer")
+	}
+	if voice == "" && speaker != "" {
+		return fmt.Errorf("a speaker must be paired with a voice")
+	}
+	return nil
+}
+
+func validateLessonNarrationAudio(audio []byte) ([]byte, int, int, int, error) {
+	if len(audio) == 0 || len(audio) > maxLessonNarrationBytes {
+		return nil, 0, 0, 0, fmt.Errorf("narration audio must be between 1 byte and %d bytes", maxLessonNarrationBytes)
+	}
+	return wyoming.ParseWAV(audio)
+}
+
+func lessonNarrationTextHash(text string) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(strings.TrimSpace(text))))
+}
+
+func lessonNarrationCacheKey(ownerID, courseID string, version float64, sceneID, textHash, voice, speaker string) string {
+	return strings.Join([]string{ownerID, courseID, strconv.FormatFloat(version, 'f', -1, 64), sceneID, textHash, voice, speaker}, "\x00")
+}
+
+func findLessonNarration(app core.App, ownerID, courseID string, version float64, sceneID, textHash, voice, speaker string) (*core.Record, error) {
+	records, err := app.FindRecordsByFilter("lesson_narrations",
+		"owner = {:owner} && course = {:course} && version = {:version} && scene_id = {:scene} && text_hash = {:hash} && voice = {:voice} && speaker = {:speaker}",
+		"", 1, 0, dbx.Params{"owner": ownerID, "course": courseID, "version": version, "scene": sceneID, "hash": textHash, "voice": voice, "speaker": speaker})
+	if err != nil {
+		return nil, err
+	}
+	if len(records) == 0 {
+		return nil, nil
+	}
+	return records[0], nil
+}
+
+func readLessonNarrationAudio(app core.App, record *core.Record) ([]byte, error) {
+	filename := record.GetString("audio")
+	if filename == "" {
+		return nil, fmt.Errorf("narration audio is missing")
+	}
+	storage, err := app.NewFilesystem()
+	if err != nil {
+		return nil, err
+	}
+	defer storage.Close()
+	reader, err := storage.GetReader(record.BaseFilesPath() + "/" + filename)
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+	audio, err := io.ReadAll(io.LimitReader(reader, maxLessonNarrationBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(audio) > maxLessonNarrationBytes {
+		return nil, fmt.Errorf("stored narration audio exceeds the size limit")
+	}
+	return audio, nil
+}
+
+func writeLessonNarrationResponse(event *core.RequestEvent, record *core.Record, audio []byte, cache string) error {
+	headers := event.Response.Header()
+	headers.Set("Cache-Control", "private, no-store")
+	headers.Set("X-Narration-Cache", cache)
+	var metadata map[string]any
+	if err := record.UnmarshalJSONField("audio_metadata", &metadata); err == nil {
+		for key, header := range map[string]string{"sample_rate": "X-Audio-Sample-Rate", "sample_width_bytes": "X-Audio-Width", "channels": "X-Audio-Channels"} {
+			if value, ok := numberValue(metadata[key]); ok {
+				headers.Set(header, strconv.Itoa(int(value)))
+			}
+		}
+	}
+	return event.Blob(http.StatusOK, "audio/wav", audio)
+}
+
+func courseHasScene(course *core.Record, sceneID string) bool {
+	for index, scene := range courseScenes(course) {
+		if lessonSceneID(scene, index) == sceneID {
+			return true
+		}
+	}
+	return false
+}
+
+func lessonSceneID(scene map[string]any, index int) string {
+	if id, ok := scene["id"].(string); ok && strings.TrimSpace(id) != "" {
+		return strings.TrimSpace(id)
+	}
+	return fmt.Sprintf("scene-%d", index+1)
+}
+
 func listLearningSourcesRoute(event *core.RequestEvent) error {
 	user, err := CurrentUser(event)
 	if err != nil {
@@ -1125,7 +1354,7 @@ func deleteLearningRoute(collection string) func(*core.RequestEvent) error {
 			return err
 		}
 		if collection == "courses" {
-			for _, dependent := range []string{"course_assessments", "course_versions", "course_progress"} {
+			for _, dependent := range []string{"course_assessments", "course_versions", "course_progress", "lesson_narrations"} {
 				records, findErr := event.App.FindRecordsByFilter(dependent, "owner = {:owner} && course = {:course}", "", 0, 0, dbx.Params{"owner": record.GetString("owner"), "course": record.Id})
 				if findErr != nil {
 					return event.InternalServerError("could not remove course history", findErr)

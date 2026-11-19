@@ -74,6 +74,13 @@ export function captionAtPosition(scene: LessonScene | undefined, seconds: numbe
   return active?.text ?? '';
 }
 
+export function sceneCaptionText(scene: LessonScene | undefined, seconds = 0): string {
+  const timed = captionAtPosition(scene, seconds);
+  if (typeof timed === 'string') return timed;
+  const config = scene?.widget?.config ?? {};
+  return String(config.body ?? config.prompt ?? config.question ?? config.caption ?? scene?.title ?? '');
+}
+
 export function timelineDurationSeconds(scenes: LessonScene[]): number {
   return scenes.reduce((total, scene) => total + sceneDurationSeconds(scene), 0);
 }

@@ -40,6 +40,7 @@ func TestLearningOpenAPIContractsCoverPocketBaseRoutes(t *testing.T) {
 		{"POST", "/api/languages/vocabulary/{id}/context-attempt"},
 		{"GET", "/api/languages/grammar"}, {"POST", "/api/languages/grammar"}, {"POST", "/api/languages/grammar/{id}/answer"},
 		{"GET", "/api/speech/piper"}, {"POST", "/api/speech/synthesize"}, {"POST", "/api/speech/transcribe"},
+		{"POST", "/api/learning/courses/{id}/narration"},
 		{"POST", "/api/learning/courses/{id}/generate"}, {"GET", "/api/learning/jobs/{id}"}, {"POST", "/api/learning/jobs/{id}/cancel"},
 		{"GET", "/api/learning/courses/{id}/versions"}, {"POST", "/api/learning/courses/{id}/versions/{version}/restore"},
 		{"POST", "/api/learning/courses/{id}/evidence"}, {"POST", "/api/learning/courses/{id}/assess"},
@@ -76,6 +77,10 @@ func TestLearningOpenAPIContractsCoverPocketBaseRoutes(t *testing.T) {
 	response := api.OpenAPI().Paths["/api/speech/synthesize"].Post.Responses["200"]
 	if response == nil || response.Content["audio/wav"] == nil {
 		t.Fatal("speech synthesis response must be documented as audio/wav")
+	}
+	narration := api.OpenAPI().Paths["/api/learning/courses/{id}/narration"].Post.Responses["200"]
+	if narration == nil || narration.Content["audio/wav"] == nil {
+		t.Fatal("lesson narration response must be documented as audio/wav")
 	}
 }
 

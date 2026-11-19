@@ -23,6 +23,8 @@ Offline learning tests cover private answer-key stripping before IndexedDB stora
 
 Audio Studio uses the existing authenticated Piper endpoint for per-turn playback. Wyoming tests verify `describe`/`info` discovery, advertised voice and speaker projection/validation, and voice/speaker selection in the synthesis event. Fixture/provider protocol tests do not verify live LLM generation, Wyoming synthesis, audio quality, or persisted audio publication.
 
+Lesson narration tests use a local Wyoming TCP fixture to verify owned-course synthesis, cache reuse, text-hash and voice misses, course-version invalidation, owner isolation, cached WAV streaming, input bounds, and the 8 MiB scene-audio limit. Web tests verify the player's scene identity/text request and cache-hit parsing without contacting a live Piper service.
+
 
 Speaking tests cover WAV header/sample encoding, Unicode-aware transcript normalization, transcript bounds, owner-only English vocabulary access, evidence persistence, and the authenticated OpenAPI operation. Browser recording and live Whisper/Piper behavior still require a secure-context browser and configured services.
 

@@ -86,7 +86,7 @@ The release workflow publishes `ghcr.io/<owner>/slopstack:<VERSION>` and `:lates
 
 ## Customization
 
-Starburst uses TanStack file routes in `apps/web/src/routes/` for courses, knowledge, adaptive practice, learner profile, offline learning, Audio Studio, and speaking practice. The lesson experience is in `apps/web/src/starburst.tsx`; offline downloads live in IndexedDB and speech uses the authenticated Wyoming-backed API. Add modules through protected API routes, schemas, and generated client calls. Keep schema evolution in PocketBase migrations.
+Starburst uses TanStack file routes in `apps/web/src/routes/` for courses, knowledge, adaptive practice, learner profile, offline learning, Audio Studio, and speaking practice. The lesson experience is in `apps/web/src/starburst.tsx`; offline downloads live in IndexedDB, and speech uses the authenticated Wyoming-backed API with per-scene lesson narration cached in PocketBase. Add modules through protected API routes, schemas, and generated client calls. Keep schema evolution in PocketBase migrations.
 
 The optional shadcn component set and reusable patterns are in `@slopstack/ui`. The starter imports these through public package exports, while apps can replace or customize them. See [frontend package guidance](docs/frontend-packages.md) and [component usage](docs/COMPONENTS.md).
 
