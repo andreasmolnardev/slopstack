@@ -11,6 +11,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
+	"github.com/pocketbase/pocketbase/tools/filesystem"
 	"github.com/pocketbase/pocketbase/tools/router"
 )
 
@@ -69,6 +70,7 @@ func TestPodcastOpenAPIContracts(t *testing.T) {
 		{"POST", "/api/audio/episodes/{id}/regenerate"},
 		{"PUT", "/api/audio/episodes/{id}/script"},
 		{"PUT", "/api/audio/episodes/{id}/voices"},
+		{"POST", "/api/audio/episodes/{id}/audio"}, {"GET", "/api/audio/episodes/{id}/audio"},
 	} {
 		item := api.OpenAPI().Paths[route.path]
 		if item == nil {
@@ -78,6 +80,98 @@ func TestPodcastOpenAPIContracts(t *testing.T) {
 		if operation := operations[route.method]; operation == nil || len(operation.Security) == 0 {
 			t.Fatalf("missing authenticated operation %s %s", route.method, route.path)
 		}
+	}
+}
+
+func TestPodcastAudioIsOwnerScopedAndServesStoredWAV(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	owner := createTestRecord(t, app, "users", map[string]any{"email": "audio-owner@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	other := createTestRecord(t, app, "users", map[string]any{"email": "audio-other@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	outline := fixturePodcastScript("Audio", "a topic", podcastContext{})
+	transcript := fixturePodcastTranscript("Audio", "a topic", podcastContext{})
+	record, err := savePodcastEpisode(app, owner.Id, podcastCreateBody{Title: "Audio", Topic: "a topic"}, outline, transcript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/audio/episodes/"+record.Id+"/audio", nil)
+	request.SetPathValue("id", record.Id)
+	response := httptest.NewRecorder()
+	event := &core.RequestEvent{App: app, Auth: owner, Event: router.Event{Request: request, Response: response}}
+	if err := getPodcastAudioRoute(event); err == nil {
+		t.Fatal("missing audio should return not found")
+	}
+	file, err := filesystem.NewFileFromBytes([]byte("RIFF-test-wav"), "episode.wav")
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.Set("audio", file)
+	if err := app.Save(record); err != nil {
+		t.Fatal(err)
+	}
+	request = httptest.NewRequest(http.MethodGet, "/api/audio/episodes/"+record.Id+"/audio", nil)
+	request.SetPathValue("id", record.Id)
+	response = httptest.NewRecorder()
+	event = &core.RequestEvent{App: app, Auth: owner, Event: router.Event{Request: request, Response: response}}
+	if err := getPodcastAudioRoute(event); err != nil {
+		t.Fatalf("stored audio read failed: %v", err)
+	}
+	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "audio/wav" || response.Body.String() != "RIFF-test-wav" {
+		t.Fatalf("unexpected audio response: status=%d content-type=%q body=%q", response.Code, response.Header().Get("Content-Type"), response.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodGet, "/api/audio/episodes/"+record.Id+"/audio", nil)
+	request.SetPathValue("id", record.Id)
+	response = httptest.NewRecorder()
+	event = &core.RequestEvent{App: app, Auth: other, Event: router.Event{Request: request, Response: response}}
+	if err := getPodcastAudioRoute(event); err == nil {
+		t.Fatal("another owner's stored audio should not be readable")
+	}
+}
+
+func TestPodcastAudioGenerationReturnsSavedAudioAndRejectsMissingPiper(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	owner := createTestRecord(t, app, "users", map[string]any{"email": "audio-generate@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	outline := fixturePodcastScript("Audio", "a topic", podcastContext{})
+	transcript := fixturePodcastTranscript("Audio", "a topic", podcastContext{})
+	record, err := savePodcastEpisode(app, owner.Id, podcastCreateBody{Title: "Audio", Topic: "a topic"}, outline, transcript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/audio/episodes/"+record.Id+"/audio", nil)
+	request.SetPathValue("id", record.Id)
+	event := &core.RequestEvent{App: app, Auth: owner, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	if err := generatePodcastAudioRoute(Config{})(event); err == nil {
+		t.Fatal("audio generation should require configured Piper")
+	}
+	file, err := filesystem.NewFileFromBytes([]byte("RIFF-test-wav"), "episode.wav")
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.Set("audio", file)
+	if err := app.Save(record); err != nil {
+		t.Fatal(err)
+	}
+	request = httptest.NewRequest(http.MethodPost, "/api/audio/episodes/"+record.Id+"/audio", nil)
+	request.SetPathValue("id", record.Id)
+	event = &core.RequestEvent{App: app, Auth: owner, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	if err := generatePodcastAudioRoute(Config{})(event); err != nil {
+		t.Fatalf("saved audio should be idempotently returned without Piper: %v", err)
+	}
+	if event.Response.(*httptest.ResponseRecorder).Code != http.StatusOK {
+		t.Fatalf("saved audio response status = %d", event.Response.(*httptest.ResponseRecorder).Code)
 	}
 }
 

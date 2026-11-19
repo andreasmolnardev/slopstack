@@ -300,7 +300,7 @@ func registerRoutes(e *core.ServeEvent, config Config, api huma.API) {
 	registerTodoRoutes(e, config)
 	registerLearningRoutes(e, config)
 	registerLessonAssistantRoute(e)
-	registerPodcastRoutes(e)
+	registerPodcastRoutes(e, config)
 	registerSpeakingRoutes(e)
 	registerPreferencesRoutes(e)
 	registerAdaptivePracticeRoutes(e)

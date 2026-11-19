@@ -32,7 +32,7 @@ func EnsureCollections(app core.App) error {
 		{"learner_evidence", false, []schemaField{{"owner", "text", true}, {"unit", "text", true}, {"evidence_type", "text", true}, {"score", "number", false}, {"details", "json", false}}},
 		{"knowledge_mastery", false, []schemaField{{"owner", "text", true}, {"unit", "text", true}, {"mastery", "number", false}, {"confidence", "number", false}, {"review_interval_days", "number", false}, {"ease_factor", "number", false}, {"repetitions", "number", false}, {"last_practice", "date", false}, {"next_review", "date", false}}},
 		{"learning_jobs", false, []schemaField{{"owner", "text", true}, {"kind", "text", true}, {"status", "text", true}, {"progress", "number", false}, {"attempts", "number", false}, {"payload", "json", false}, {"result", "json", false}, {"course", "text", false}, {"error", "text", false}}},
-		{"podcast_episodes", false, []schemaField{{"owner", "text", true}, {"title", "text", true}, {"topic", "text", true}, {"status", "text", true}, {"source_ids", "json", false}, {"concept_ids", "json", false}, {"outline", "json", true}, {"transcript", "json", true}, {"duration_seconds", "number", false}, {"voice_assignments", "json", false}, {"course_context", "json", false}}},
+		{"podcast_episodes", false, []schemaField{{"owner", "text", true}, {"title", "text", true}, {"topic", "text", true}, {"status", "text", true}, {"source_ids", "json", false}, {"concept_ids", "json", false}, {"outline", "json", true}, {"transcript", "json", true}, {"duration_seconds", "number", false}, {"voice_assignments", "json", false}, {"course_context", "json", false}, {"audio", "file", false}, {"audio_metadata", "json", false}}},
 		{"audit_logs", false, []schemaField{{"actor", "text", false}, {"action", "text", true}, {"metadata", "json", false}}},
 	}
 
@@ -114,6 +114,12 @@ func addSchemaField(collection *core.Collection, field schemaField) error {
 		collection.Fields.Add(&core.JSONField{Name: field.Name})
 	case "date":
 		collection.Fields.Add(&core.DateField{Name: field.Name})
+	case "file":
+		maxSize := int64(core.DefaultFileFieldMaxSize)
+		if field.Name == "audio" {
+			maxSize = 25 << 20
+		}
+		collection.Fields.Add(&core.FileField{Name: field.Name, MaxSelect: 1, MaxSize: maxSize})
 	default:
 		return fmt.Errorf("unsupported schema field type %q", field.Type)
 	}

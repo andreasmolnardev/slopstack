@@ -9,12 +9,17 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/filesystem"
+	"github.com/slopstack/slopstack/apps/server/internal/wyoming"
 )
+
+var podcastAudioGenerations sync.Map
 
 const (
 	maxPodcastBody       = 32 << 10
@@ -98,6 +103,9 @@ type podcastVoiceInput struct {
 	ID   string `path:"id"`
 	Body podcastVoiceAssignments
 }
+type podcastAudioInput struct {
+	ID string `path:"id"`
+}
 type podcastCreateInput struct{ Body podcastCreateBody }
 type podcastDeletedOutput struct {
 	Status int `status:"status"`
@@ -130,7 +138,7 @@ type podcastChatResponse struct {
 
 func registerPodcastAPI(api huma.API) {
 	security := []map[string][]string{{"pocketbaseAuth": {}}}
-	errorSet := []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusNotFound, http.StatusInternalServerError}
+	errorSet := []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusNotFound, http.StatusConflict, http.StatusInternalServerError}
 	huma.Register(api, huma.Operation{OperationID: "listPodcastEpisodes", Method: http.MethodGet, Path: "/api/audio/episodes", Tags: []string{"Audio"}, Summary: "List the current user's podcast episodes", Security: security, Errors: errorSet}, func(context.Context, *podcastListInput) (*podcastListOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "createPodcastEpisode", Method: http.MethodPost, Path: "/api/audio/episodes", Tags: []string{"Audio"}, Summary: "Generate and save a podcast episode", Security: security, Errors: errorSet, DefaultStatus: http.StatusCreated}, func(context.Context, *podcastCreateInput) (*podcastSingleOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "getPodcastEpisode", Method: http.MethodGet, Path: "/api/audio/episodes/{id}", Tags: []string{"Audio"}, Summary: "Get an owned podcast episode", Security: security, Errors: errorSet}, func(context.Context, *podcastIDInput) (*podcastSingleOutput, error) { return nil, nil })
@@ -138,9 +146,11 @@ func registerPodcastAPI(api huma.API) {
 	huma.Register(api, huma.Operation{OperationID: "regeneratePodcastEpisode", Method: http.MethodPost, Path: "/api/audio/episodes/{id}/regenerate", Tags: []string{"Audio"}, Summary: "Regenerate an owned podcast episode", Security: security, Errors: errorSet}, func(context.Context, *podcastIDInput) (*podcastSingleOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "updatePodcastScript", Method: http.MethodPut, Path: "/api/audio/episodes/{id}/script", Tags: []string{"Audio"}, Summary: "Save edits to an owned podcast outline and transcript", Security: security, Errors: errorSet}, func(context.Context, *podcastScriptInput) (*podcastSingleOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "updatePodcastVoices", Method: http.MethodPut, Path: "/api/audio/episodes/{id}/voices", Tags: []string{"Audio"}, Summary: "Save host and guest voices for an owned podcast episode", Security: security, Errors: errorSet}, func(context.Context, *podcastVoiceInput) (*podcastSingleOutput, error) { return nil, nil })
+	huma.Register(api, huma.Operation{OperationID: "generatePodcastAudio", Method: http.MethodPost, Path: "/api/audio/episodes/{id}/audio", Tags: []string{"Audio"}, Summary: "Generate and persist complete WAV audio for an owned podcast episode", Security: security, Errors: errorSet, DefaultStatus: http.StatusCreated}, func(context.Context, *podcastAudioInput) (*podcastSingleOutput, error) { return nil, nil })
+	huma.Register(api, huma.Operation{OperationID: "getPodcastAudio", Method: http.MethodGet, Path: "/api/audio/episodes/{id}/audio", Tags: []string{"Audio"}, Summary: "Stream persisted audio for an owned podcast episode", Security: security, Errors: errorSet, Responses: map[string]*huma.Response{"200": {Description: "WAV audio stream", Content: map[string]*huma.MediaType{"audio/wav": {Schema: &huma.Schema{Type: "string", Format: "binary"}}}}}}, func(context.Context, *podcastAudioInput) (*huma.StreamResponse, error) { return nil, nil })
 }
 
-func registerPodcastRoutes(event *core.ServeEvent) {
+func registerPodcastRoutes(event *core.ServeEvent, config Config) {
 	event.Router.GET("/api/audio/episodes", listPodcastEpisodesRoute)
 	event.Router.POST("/api/audio/episodes", createPodcastEpisodeRoute)
 	event.Router.GET("/api/audio/episodes/{id}", getPodcastEpisodeRoute)
@@ -148,6 +158,8 @@ func registerPodcastRoutes(event *core.ServeEvent) {
 	event.Router.POST("/api/audio/episodes/{id}/regenerate", regeneratePodcastEpisodeRoute)
 	event.Router.PUT("/api/audio/episodes/{id}/script", updatePodcastScriptRoute)
 	event.Router.PUT("/api/audio/episodes/{id}/voices", updatePodcastVoicesRoute)
+	event.Router.POST("/api/audio/episodes/{id}/audio", generatePodcastAudioRoute(config))
+	event.Router.GET("/api/audio/episodes/{id}/audio", getPodcastAudioRoute)
 }
 
 func updatePodcastVoicesRoute(event *core.RequestEvent) error {
@@ -164,10 +176,168 @@ func updatePodcastVoicesRoute(event *core.RequestEvent) error {
 		return event.BadRequestError("invalid podcast voice assignments", err)
 	}
 	record.Set("voice_assignments", input)
+	record.Set("audio", "")
+	record.Set("audio_metadata", nil)
 	if err := event.App.Save(record); err != nil {
 		return event.InternalServerError("could not save podcast voices", err)
 	}
 	return event.JSON(http.StatusOK, podcastEpisodeExport(record))
+}
+
+func generatePodcastAudioRoute(config Config) func(*core.RequestEvent) error {
+	return func(event *core.RequestEvent) error {
+		record, err := findOwnedPodcastEpisode(event)
+		if err != nil {
+			return err
+		}
+		if record.GetString("audio") != "" {
+			return event.JSON(http.StatusOK, podcastEpisodeExport(record))
+		}
+		if _, loaded := podcastAudioGenerations.LoadOrStore(record.Id, struct{}{}); loaded {
+			return event.JSON(http.StatusConflict, map[string]string{"message": "podcast audio is already being generated"})
+		}
+		defer podcastAudioGenerations.Delete(record.Id)
+		address := piperAddress(config)
+		if address == "" {
+			return event.BadRequestError("Piper is not configured", nil)
+		}
+		var transcript podcastTranscript
+		if err := record.UnmarshalJSONField("transcript", &transcript); err != nil {
+			return event.InternalServerError("stored podcast transcript is invalid", err)
+		}
+		if err := validatePodcastTranscript(transcript); err != nil {
+			return event.BadRequestError("podcast transcript is invalid", err)
+		}
+		var voices podcastVoiceAssignments
+		if err := record.UnmarshalJSONField("voice_assignments", &voices); err != nil {
+			return event.InternalServerError("stored podcast voices are invalid", err)
+		}
+		voices, _ = normalizePodcastVoiceAssignments(voices)
+		preferences := readUserPreferences(event.Auth)
+		defaultVoice := podcastRoleVoice{Voice: preferences.NarrationVoice, Speaker: preferences.NarrationSpeaker}
+		effectiveVoices := []podcastRoleVoice{voices.Host, voices.Guest}
+		for index := range effectiveVoices {
+			if effectiveVoices[index].Voice == "" {
+				effectiveVoices[index] = defaultVoice
+			}
+		}
+		validatedVoices := make(map[string]struct{})
+		for _, voice := range effectiveVoices {
+			if voice.Voice == "" {
+				continue
+			}
+			key := voice.Voice + "\x00" + voice.Speaker
+			if _, ok := validatedVoices[key]; ok {
+				continue
+			}
+			validatedVoices[key] = struct{}{}
+			discoveryCtx, discoveryCancel := context.WithTimeout(event.Request.Context(), 3*time.Second)
+			info, discoveryErr := wyoming.Discover(discoveryCtx, address, 3*time.Second)
+			discoveryCancel()
+			if discoveryErr != nil {
+				return event.InternalServerError("could not discover Piper voices", discoveryErr)
+			}
+			if selectionErr := validatePiperSelection(info, voice.Voice, voice.Speaker); selectionErr != nil {
+				return event.BadRequestError("saved podcast voice is no longer available", selectionErr)
+			}
+		}
+		ctx, cancel := context.WithTimeout(event.Request.Context(), 10*time.Minute)
+		defer cancel()
+		segments := make([][]byte, 0, len(transcript.Turns))
+		segmentBytes := 0
+		rate, width, channels := 0, 0, 0
+		for index, turn := range transcript.Turns {
+			voice := voices.Host
+			if turn.Speaker == "guest" {
+				voice = voices.Guest
+			}
+			if voice.Voice == "" {
+				voice = defaultVoice
+			}
+			audio, sampleRate, sampleWidth, sampleChannels, synthErr := wyoming.Synthesize(ctx, address, turn.Text, voice.Voice, voice.Speaker, 45*time.Second)
+			if synthErr != nil {
+				return event.InternalServerError(fmt.Sprintf("Piper synthesis failed for turn %d", index+1), synthErr)
+			}
+			if index == 0 {
+				rate, width, channels = sampleRate, sampleWidth, sampleChannels
+			}
+			segmentBytes += len(audio)
+			if segmentBytes > (25<<20)-44 {
+				return event.BadRequestError("podcast audio exceeds the 25 MiB limit", nil)
+			}
+			segments = append(segments, audio)
+		}
+		assembled, err := wyoming.AssembleWAV(segments, 25<<20)
+		if err != nil {
+			return event.BadRequestError("could not assemble podcast audio", err)
+		}
+		file, err := filesystem.NewFileFromBytes(assembled, "episode.wav")
+		if err != nil {
+			return event.InternalServerError("could not prepare podcast audio file", err)
+		}
+		record.Set("audio", file)
+		record.Set("audio_metadata", map[string]any{"format": "audio/wav", "sample_rate": rate, "sample_width_bytes": width, "channels": channels, "duration_seconds": float64(len(assembled)-44) / float64(rate*width*channels), "bytes": len(assembled), "generated_at": time.Now().UTC().Format(time.RFC3339)})
+		current, err := event.App.FindRecordById("podcast_episodes", record.Id)
+		if err != nil || current.GetString("owner") != event.Auth.Id {
+			return event.NotFoundError("podcast episode was removed during audio generation", err)
+		}
+		var currentTranscript podcastTranscript
+		var currentVoices podcastVoiceAssignments
+		if err := current.UnmarshalJSONField("transcript", &currentTranscript); err != nil {
+			return event.InternalServerError("stored podcast transcript is invalid", err)
+		}
+		if err := current.UnmarshalJSONField("voice_assignments", &currentVoices); err != nil {
+			return event.InternalServerError("stored podcast voices are invalid", err)
+		}
+		currentVoices, _ = normalizePodcastVoiceAssignments(currentVoices)
+		if !samePodcastAudioInputs(transcript, voices, currentTranscript, currentVoices) {
+			return event.JSON(http.StatusConflict, map[string]string{"message": "podcast script or voices changed during audio generation; retry"})
+		}
+		current.Set("audio", file)
+		current.Set("audio_metadata", record.Get("audio_metadata"))
+		if err := event.App.Save(current); err != nil {
+			return event.InternalServerError("could not persist podcast audio", err)
+		}
+		return event.JSON(http.StatusCreated, podcastEpisodeExport(current))
+	}
+}
+
+func samePodcastAudioInputs(firstTranscript podcastTranscript, firstVoices podcastVoiceAssignments, secondTranscript podcastTranscript, secondVoices podcastVoiceAssignments) bool {
+	firstTranscriptJSON, _ := json.Marshal(firstTranscript)
+	secondTranscriptJSON, _ := json.Marshal(secondTranscript)
+	firstVoicesJSON, _ := json.Marshal(firstVoices)
+	secondVoicesJSON, _ := json.Marshal(secondVoices)
+	return bytes.Equal(firstTranscriptJSON, secondTranscriptJSON) && bytes.Equal(firstVoicesJSON, secondVoicesJSON)
+}
+
+func getPodcastAudioRoute(event *core.RequestEvent) error {
+	record, err := findOwnedPodcastEpisode(event)
+	if err != nil {
+		return err
+	}
+	filename := record.GetString("audio")
+	if filename == "" {
+		return event.NotFoundError("podcast audio has not been generated", nil)
+	}
+	storage, err := event.App.NewFilesystem()
+	if err != nil {
+		return event.InternalServerError("audio storage is unavailable", err)
+	}
+	defer storage.Close()
+	reader, err := storage.GetReader(record.BaseFilesPath() + "/" + filename)
+	if err != nil {
+		return event.InternalServerError("could not read podcast audio", err)
+	}
+	defer reader.Close()
+	data, err := io.ReadAll(io.LimitReader(reader, (25<<20)+1))
+	if err != nil {
+		return event.InternalServerError("could not read podcast audio", err)
+	}
+	if len(data) > 25<<20 {
+		return event.InternalServerError("stored podcast audio exceeds the size limit", nil)
+	}
+	event.Response.Header().Set("Cache-Control", "private, no-store")
+	return event.Blob(http.StatusOK, "audio/wav", data)
 }
 
 func normalizePodcastVoiceAssignments(input podcastVoiceAssignments) (podcastVoiceAssignments, error) {
@@ -304,6 +474,8 @@ func regeneratePodcastEpisodeRoute(event *core.RequestEvent) error {
 	record.Set("transcript", transcript)
 	record.Set("duration_seconds", podcastDuration(transcript))
 	record.Set("status", "ready")
+	record.Set("audio", "")
+	record.Set("audio_metadata", nil)
 	if err := event.App.Save(record); err != nil {
 		return event.InternalServerError("could not save regenerated podcast", err)
 	}
@@ -331,6 +503,8 @@ func updatePodcastScriptRoute(event *core.RequestEvent) error {
 	record.Set("outline", input.Outline)
 	record.Set("transcript", input.Transcript)
 	record.Set("duration_seconds", podcastDuration(input.Transcript))
+	record.Set("audio", "")
+	record.Set("audio_metadata", nil)
 	record.Set("status", "ready")
 	if err := event.App.Save(record); err != nil {
 		return event.InternalServerError("could not save podcast script", err)
@@ -764,5 +938,6 @@ func podcastEpisodeExport(record *core.Record) map[string]any {
 		"source_ids": record.Get("source_ids"), "concept_ids": record.Get("concept_ids"), "outline": record.Get("outline"),
 		"transcript": record.Get("transcript"), "duration_seconds": record.GetFloat("duration_seconds"), "voice_assignments": voiceAssignments,
 		"course_context": record.Get("course_context"),
+		"audio_ready":    record.GetString("audio") != "", "audio_metadata": record.Get("audio_metadata"),
 	}
 }
