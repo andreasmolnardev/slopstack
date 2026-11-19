@@ -12,6 +12,7 @@ export type DownloadedLesson = {
   downloadedAt: number;
   progress?: SavedCourseProgress;
 };
+export type OfflineNarrationAssets = { ownerId: string; courseId: string; courseVersion: number; blobs: Blob[]; savedAt: number };
 
 export type PendingCourseProgress = SavedCourseProgress & {
   ownerId: string;
@@ -33,6 +34,8 @@ export interface OfflineLearningStore {
   listCourses(ownerId: string): Promise<DownloadedLesson[]>;
   getCourse(ownerId: string, courseId: string): Promise<DownloadedLesson | undefined>;
   removeCourse(ownerId: string, courseId: string): Promise<void>;
+  saveNarrationAssets(ownerId: string, courseId: string, courseVersion: number, blobs: Blob[]): Promise<void>;
+  getNarrationAssets(ownerId: string, courseId: string, courseVersion: number): Promise<Blob[] | undefined>;
   updateCourseProgress(ownerId: string, courseId: string, progress: SavedCourseProgress): Promise<void>;
   getSavedProgress(ownerId: string, courseId: string): Promise<SavedCourseProgress | undefined>;
   queueProgress(progress: PendingCourseProgress): Promise<void>;
@@ -44,10 +47,12 @@ export interface OfflineLearningStore {
   clearUser(ownerId: string): Promise<void>;
 }
 
-const DATABASE_VERSION = 2;
+const DATABASE_VERSION = 3;
 const COURSE_STORE = 'downloaded-courses';
 const PROGRESS_STORE = 'pending-progress';
 const ASSESSMENT_STORE = 'pending-assessments';
+const NARRATION_STORE = 'offline-narration';
+export const MAX_OFFLINE_NARRATION_BYTES = 25 * 1024 * 1024;
 
 export function createIndexedDbOfflineLearningStore(
   factory: IDBFactory = indexedDB,
@@ -72,6 +77,10 @@ export function createIndexedDbOfflineLearningStore(
           if (!db.objectStoreNames.contains(ASSESSMENT_STORE)) {
             const assessments = db.createObjectStore(ASSESSMENT_STORE, { keyPath: 'requestId' });
             assessments.createIndex('ownerId', 'ownerId', { unique: false });
+          }
+          if (!db.objectStoreNames.contains(NARRATION_STORE)) {
+            const narration = db.createObjectStore(NARRATION_STORE, { keyPath: 'key' });
+            narration.createIndex('ownerId', 'ownerId', { unique: false });
           }
         };
         request.onsuccess = () => resolve(request.result);
@@ -116,9 +125,16 @@ export function createIndexedDbOfflineLearningStore(
 
     async removeCourse(ownerId, courseId) {
       const db = await database();
-      const tx = db.transaction([COURSE_STORE, PROGRESS_STORE, ASSESSMENT_STORE], 'readwrite');
+      const tx = db.transaction([COURSE_STORE, PROGRESS_STORE, ASSESSMENT_STORE, NARRATION_STORE], 'readwrite');
       tx.objectStore(COURSE_STORE).delete(courseKey(ownerId, courseId));
       tx.objectStore(PROGRESS_STORE).delete(courseKey(ownerId, courseId));
+      const narrationStore = tx.objectStore(NARRATION_STORE);
+      const narrationRequest = narrationStore.index('ownerId').getAll(ownerId);
+      narrationRequest.onsuccess = () => {
+        for (const item of narrationRequest.result as Array<{ key: string; courseId: string }>) {
+          if (item.courseId === courseId) narrationStore.delete(item.key);
+        }
+      };
       const assessmentStore = tx.objectStore(ASSESSMENT_STORE);
       const assessmentRequest = assessmentStore.index('ownerId').getAll(ownerId);
       assessmentRequest.onsuccess = () => {
@@ -127,6 +143,25 @@ export function createIndexedDbOfflineLearningStore(
         }
       };
       await transactionDone(tx);
+    },
+
+    async saveNarrationAssets(ownerId, courseId, courseVersion, blobs) {
+      const totalBytes = blobs.reduce((total, blob) => total + blob.size, 0);
+      if (!blobs.length || totalBytes > MAX_OFFLINE_NARRATION_BYTES) {
+        throw new Error('Narration download is empty or exceeds the 25 MiB limit');
+      }
+      const db = await database();
+      const tx = db.transaction(NARRATION_STORE, 'readwrite');
+      tx.objectStore(NARRATION_STORE).put({ key: narrationKey(ownerId, courseId, courseVersion), ownerId, courseId, courseVersion, blobs, savedAt: Date.now() } satisfies OfflineNarrationAssets & { key: string });
+      await transactionDone(tx);
+    },
+
+    async getNarrationAssets(ownerId, courseId, courseVersion) {
+      const db = await database();
+      const tx = db.transaction(NARRATION_STORE, 'readonly');
+      const asset = await requestResult<(OfflineNarrationAssets & { key: string }) | undefined>(tx.objectStore(NARRATION_STORE).get(narrationKey(ownerId, courseId, courseVersion)));
+      await transactionDone(tx);
+      return asset?.blobs;
     },
 
     async updateCourseProgress(ownerId, courseId, progress) {
@@ -204,8 +239,8 @@ export function createIndexedDbOfflineLearningStore(
 
     async clearUser(ownerId) {
       const db = await database();
-      const tx = db.transaction([COURSE_STORE, PROGRESS_STORE, ASSESSMENT_STORE], 'readwrite');
-      for (const storeName of [COURSE_STORE, PROGRESS_STORE, ASSESSMENT_STORE]) {
+      const tx = db.transaction([COURSE_STORE, PROGRESS_STORE, ASSESSMENT_STORE, NARRATION_STORE], 'readwrite');
+      for (const storeName of [COURSE_STORE, PROGRESS_STORE, ASSESSMENT_STORE, NARRATION_STORE]) {
         const store = tx.objectStore(storeName);
         const keys = await requestResult<IDBValidKey[]>(store.index('ownerId').getAllKeys(ownerId));
         for (const key of keys) store.delete(key);
@@ -328,6 +363,10 @@ function asObject(value: unknown): Record<string, unknown> {
 
 export function courseKey(ownerId: string, courseId: string): string {
   return `${ownerId}:${courseId}`;
+}
+
+function narrationKey(ownerId: string, courseId: string, courseVersion: number): string {
+  return `${ownerId}:${courseId}:${courseVersion}`;
 }
 
 function progressValue(progress: SavedCourseProgress): SavedCourseProgress {

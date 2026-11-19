@@ -6,6 +6,7 @@ import {
   syncQueuedProgress,
   syncQueuedAssessments,
   sanitizeDownloadedCourse,
+  MAX_OFFLINE_NARRATION_BYTES,
   type OfflineLearningStore,
   type PendingCourseProgress,
   type PendingOfflineAssessment,
@@ -44,15 +45,36 @@ describe('offline learning storage', () => {
     await store.queueProgress(progress('learner-b', 'course-1', 4));
     await store.queueAssessment(assessment('learner-a', 'attempt-a'));
     await store.queueAssessment(assessment('learner-b', 'attempt-b'));
+    await store.saveNarrationAssets('learner-a', 'course-1', 2, [new Blob(['audio-a'])]);
+    await store.saveNarrationAssets('learner-b', 'course-1', 2, [new Blob(['audio-b'])]);
 
     await store.clearUser('learner-a');
 
     expect(await store.listCourses('learner-a')).toEqual([]);
     expect(await store.listQueuedProgress('learner-a')).toEqual([]);
     expect(await store.listQueuedAssessments('learner-a')).toEqual([]);
+    expect(await store.getNarrationAssets('learner-a', 'course-1', 2)).toBeUndefined();
+    expect(await store.getNarrationAssets('learner-b', 'course-1', 2)).toHaveLength(1);
     expect((await store.listCourses('learner-b')).map((item) => item.course.title)).toEqual(['Course course-1']);
     expect((await store.listQueuedProgress('learner-b'))[0].sceneIndex).toBe(4);
     expect((await store.listQueuedAssessments('learner-b'))[0].requestId).toBe('attempt-b');
+  });
+
+  it('stores narration by owner, course, and version and removes it with the download', async () => {
+    const blob = new Blob(['lesson audio'], { type: 'audio/wav' });
+    await store.saveNarrationAssets('learner-a', 'course-1', 3, [blob]);
+    await store.saveNarrationAssets('learner-a', 'course-1', 4, [new Blob(['new version'])]);
+    expect(await store.getNarrationAssets('learner-a', 'course-1', 3)).toEqual([blob]);
+    expect(await store.getNarrationAssets('learner-a', 'course-1', 4)).toHaveLength(1);
+    expect(await store.getNarrationAssets('learner-b', 'course-1', 3)).toBeUndefined();
+    await store.removeCourse('learner-a', 'course-1');
+    expect(await store.getNarrationAssets('learner-a', 'course-1', 3)).toBeUndefined();
+    expect(await store.getNarrationAssets('learner-a', 'course-1', 4)).toBeUndefined();
+  });
+
+  it('rejects empty or oversized narration downloads', async () => {
+    await expect(store.saveNarrationAssets('learner-a', 'course-1', 1, [])).rejects.toThrow('empty');
+    await expect(store.saveNarrationAssets('learner-a', 'course-1', 1, [new Blob([new Uint8Array(MAX_OFFLINE_NARRATION_BYTES + 1)])])).rejects.toThrow('25 MiB');
   });
 
   it('stores the latest offline resume position and syncs it on reconnect', async () => {

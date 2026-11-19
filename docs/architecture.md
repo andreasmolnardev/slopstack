@@ -37,7 +37,7 @@ The `starburst-learning-archive` format supports owner-scoped export and transac
 
 The Audio Studio stores owner-scoped podcast outlines and validated host/guest transcripts. Generation uses a separate outline request followed by dialogue generation, with a deterministic fixture when the LLM provider is not configured. The browser can save an optional Piper voice and speaker for each episode role, falling back to the saved narration default, and play a sequence; assembled audio is not persisted.
 
-Offline lessons are explicit user downloads stored in IndexedDB under user/course keys. Resume progress is queued locally and synchronized on reconnect, focus, visibility, or startup; downloaded narration is not included.
+Offline lessons are explicit user downloads stored in IndexedDB under user/course keys. Resume progress is queued locally and synchronized on reconnect, focus, visibility, or startup. Learners can also save profile-voice narration with each course; audio is stored by owner, course, and course version, capped at 25 MiB per course, and deleted with the download or user data.
 
 
 Language speaking practice reuses vocabulary knowledge units and `learner_evidence`. The browser records mono PCM WAV or accepts a WAV upload, sends it to the authenticated Whisper endpoint, then submits the transcript for owner-scoped text matching against the saved English term. Evidence records the transcript and deterministic match result. This is content matching only; acoustic pronunciation evaluation is a separate, unsupported capability.

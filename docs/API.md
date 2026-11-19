@@ -53,6 +53,8 @@ The body accepts `source_ids` (up to four), `concept_ids` (up to eight), `diffic
 
 `GET/PATCH /api/me/preferences` reads and partially updates the authenticated learner profile. The `/profile` screen stores interests, goals, prior knowledge, preferred language, default difficulty, target session length, narration, and captions. Course generation snapshots the relevant profile context into its persistent job so retries use the same personalization inputs.
 
+Offline lesson downloads can optionally include Piper narration generated with the saved narration voice and speaker. Narration stays in the browser's IndexedDB, is scoped by owner/course/version, and is limited to 25 MiB per course; removing the course download also removes its narration.
+
 ## Adaptive practice
 
 `POST /api/learning/practice/quizzes` creates a private recall quiz from `selected`, `due`, `weak`, or `mixed` knowledge units. The response contains question choices and progressive hints without answer keys. Submit choices to `POST /api/learning/practice/quizzes/{id}/submit`; the owner-scoped response includes scoring, targeted remediation, and evidence updates.

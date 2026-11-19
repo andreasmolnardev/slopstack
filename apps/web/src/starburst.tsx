@@ -209,6 +209,23 @@ function Lesson({course,initialSceneIndex,initialPositionSeconds,captionsByDefau
   useEffect(()=>{setCaptionsEnabled(captionsByDefault)},[captionsByDefault]);
   useEffect(()=>{setNarrationEnabled(narrationByDefault)},[narrationByDefault]);
   useEffect(()=>{
+    if(!offlineMode)return;
+    const ownerId=pb.authStore.model?.id;
+    if(!ownerId)return;
+    let active=true;
+    void offlineLearningStore.getNarrationAssets(ownerId,course.id,course.version??1).then(async blobs=>{
+      if(!active)return;
+      if(!blobs||blobs.length!==scenes.length){setNarrationMessage('Narration is not saved for this offline lesson. Download it while online.');return}
+      const urls=blobs.map(blob=>URL.createObjectURL(blob));
+      try{
+        const durations=await Promise.all(urls.map(readAudioDuration));
+        if(active){setNarrationUrls(urls);setNarrationDurations(durations);setNarrationEnabled(true);setNarrationMessage('Saved narration ready offline');}
+        else urls.forEach(URL.revokeObjectURL);
+      }catch{urls.forEach(URL.revokeObjectURL);if(active)setNarrationMessage('Saved narration could not be opened in this browser.');}
+    }).catch(()=>{if(active)setNarrationMessage('Could not load saved narration.');});
+    return()=>{active=false;};
+  },[offlineMode,course.id,course.version,scenes.length]);
+  useEffect(()=>{
     const save=()=>{void persistProgress(sceneIndex,elapsedRef.current).catch(error=>setCheckpointFeedback(error instanceof Error?error.message:'Could not save course progress'));};
     const timer=window.setInterval(save,10000); return ()=>window.clearInterval(timer);
   },[course.id,sceneIndex]);
@@ -275,10 +292,10 @@ function Lesson({course,initialSceneIndex,initialPositionSeconds,captionsByDefau
     if(audioRef.current){audioRef.current.pause();if(mapped.sceneIndex===sceneIndex)audioRef.current.currentTime=mapped.sceneSeconds;}
     try{await persistProgress(mapped.sceneIndex,mapped.sceneSeconds)}catch(e){setCheckpointFeedback(e instanceof Error?e.message:'Could not save course position')}
   }
-  async function prepareNarratedTimeline():Promise<boolean>{
+  async function prepareNarratedTimeline(saveOffline=false):Promise<boolean>{
     if(!scene||narrationBusy)return false;
     setNarrationBusy(true);setNarrationMessage(`Preparing narration 0/${scenes.length}…`);setCheckpointFeedback('');
-    const urls:string[]=[];const durations:number[]=[];
+    const urls:string[]=[];const durations:number[]=[];const blobs:Blob[]=[];
     const controller=new AbortController();narrationAbortRef.current=controller;
     try{
       for(let index=0;index<scenes.length;index+=1){
@@ -286,14 +303,31 @@ function Lesson({course,initialSceneIndex,initialPositionSeconds,captionsByDefau
         const response=await fetch(pb.buildUrl('/api/speech/synthesize'),{method:'POST',headers:{'Content-Type':'application/json','Authorization':pb.authStore.token},body:JSON.stringify({text,voice:narrationVoice,speaker:narrationSpeaker}),signal:controller.signal});
         if(!response.ok)throw new Error(`Narration failed for scene ${index+1}`);
         const blob=await response.blob();const url=URL.createObjectURL(blob);
-        try{durations.push(await readAudioDuration(url));urls.push(url)}catch(error){URL.revokeObjectURL(url);throw error}
+        try{durations.push(await readAudioDuration(url));urls.push(url);blobs.push(blob)}catch(error){URL.revokeObjectURL(url);throw error}
         setNarrationMessage(`Preparing narration ${index+1}/${scenes.length}…`);
       }
+      if(saveOffline){
+        const ownerId=pb.authStore.model?.id;
+        if(!ownerId)throw new Error('Sign in to save narration offline');
+        await offlineLearningStore.saveNarrationAssets(ownerId,course.id,course.version??1,blobs);
+      }
       setNarrationUrls(urls);setNarrationDurations(durations);setElapsed(Math.min(elapsedRef.current,durations[sceneIndex]??0));
-      setNarrationMessage(`Narrated timeline ready · ${formatTime(durations.reduce((total,value)=>total+value,0))}`);
+      setNarrationMessage(`${saveOffline?'Narration saved for offline use · ':''}Narrated timeline ready · ${formatTime(durations.reduce((total,value)=>total+value,0))}`);
       return true;
     }catch(e){urls.forEach(url=>URL.revokeObjectURL(url));setNarrationMessage('');if(!controller.signal.aborted)setCheckpointFeedback(e instanceof Error?e.message:'Could not prepare narrated timeline');return false}
     finally{if(narrationAbortRef.current===controller)narrationAbortRef.current=null;setNarrationBusy(false)}
+  }
+  async function saveCurrentNarrationOffline(){
+    if(!narrationReady){await prepareNarratedTimeline(true);return;}
+    const ownerId=pb.authStore.model?.id;
+    if(!ownerId){setNarrationMessage('Sign in to save narration offline');return;}
+    setNarrationBusy(true);setNarrationMessage('Saving narration for offline use…');
+    try{
+      const blobs=await Promise.all(narrationUrls.map(async url=>{const response=await fetch(url);return response.blob();}));
+      await offlineLearningStore.saveNarrationAssets(ownerId,course.id,course.version??1,blobs);
+      setNarrationMessage('Narration saved for offline use');
+    }catch(error){setNarrationMessage(error instanceof Error?error.message:'Could not save narration offline');}
+    finally{setNarrationBusy(false);}
   }
   function removeNarration(){setPlaying(false);audioRef.current?.pause();setNarrationUrls([]);setNarrationDurations([]);setNarrationMessage('Narration turned off');}
   function cancelNarration(){narrationAbortRef.current?.abort()}
@@ -317,7 +351,7 @@ function Lesson({course,initialSceneIndex,initialPositionSeconds,captionsByDefau
   if(!scene)return <main className="min-h-screen bg-[#0e0621] p-10 text-white"><h1>Lesson complete</h1><button onClick={onExit}>Back to courses</button></main>;
   return <main ref={playerRef} className="min-h-screen bg-[#0e0621] px-5 py-6 text-[#f8f5fc] fullscreen:overflow-auto fullscreen:px-8 fullscreen:py-5 md:px-8"><div className="mx-auto max-w-5xl">
     <div className="flex items-center justify-between"><button onClick={onExit} className="text-sm text-[#b7adcc]">← Course library</button><button onClick={()=>void toggleFullscreen()} aria-label={isFullscreen?'Exit fullscreen':'Enter fullscreen'} className="rounded-lg border border-white/15 px-3 py-2 text-sm">{isFullscreen?'Exit fullscreen':'Fullscreen'}</button></div>
-    <div className="mt-6 flex flex-wrap items-end justify-between gap-3"><div><p className="text-sm text-[#e57fab]">{course.title} · Scene {sceneIndex+1} of {scenes.length}{offlineMode?' · Offline':''}</p><h1 className="mt-1 text-2xl font-semibold">{scene.title}</h1>{progressQueued&&<p role="status" className="mt-1 text-xs text-[#efc778]">Progress saved on this device and will sync when online.</p>}</div><div className="flex flex-wrap items-center gap-2">{offlineMode?<span className="text-xs text-[#b7adcc]">Narration is not included in downloads</span>:narrationBusy?<button onClick={cancelNarration} className="rounded-lg border border-white/15 px-3 py-2 text-sm">Cancel narration</button>:<button aria-pressed={narrationEnabled} onClick={()=>{if(narrationEnabled){setNarrationEnabled(false);removeNarration()}else{setNarrationEnabled(true);if(!narrationReady)void prepareNarratedTimeline()}}} className="rounded-lg border border-white/15 px-3 py-2 text-sm">{narrationEnabled?'Narration on':'Turn narration on'}</button>}{narrationMessage&&<span role="status" className="text-xs text-[#b7adcc]">{narrationMessage}</span>}</div></div>
+    <div className="mt-6 flex flex-wrap items-end justify-between gap-3"><div><p className="text-sm text-[#e57fab]">{course.title} · Scene {sceneIndex+1} of {scenes.length}{offlineMode?' · Offline':''}</p><h1 className="mt-1 text-2xl font-semibold">{scene.title}</h1>{progressQueued&&<p role="status" className="mt-1 text-xs text-[#efc778]">Progress saved on this device and will sync when online.</p>}</div><div className="flex flex-wrap items-center gap-2">{offlineMode?<span className="text-xs text-[#b7adcc]">{narrationReady?'Saved narration available offline':'No narration downloaded'}</span>:narrationBusy?<button onClick={cancelNarration} className="rounded-lg border border-white/15 px-3 py-2 text-sm">Cancel narration</button>:<><button aria-pressed={narrationEnabled} onClick={()=>{if(narrationEnabled){setNarrationEnabled(false);removeNarration()}else{setNarrationEnabled(true);if(!narrationReady)void prepareNarratedTimeline()}}} className="rounded-lg border border-white/15 px-3 py-2 text-sm">{narrationEnabled?'Narration on':'Turn narration on'}</button><button onClick={()=>void saveCurrentNarrationOffline()} className="rounded-lg border border-white/15 px-3 py-2 text-sm">Save narration offline</button></>}{narrationMessage&&<span role="status" className="text-xs text-[#b7adcc]">{narrationMessage}</span>}</div></div>
     {!offlineMode&&narrationEnabled&&<div className="mt-3"><SpeechVoicePicker health={piperHealth} value={narrationVoice} speaker={narrationSpeaker} onChange={(voice,speaker)=>{setNarrationVoice(voice);setNarrationSpeaker(speaker);removeNarration()}} disabled={narrationBusy}/></div>}
     <div className="mt-5"><label htmlFor="lesson-timeline" className="sr-only">Lesson timeline</label><input id="lesson-timeline" type="range" min={0} max={totalDuration} step={0.1} value={Math.min(totalDuration,position)} onChange={event=>void seekTo(Number(event.target.value))} className="w-full accent-[#e57fab]" aria-label="Seek lesson timeline"/><div className="flex justify-between text-xs text-[#b7adcc]"><span>{formatTime(position)}</span><span>{formatTime(totalDuration)}</span></div><div className="mt-2 flex gap-1" aria-label="Scene timeline">{scenes.map((item,index)=><button key={item.id||index} onClick={()=>void seekTo(timelinePosition(scenes,index,0,narrationDurations))} aria-label={`Seek to scene ${index+1}: ${item.title||'Scene'}`} className={`h-1.5 flex-1 rounded ${index===sceneIndex?'bg-[#e57fab]':index<sceneIndex?'bg-[#aa65c9]':'bg-white/15'}`}/>)}</div></div>
     <section className="mt-6 rounded-2xl border border-white/10 bg-[#211638] p-6 md:p-10"><WidgetStage key={`${scene.id||sceneIndex}:${widgetRevision}`} type={scene.widget?.type??'explanation'} config={config}/>

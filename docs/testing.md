@@ -19,7 +19,7 @@ Podcast tests verify fixture outline/transcript constraints, OpenAPI authenticat
 
 Language-learning tests cover saved vocabulary example sentences, owner-scoped contextual/listening answer checks, normalized listening recall, and persisted learner evidence. Piper audio remains dependent on a configured live Wyoming service.
 
-Offline learning tests cover private answer-key stripping before IndexedDB storage, v1 database upgrade, owner-isolated queued answers, removal of a course's pending answers, reconnect-only synchronization, retry retention, single-flight submission, and server request-ID idempotency. The browser never grades an offline assessment; it sends answers to the authenticated server when connectivity and the matching owner account return.
+Offline learning tests cover private answer-key stripping before IndexedDB storage, database upgrades, owner-isolated queued answers and narration assets, versioned audio keys, course-removal cleanup, narration size bounds, reconnect-only synchronization, retry retention, single-flight submission, and server request-ID idempotency. The browser never grades an offline assessment; it sends answers to the authenticated server when connectivity and the matching owner account return.
 
 Audio Studio uses the existing authenticated Piper endpoint for per-turn playback. Wyoming tests verify `describe`/`info` discovery, advertised voice and speaker projection/validation, and voice/speaker selection in the synthesis event. Fixture/provider protocol tests do not verify live LLM generation, Wyoming synthesis, audio quality, or persisted audio publication.
 
