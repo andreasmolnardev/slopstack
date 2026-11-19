@@ -242,8 +242,59 @@ func TestAdaptivePracticeGapModeIncludesNewAndWeakUnitsOnly(t *testing.T) {
 	setPracticeMastery(t, app, owner.Id, weakUnit.Id, 0.2)
 	setPracticeMastery(t, app, owner.Id, strongUnit.Id, 0.9)
 	units, err := selectPracticeUnits(app, owner.Id, "gap", nil)
-	if err != nil || len(units) != 2 || units[0].Id != newUnit.Id || units[1].Id != weakUnit.Id {
+	if err != nil || len(units) != 2 || units[0].Id != weakUnit.Id || units[1].Id != newUnit.Id {
 		t.Fatalf("gap mode selected the wrong concepts: %v (%#v)", err, units)
+	}
+}
+
+func TestAdaptivePracticeGapModeAddsMissingPrerequisitesAndStopsAtMasteredUnits(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureAdaptivePracticeCollection(app); err != nil {
+		t.Fatal(err)
+	}
+	owner := createRecordForPracticeTest(t, app, "adaptive-prerequisite@example.com")
+	other := createRecordForPracticeTest(t, app, "adaptive-prerequisite-other@example.com")
+	focus := createPracticeUnit(t, app, owner.Id, "Integration", "A method for accumulating change.")
+	prerequisite := createPracticeUnit(t, app, owner.Id, "Antiderivative", "A function with the given derivative.")
+	mastered := createPracticeUnit(t, app, owner.Id, "Derivative", "The instantaneous rate of change.")
+	unrelated := createPracticeUnit(t, app, owner.Id, "Number theory", "Properties of integers.")
+	foreign := createPracticeUnit(t, app, other.Id, "Private prerequisite", "This must not cross owners.")
+	setPracticeMastery(t, app, owner.Id, focus.Id, 0.35)
+	setPracticeMastery(t, app, owner.Id, mastered.Id, 0.95, 3)
+	setPracticeMastery(t, app, owner.Id, unrelated.Id, 0.95, 3)
+	createTestRecord(t, app, "knowledge_edges", map[string]any{"owner": owner.Id, "from_unit": focus.Id, "to_unit": prerequisite.Id, "relationship": "requires"})
+	createTestRecord(t, app, "knowledge_edges", map[string]any{"owner": owner.Id, "from_unit": prerequisite.Id, "to_unit": mastered.Id, "relationship": "builds_on"})
+	createTestRecord(t, app, "knowledge_edges", map[string]any{"owner": owner.Id, "from_unit": prerequisite.Id, "to_unit": focus.Id, "relationship": "requires"})
+	createTestRecord(t, app, "knowledge_edges", map[string]any{"owner": owner.Id, "from_unit": focus.Id, "to_unit": foreign.Id, "relationship": "requires"})
+
+	units, reasons, err := selectPracticeGapUnits(app, owner.Id, []string{focus.Id})
+	if err != nil || len(units) != 2 || units[0].Id != focus.Id || units[1].Id != prerequisite.Id {
+		t.Fatalf("gap practice did not add the missing prerequisite chain safely: %v (%#v)", err, units)
+	}
+	if reasons[focus.Id] != "Selected focus" || reasons[prerequisite.Id] != "Prerequisite for Integration" {
+		t.Fatalf("gap practice did not explain why concepts were selected: %#v", reasons)
+	}
+	body, _ := json.Marshal(map[string]any{"mode": "gap", "unit_ids": []string{focus.Id}})
+	request := httptest.NewRequest(http.MethodPost, "/api/learning/practice/quizzes", strings.NewReader(string(body)))
+	event := &core.RequestEvent{App: app, Auth: owner, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
+	if err := createAdaptivePracticeQuizRoute(event); err != nil {
+		t.Fatalf("gap quiz request failed: %v", err)
+	}
+	var response struct {
+		Questions []practiceQuestionPublic `json:"questions"`
+	}
+	if err := json.Unmarshal(event.Response.(*httptest.ResponseRecorder).Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Questions) != 2 || response.Questions[1].Reason != "Prerequisite for Integration" {
+		t.Fatalf("gap quiz response omitted its prerequisite reason: %#v", response.Questions)
 	}
 }
 
@@ -376,7 +427,7 @@ func createCoursePracticeUnit(t *testing.T, app core.App, ownerID, title, descri
 	})
 }
 
-func setPracticeMastery(t *testing.T, app core.App, ownerID, unitID string, value float64) {
+func setPracticeMastery(t *testing.T, app core.App, ownerID, unitID string, value float64, repetitions ...int) {
 	t.Helper()
 	collection, err := app.FindCollectionByNameOrId("knowledge_mastery")
 	if err != nil {
@@ -386,6 +437,9 @@ func setPracticeMastery(t *testing.T, app core.App, ownerID, unitID string, valu
 	mastery.Set("owner", ownerID)
 	mastery.Set("unit", unitID)
 	mastery.Set("mastery", value)
+	if len(repetitions) > 0 {
+		mastery.Set("repetitions", repetitions[0])
+	}
 	mastery.Set("next_review", time.Now().UTC().Add(time.Hour))
 	if err := app.Save(mastery); err != nil {
 		t.Fatal(err)

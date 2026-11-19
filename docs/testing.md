@@ -32,7 +32,7 @@ Player timeline tests verify that required reflections gate progress in Interact
 
 Learner-profile tests also cover saved Piper voice/speaker defaults, backward-compatible empty values, partial update preservation, clearing back to the configured service voice, and bounded names. The profile loads voice choices only from the authenticated Starburst Piper health API.
 
-Adaptive-practice tests verify private answer-key responses, selection ownership, due/weak/gap filtering, owner-scoped course/module resolution, mastery-based question difficulty, server-side scoring, evidence creation, mastery updates, rejection of unanswered submissions, and authenticated OpenAPI entries. The browser route tree includes `/practice`; the production bundle check covers its code-split route.
+Adaptive-practice tests verify private answer-key responses, selection ownership, due/weak/gap filtering, owner-scoped course/module resolution, mastery-based question difficulty, prerequisite traversal with cycles, mastered-foundation exclusion and owner isolation, server-side scoring, evidence creation, mastery updates, rejection of unanswered submissions, and authenticated OpenAPI entries. The browser route tree includes `/practice`; the production bundle check covers its code-split route.
 
 Geometry widget tests verify typed/ranged configuration, strict version and unknown-field rejection, law-of-cosines side lengths, area calculations, accessible controls, and deterministic reset values.
 

@@ -30,6 +30,7 @@ type practiceQuestion struct {
 	ID            string   `json:"id"`
 	UnitID        string   `json:"unit_id"`
 	UnitTitle     string   `json:"unit_title"`
+	Reason        string   `json:"reason,omitempty"`
 	Difficulty    string   `json:"difficulty"`
 	Prompt        string   `json:"prompt"`
 	Options       []string `json:"options"`
@@ -42,6 +43,7 @@ type practiceQuestionPublic struct {
 	ID         string   `json:"id"`
 	UnitID     string   `json:"unit_id"`
 	UnitTitle  string   `json:"unit_title"`
+	Reason     string   `json:"reason,omitempty"`
 	Difficulty string   `json:"difficulty"`
 	Prompt     string   `json:"prompt"`
 	Options    []string `json:"options"`
@@ -130,7 +132,13 @@ func createAdaptivePracticeQuizRoute(event *core.RequestEvent) error {
 		mode = "selected"
 	}
 	var units []*core.Record
-	if mode == "course" || mode == "module" {
+	var reasonsByUnit map[string]string
+	if mode == "gap" {
+		if input.Body.CourseID != "" || input.Body.ModuleID != "" {
+			return event.BadRequestError("course_id and module_id require course or module practice mode", nil)
+		}
+		units, reasonsByUnit, err = selectPracticeGapUnits(event.App, user.Id, input.Body.UnitIDs)
+	} else if mode == "course" || mode == "module" {
 		if len(input.Body.UnitIDs) > 0 {
 			return event.BadRequestError("course and module practice do not accept unit_ids", nil)
 		}
@@ -166,6 +174,9 @@ func createAdaptivePracticeQuizRoute(event *core.RequestEvent) error {
 	if len(questions) == 0 {
 		return event.BadRequestError("could not create practice questions", nil)
 	}
+	for index := range questions {
+		questions[index].Reason = reasonsByUnit[questions[index].UnitID]
+	}
 	collection, err := event.App.FindCollectionByNameOrId("adaptive_practice_quizzes")
 	if err != nil {
 		return event.InternalServerError("adaptive practice is unavailable", err)
@@ -182,7 +193,7 @@ func createAdaptivePracticeQuizRoute(event *core.RequestEvent) error {
 	}
 	for _, question := range questions {
 		answerKeys[question.ID] = question.CorrectChoice
-		publicQuestions = append(publicQuestions, practiceQuestionPublic{ID: question.ID, UnitID: question.UnitID, UnitTitle: question.UnitTitle, Difficulty: question.Difficulty, Prompt: question.Prompt, Options: question.Options, Hints: question.Hints})
+		publicQuestions = append(publicQuestions, practiceQuestionPublic{ID: question.ID, UnitID: question.UnitID, UnitTitle: question.UnitTitle, Reason: question.Reason, Difficulty: question.Difficulty, Prompt: question.Prompt, Options: question.Options, Hints: question.Hints})
 	}
 	quiz.Set("unit_ids", unitIDs)
 	quiz.Set("questions", questions)
@@ -309,7 +320,8 @@ func selectPracticeUnits(app core.App, ownerID, mode string, requestedIDs []stri
 	case "due", "weak":
 		return selectPracticeByMastery(app, ownerID, mode)
 	case "gap":
-		return selectPracticeGaps(app, ownerID)
+		units, _, err := selectPracticeGapUnits(app, ownerID, requestedIDs)
+		return units, err
 	case "mixed":
 		units, err := selectPracticeByMastery(app, ownerID, "due")
 		if err != nil {
@@ -342,47 +354,120 @@ func selectPracticeUnits(app core.App, ownerID, mode string, requestedIDs []stri
 	}
 }
 
-func selectPracticeGaps(app core.App, ownerID string) ([]*core.Record, error) {
+func selectPracticeGapUnits(app core.App, ownerID string, requestedIDs []string) ([]*core.Record, map[string]string, error) {
+	if len(requestedIDs) > maxPracticeUnits {
+		return nil, nil, fmt.Errorf("select no more than %d knowledge items", maxPracticeUnits)
+	}
+	for index := range requestedIDs {
+		requestedIDs[index] = strings.TrimSpace(requestedIDs[index])
+		if requestedIDs[index] == "" {
+			return nil, nil, errors.New("knowledge item ID is required")
+		}
+	}
 	units, err := app.FindRecordsByFilter("knowledge_units", "owner = {:owner}", "title", 0, 0, dbx.Params{"owner": ownerID})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	masteryRecords, err := app.FindRecordsByFilter("knowledge_mastery", "owner = {:owner}", "mastery, next_review", 0, 0, dbx.Params{"owner": ownerID})
+	masteryByUnit, err := loadPracticeMastery(app, ownerID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	masteryByUnit := make(map[string]float64, len(masteryRecords))
-	for _, record := range masteryRecords {
-		masteryByUnit[record.GetString("unit")] = record.GetFloat("mastery")
+	unitByID := make(map[string]*core.Record, len(units))
+	for _, unit := range units {
+		unitByID[unit.Id] = unit
+	}
+	seeds := make([]*core.Record, 0, maxPracticeUnits)
+	seedReasons := make(map[string]string)
+	if len(requestedIDs) > 0 {
+		seenSeeds := make(map[string]bool, len(requestedIDs))
+		for _, id := range requestedIDs {
+			if seenSeeds[id] {
+				return nil, nil, errors.New("knowledge item IDs must be unique")
+			}
+			seenSeeds[id] = true
+			unit, ok := unitByID[id]
+			if !ok {
+				return nil, nil, errors.New("knowledge item is unavailable")
+			}
+			seeds = append(seeds, unit)
+			seedReasons[unit.Id] = "Selected focus"
+		}
+	} else {
+		for _, unit := range units {
+			mastery, practiced := masteryByUnit[unit.Id]
+			if practiced && mastery.Score < gapPracticeThreshold {
+				seeds = append(seeds, unit)
+				seedReasons[unit.Id] = "Mastery below 50%"
+			}
+		}
+		for _, unit := range units {
+			if _, practiced := masteryByUnit[unit.Id]; !practiced {
+				seeds = append(seeds, unit)
+				seedReasons[unit.Id] = "Not practiced yet"
+			}
+		}
+	}
+	if len(seeds) > maxPracticeUnits {
+		seeds = seeds[:maxPracticeUnits]
+	}
+	if len(seeds) == 0 {
+		return nil, nil, errors.New("select a concept or create a knowledge gap first")
+	}
+	edges, err := app.FindRecordsByFilter("knowledge_edges", "owner = {:owner}", "id", 0, 0, dbx.Params{"owner": ownerID})
+	if err != nil {
+		return nil, nil, err
+	}
+	prerequisitesByUnit := make(map[string][]string)
+	for _, edge := range edges {
+		relationship := edge.GetString("relationship")
+		if relationship == "requires" || relationship == "builds_on" {
+			prerequisitesByUnit[edge.GetString("from_unit")] = append(prerequisitesByUnit[edge.GetString("from_unit")], edge.GetString("to_unit"))
+		}
 	}
 	result := make([]*core.Record, 0, maxPracticeUnits)
-	seen := make(map[string]bool)
-	for _, unit := range units {
-		if _, practiced := masteryByUnit[unit.Id]; practiced {
-			continue
-		}
-		result = append(result, unit)
-		seen[unit.Id] = true
-		if len(result) == maxPracticeUnits {
-			return result, nil
+	reasons := make(map[string]string, maxPracticeUnits)
+	seen := make(map[string]bool, maxPracticeUnits)
+	addUnit := func(unit *core.Record, reason string) {
+		if unit != nil && !seen[unit.Id] && len(result) < maxPracticeUnits {
+			seen[unit.Id] = true
+			result = append(result, unit)
+			reasons[unit.Id] = reason
 		}
 	}
-	for _, record := range masteryRecords {
-		unitID := record.GetString("unit")
-		if record.GetFloat("mastery") >= gapPracticeThreshold || seen[unitID] {
-			continue
+	var addPrerequisites func(*core.Record, string, int, map[string]bool)
+	addPrerequisites = func(unit *core.Record, rootTitle string, depth int, path map[string]bool) {
+		if depth >= 3 || len(result) >= maxPracticeUnits {
+			return
 		}
-		unit, findErr := ownedPracticeUnit(app, ownerID, unitID)
-		if findErr != nil {
-			continue
+		for _, prerequisiteID := range prerequisitesByUnit[unit.Id] {
+			if path[prerequisiteID] {
+				continue
+			}
+			prerequisite := unitByID[prerequisiteID]
+			if prerequisite == nil {
+				continue
+			}
+			mastery, practiced := masteryByUnit[prerequisite.Id]
+			if practiced && mastery.Score >= 0.75 && mastery.Repetitions >= 2 {
+				continue
+			}
+			addUnit(prerequisite, "Prerequisite for "+rootTitle)
+			nextPath := make(map[string]bool, len(path)+1)
+			for id := range path {
+				nextPath[id] = true
+			}
+			nextPath[prerequisiteID] = true
+			addPrerequisites(prerequisite, rootTitle, depth+1, nextPath)
 		}
-		result = append(result, unit)
-		seen[unitID] = true
+	}
+	for _, seed := range seeds {
+		addUnit(seed, seedReasons[seed.Id])
+		addPrerequisites(seed, seed.GetString("title"), 0, map[string]bool{seed.Id: true})
 		if len(result) == maxPracticeUnits {
 			break
 		}
 	}
-	return result, nil
+	return result, reasons, nil
 }
 
 func selectPracticeByMastery(app core.App, ownerID, mode string) ([]*core.Record, error) {

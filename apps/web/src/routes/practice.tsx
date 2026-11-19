@@ -17,7 +17,7 @@ export const Route = createFileRoute('/practice')({
 });
 
 type PracticeMode = 'selected' | 'due' | 'weak' | 'mixed' | 'gap' | 'course' | 'module';
-type PracticeQuestion = { id: string; unit_id: string; unit_title: string; difficulty: 'recognition' | 'recall'; prompt: string; options: string[]; hints: string[] };
+type PracticeQuestion = { id: string; unit_id: string; unit_title: string; reason?: string; difficulty: 'recognition' | 'recall'; prompt: string; options: string[]; hints: string[] };
 type PracticeQuiz = { id: string; mode: PracticeMode; questions: PracticeQuestion[] };
 type PracticeResult = { score: number; correct: number; total: number; results: Array<{ question_id: string; unit_id: string; correct: boolean; feedback: string; remediation: string }> };
 
@@ -61,7 +61,7 @@ function AdaptivePractice() {
   const dueIDs = new Set(dueReviews.map((review) => review.unit.id));
   const weakIDs = new Set(dueReviews.filter((review) => review.mastery <= 0.6).map((review) => review.unit.id));
   const selectionRequired = mode === 'selected';
-  const selectionAllowed = mode === 'selected' || mode === 'mixed';
+  const selectionAllowed = mode === 'selected' || mode === 'mixed' || mode === 'gap';
   const courseRequired = mode === 'course' || mode === 'module';
   const courseModules = ((courseQuery.data?.content?.curriculum as { modules?: Array<{ id?: string; title?: string }> } | undefined)?.modules ?? []).filter((module) => Boolean(module.id));
 
@@ -134,7 +134,7 @@ function AdaptivePractice() {
           <p className="text-sm text-[#b7adcc]">Questions use generated knowledge units attached to this course, up to 40 items.</p>
         </>}
         {selectionAllowed && <fieldset className="grid gap-2">
-          <legend className="text-sm font-medium">Choose knowledge items <span className="text-xs text-[#b7adcc]">(up to 20)</span></legend>
+          <legend className="text-sm font-medium">{mode === 'gap' ? 'Focus concepts (optional)' : 'Choose knowledge items'} <span className="text-xs text-[#b7adcc]">(up to 20)</span></legend>
           {unitsQuery.isLoading ? <p className="text-sm text-[#b7adcc]">Loading your knowledge items…</p> : units.length === 0 ? <p className="text-sm text-[#b7adcc]">Add knowledge items before creating a custom practice set.</p> : <div className="max-h-72 space-y-2 overflow-y-auto rounded-lg border border-white/10 p-3">{units.map((unit) => <label key={unit.id} className="flex cursor-pointer items-start gap-3 rounded-lg p-2 hover:bg-white/5">
             <input type="checkbox" checked={selectedIDs.includes(unit.id)} disabled={!selectedIDs.includes(unit.id) && selectedIDs.length >= 20} onChange={(event) => setSelectedIDs((current) => event.target.checked ? [...current, unit.id].slice(0, 20) : current.filter((id) => id !== unit.id))} className="mt-1 accent-[#e57fab]" />
             <span><span className="block text-sm">{unit.title}</span><span className="mt-1 block text-xs text-[#b7adcc]">{unit.unit_type?.replaceAll('_', ' ') ?? 'knowledge'}{dueIDs.has(unit.id) ? ' · review due' : ''}{weakIDs.has(unit.id) ? ' · lower mastery' : ''}</span></span>
@@ -142,7 +142,7 @@ function AdaptivePractice() {
         </fieldset>}
         {mode === 'due' && <p className="text-sm text-[#b7adcc]">{dueQuery.isLoading ? 'Checking your review schedule…' : `${dueReviews.length} item${dueReviews.length === 1 ? '' : 's'} currently due.`}</p>}
         {mode === 'weak' && <p className="text-sm text-[#b7adcc]">Lower mastery includes concepts with a saved mastery score of 60% or less.</p>}
-        {mode === 'gap' && <p className="text-sm text-[#b7adcc]">Includes concepts you have not practiced yet and concepts below 50% mastery.</p>}
+        {mode === 'gap' && <p className="text-sm text-[#b7adcc]">Choose a focus concept to find its missing prerequisites, or leave blank to review new and weak concepts.</p>}
         <button disabled={busy || unitsQuery.isLoading || (selectionRequired && selectedIDs.length === 0) || (mode === 'mixed' && selectedIDs.length === 0 && (dueQuery.isLoading || dueReviews.length === 0)) || (courseRequired && (!courseID || (mode === 'module' && (!moduleID || courseQuery.isLoading))))} className="w-fit rounded-lg bg-[#6350c8] px-5 py-2.5 disabled:opacity-50">{busy ? 'Preparing practice…' : 'Start practice'}</button>
       </form>}
 
@@ -153,6 +153,7 @@ function AdaptivePractice() {
           return <fieldset key={question.id} className="rounded-2xl border border-white/10 bg-[#211638] p-5">
             <legend className="px-2 text-lg font-medium">{index + 1}. {question.prompt}</legend>
             <p className="mb-3 text-xs uppercase tracking-wider text-[#efc778]">{question.unit_title}</p>
+            {question.reason && <p className="mb-3 text-xs text-[#b7adcc]">{question.reason}</p>}
             <p className="mb-3 text-xs text-[#b7adcc]">{question.difficulty === 'recall' ? 'Recall challenge · identify the concept from its explanation' : 'Concept recall · match the concept to its explanation'}</p>
             <div className="space-y-2">{question.options.map((option) => <label key={`${question.id}:${option}`} className="flex cursor-pointer items-start gap-3 rounded-lg border border-white/10 bg-[#0e0621] p-3 hover:border-[#aa65c9]">
               <input type="radio" name={question.id} value={option} checked={answers[question.id] === option} onChange={() => setAnswers((current) => ({ ...current, [question.id]: option }))} className="mt-1 accent-[#e57fab]" />
