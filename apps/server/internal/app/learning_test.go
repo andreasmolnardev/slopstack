@@ -995,6 +995,28 @@ func TestLearningArchiveZipRoundTripsPodcastWAV(t *testing.T) {
 	if err := app.Save(otherEpisode); err != nil {
 		t.Fatal(err)
 	}
+	course := createTestRecord(t, app, "courses", map[string]any{"owner": user.Id, "title": "Narrated lesson", "description": "Archive narration", "status": "published", "version": 1, "content": map[string]any{"version": 1, "modules": []any{map[string]any{"scenes": []any{map[string]any{"id": "scene-1", "title": "Scene", "duration_seconds": 30, "widget": map[string]any{"type": "explanation"}}}}}}})
+	narration, err := app.FindCollectionByNameOrId("lesson_narrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	narrationRecord := core.NewRecord(narration)
+	narrationRecord.Set("owner", user.Id)
+	narrationRecord.Set("course", course.Id)
+	narrationRecord.Set("version", 1)
+	narrationRecord.Set("scene_id", "scene-1")
+	narrationRecord.Set("text_hash", strings.Repeat("a", 64))
+	narrationRecord.Set("voice", "en_US-test-medium")
+	narrationRecord.Set("speaker", "speaker-1")
+	narrationFile, err := filesystem.NewFileFromBytes(wav, "narration.wav")
+	if err != nil {
+		t.Fatal(err)
+	}
+	narrationRecord.Set("audio", narrationFile)
+	narrationRecord.Set("audio_metadata", map[string]any{"format": "audio/wav", "bytes": len(wav)})
+	if err := app.Save(narrationRecord); err != nil {
+		t.Fatal(err)
+	}
 	exportResponse := httptest.NewRecorder()
 	exportEvent := &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: httptest.NewRequest(http.MethodGet, "/api/account/learning-export/archive", nil), Response: exportResponse}}
 	if err := exportLearningArchiveZipRoute(exportEvent); err != nil {
@@ -1011,13 +1033,17 @@ func TestLearningArchiveZipRoundTripsPodcastWAV(t *testing.T) {
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest["format_version"] != float64(2) || len(files) != 1 || !bytes.Equal(files["media/podcasts/"+episode.Id+".wav"], wav) {
+	if manifest["format_version"] != float64(2) || len(files) != 2 || !bytes.Equal(files["media/podcasts/"+episode.Id+".wav"], wav) || !bytes.Equal(files["media/narrations/"+narrationRecord.Id+".wav"], wav) {
 		t.Fatalf("ZIP did not include the episode WAV: version=%v files=%v", manifest["format_version"], len(files))
 	}
 	importResponse := httptest.NewRecorder()
 	importEvent := &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: httptest.NewRequest(http.MethodPost, "/api/account/learning-import", bytes.NewReader(exportResponse.Body.Bytes())), Response: importResponse}}
 	if err := importLearningDataRoute(importEvent); err != nil {
 		t.Fatalf("archive import failed: %v", err)
+	}
+	importedNarrations, err := app.FindRecordsByFilter("lesson_narrations", "owner = {:owner} && course != {:course}", "", 0, 0, map[string]any{"owner": user.Id, "course": course.Id})
+	if err != nil || len(importedNarrations) != 1 || importedNarrations[0].GetString("audio") == "" {
+		t.Fatalf("lesson narration did not round trip with fresh course link and audio: %v (%d)", err, len(importedNarrations))
 	}
 	episodes, err := app.FindRecordsByFilter("podcast_episodes", "owner = {:owner} && title = {:title}", "", 0, 0, map[string]any{"owner": user.Id, "title": "Archive audio"})
 	if err != nil || len(episodes) != 2 {
@@ -1104,11 +1130,12 @@ func TestLearningArchiveZipRejectsUnsafeAndUnreferencedMedia(t *testing.T) {
 				Format        string           `json:"format"`
 				FormatVersion int              `json:"format_version"`
 				Podcasts      []map[string]any `json:"podcast_episodes"`
+				Narrations    []map[string]any `json:"lesson_narrations"`
 			}
 			if err := json.Unmarshal(manifestBytes, &parsed); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := validateLearningArchiveAssets(parsed.Podcasts, files, parsed.FormatVersion); err == nil {
+			if _, _, err := validateLearningArchiveAssets(parsed.Podcasts, parsed.Narrations, files, parsed.FormatVersion); err == nil {
 				t.Fatal("unreferenced media should fail manifest validation")
 			}
 		})

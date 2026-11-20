@@ -214,7 +214,7 @@ func registerLearningAPI(api huma.API) {
 	huma.Register(api, huma.Operation{OperationID: "exportCourse", Method: http.MethodGet, Path: "/api/learning/courses/{id}/export", Tags: []string{"Learning"}, Summary: "Export an owned course with its private assessment keys", Security: security, Errors: errorSet}, func(context.Context, *learningIDInput) (*learningRecordOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "importCourse", Method: http.MethodPost, Path: "/api/learning/courses/import", Tags: []string{"Learning"}, Summary: "Import a course export", Security: security, Errors: errorSet, DefaultStatus: http.StatusCreated}, func(context.Context, *learningBodyInput) (*learningRecordOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "exportLearningArchive", Method: http.MethodGet, Path: "/api/account/learning-export", Tags: []string{"Learning"}, Summary: "Export the current user's learning archive", Security: security, Errors: errorSet}, func(context.Context, *learningListInput) (*learningRecordOutput, error) { return nil, nil })
-	huma.Register(api, huma.Operation{OperationID: "exportLearningArchiveZip", Method: http.MethodGet, Path: "/api/account/learning-export/archive", Tags: []string{"Learning"}, Summary: "Export a learning archive with podcast audio files", Security: security, Errors: errorSet, Responses: map[string]*huma.Response{"200": {Description: "ZIP archive with manifest and podcast WAV files", Content: map[string]*huma.MediaType{"application/zip": {Schema: &huma.Schema{Type: "string", Format: "binary"}}}}}}, func(context.Context, *learningListInput) (*huma.StreamResponse, error) { return nil, nil })
+	huma.Register(api, huma.Operation{OperationID: "exportLearningArchiveZip", Method: http.MethodGet, Path: "/api/account/learning-export/archive", Tags: []string{"Learning"}, Summary: "Export a learning archive with generated audio", Security: security, Errors: errorSet, Responses: map[string]*huma.Response{"200": {Description: "ZIP archive with manifest, podcast WAV files, and lesson narration WAV files", Content: map[string]*huma.MediaType{"application/zip": {Schema: &huma.Schema{Type: "string", Format: "binary"}}}}}}, func(context.Context, *learningListInput) (*huma.StreamResponse, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "importLearningArchive", Method: http.MethodPost, Path: "/api/account/learning-import", Tags: []string{"Learning"}, Summary: "Import a learning archive into the current account", Security: security, Errors: errorSet}, func(context.Context, *learningBodyInput) (*learningRecordOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "listLearningSources", Method: http.MethodGet, Path: "/api/learning/sources", Tags: []string{"Learning"}, Summary: "List the current user's imported sources", Security: security, Errors: errorSet}, func(context.Context, *learningListInput) (*learningOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "createLearningSource", Method: http.MethodPost, Path: "/api/learning/sources", Tags: []string{"Learning"}, Summary: "Import a text or Markdown learning source", Security: security, Errors: errorSet, DefaultStatus: http.StatusCreated}, func(context.Context, *learningBodyInput) (*learningRecordOutput, error) { return nil, nil })
@@ -2162,6 +2162,9 @@ func exportLearningArchiveZipRoute(event *core.RequestEvent) error {
 
 func collectLearningArchive(app core.App, user *core.Record, includeAudio bool) (map[string]any, map[string][]byte, error) {
 	collections := []string{"courses", "course_versions", "course_progress", "course_assessments", "knowledge_units", "knowledge_edges", "learning_sources", "learner_evidence", "knowledge_mastery", "podcast_episodes"}
+	if includeAudio {
+		collections = append(collections, "lesson_narrations")
+	}
 	archive := map[string]any{"format": "starburst-learning-archive", "format_version": 1, "exported_at": time.Now().UTC().Format(time.RFC3339), "user_id": user.Id}
 	assets := map[string][]byte{}
 	assetBytes := 0
@@ -2205,6 +2208,37 @@ func collectLearningArchive(app core.App, user *core.Record, includeAudio bool) 
 					assets[assetName] = data
 				}
 			}
+			if name == "lesson_narrations" {
+				filename := record.GetString("audio")
+				delete(item, "audio")
+				if filename != "" {
+					storage, storageErr := app.NewFilesystem()
+					if storageErr != nil {
+						return nil, nil, storageErr
+					}
+					reader, readerErr := storage.GetReader(record.BaseFilesPath() + "/" + filename)
+					if readerErr != nil {
+						storage.Close()
+						return nil, nil, readerErr
+					}
+					data, readErr := io.ReadAll(io.LimitReader(reader, maxLearningArchiveAssets+1))
+					reader.Close()
+					storage.Close()
+					if readErr != nil {
+						return nil, nil, readErr
+					}
+					if len(data) > maxLearningArchiveAssets || assetBytes > maxLearningArchiveBytes-len(data) {
+						return nil, nil, fmt.Errorf("lesson narration exceeds archive media limits")
+					}
+					if _, _, _, _, wavErr := wyoming.ParseWAV(data); wavErr != nil {
+						return nil, nil, fmt.Errorf("stored lesson narration is invalid: %w", wavErr)
+					}
+					assetBytes += len(data)
+					assetName := "media/narrations/" + record.Id + ".wav"
+					item["audio_asset"] = assetName
+					assets[assetName] = data
+				}
+			}
 			items = append(items, item)
 		}
 		archive[name] = items
@@ -2234,6 +2268,7 @@ func importLearningDataRoute(event *core.RequestEvent) error {
 		Evidence      []map[string]any `json:"learner_evidence"`
 		Mastery       []map[string]any `json:"knowledge_mastery"`
 		Podcasts      []map[string]any `json:"podcast_episodes"`
+		Narrations    []map[string]any `json:"lesson_narrations,omitempty"`
 		Preferences   *UserPreferences `json:"preferences,omitempty"`
 	}
 	body, err := io.ReadAll(io.LimitReader(event.Request.Body, maxLearningArchiveBytes+1))
@@ -2258,13 +2293,13 @@ func importLearningDataRoute(event *core.RequestEvent) error {
 	if archive.Format != "starburst-learning-archive" || (archive.FormatVersion != 1 && archive.FormatVersion != 2) || (archive.FormatVersion == 2 && !isZip) {
 		return event.BadRequestError("unsupported learning archive format", nil)
 	}
-	sets := [][]map[string]any{archive.Courses, archive.Versions, archive.Progress, archive.Assessments, archive.Units, archive.Edges, archive.Sources, archive.Evidence, archive.Mastery, archive.Podcasts}
+	sets := [][]map[string]any{archive.Courses, archive.Versions, archive.Progress, archive.Assessments, archive.Units, archive.Edges, archive.Sources, archive.Evidence, archive.Mastery, archive.Podcasts, archive.Narrations}
 	for _, records := range sets {
 		if len(records) > 10000 {
 			return event.BadRequestError("learning archive contains too many records", nil)
 		}
 	}
-	audioAssets, err := validateLearningArchiveAssets(archive.Podcasts, archiveFiles, archive.FormatVersion)
+	audioAssets, narrationAssets, err := validateLearningArchiveAssets(archive.Podcasts, archive.Narrations, archiveFiles, archive.FormatVersion)
 	if err != nil {
 		return event.BadRequestError("learning archive media is invalid", err)
 	}
@@ -2622,6 +2657,29 @@ func importLearningDataRoute(event *core.RequestEvent) error {
 				return saveErr
 			}
 		}
+		for _, values := range archive.Narrations {
+			oldCourse, _ := values["course"].(string)
+			course := courseIDs[oldCourse]
+			version, ok := archiveNumber(values["version"])
+			sceneID, _ := values["scene_id"].(string)
+			if course == "" || !ok || version < 1 || strings.TrimSpace(sceneID) == "" {
+				return fmt.Errorf("invalid lesson narration reference")
+			}
+			fields := map[string]any{"course": course, "version": version, "scene_id": sceneID, "text_hash": values["text_hash"], "voice": values["voice"], "speaker": values["speaker"]}
+			if audio, exists := narrationAssets[oldID(values)]; exists {
+				file, fileErr := filesystem.NewFileFromBytes(audio, "narration.wav")
+				if fileErr != nil {
+					return fileErr
+				}
+				fields["audio"] = file
+				if metadata, ok := values["audio_metadata"]; ok {
+					fields["audio_metadata"] = metadata
+				}
+			}
+			if _, saveErr := create("lesson_narrations", fields); saveErr != nil {
+				return saveErr
+			}
+		}
 		if archive.Preferences != nil {
 			account, findErr := tx.FindRecordById("users", user.Id)
 			if findErr != nil {
@@ -2668,7 +2726,7 @@ func decodeLearningArchiveContainer(body []byte) ([]byte, map[string][]byte, boo
 		var limit uint64 = maxLearningArchiveAssets
 		if name == "manifest.json" {
 			limit = 25 << 20
-		} else if !strings.HasPrefix(name, "media/podcasts/") || !strings.HasSuffix(name, ".wav") || strings.Contains(name, "..") || strings.Contains(name, "\\") {
+		} else if (!strings.HasPrefix(name, "media/podcasts/") && !strings.HasPrefix(name, "media/narrations/")) || !strings.HasSuffix(name, ".wav") || strings.Contains(name, "..") || strings.Contains(name, "\\") {
 			return nil, nil, true, fmt.Errorf("archive contains an unsupported file path")
 		}
 		if file.UncompressedSize64 > limit {
@@ -2701,13 +2759,14 @@ func decodeLearningArchiveContainer(body []byte) ([]byte, map[string][]byte, boo
 	return manifest, files, true, nil
 }
 
-func validateLearningArchiveAssets(podcasts []map[string]any, files map[string][]byte, version int) (map[string][]byte, error) {
+func validateLearningArchiveAssets(podcasts, narrations []map[string]any, files map[string][]byte, version int) (map[string][]byte, map[string][]byte, error) {
 	assets := map[string][]byte{}
+	narrationAssets := map[string][]byte{}
 	if version == 1 {
 		if len(files) != 0 {
-			return nil, fmt.Errorf("version 1 JSON archives cannot contain media")
+			return nil, nil, fmt.Errorf("version 1 JSON archives cannot contain media")
 		}
-		return assets, nil
+		return assets, narrationAssets, nil
 	}
 	expectedFiles := map[string]string{}
 	for _, podcast := range podcasts {
@@ -2716,33 +2775,53 @@ func validateLearningArchiveAssets(podcasts []map[string]any, files map[string][
 		oldEpisodeID, _ := podcast["id"].(string)
 		if assetName == "" {
 			if audioReady {
-				return nil, fmt.Errorf("podcast audio is marked ready but is missing from the archive")
+				return nil, nil, fmt.Errorf("podcast audio is marked ready but is missing from the archive")
 			}
 			continue
 		}
 		expected := "media/podcasts/" + oldEpisodeID + ".wav"
 		if oldEpisodeID == "" || assetName != expected || !audioReady || expectedFiles[assetName] != "" {
-			return nil, fmt.Errorf("podcast audio path does not match its episode")
+			return nil, nil, fmt.Errorf("podcast audio path does not match its episode")
 		}
 		data, exists := files[assetName]
 		if !exists || len(data) < 44 || len(data) > maxLearningArchiveAssets {
-			return nil, fmt.Errorf("podcast audio file is missing or invalid")
+			return nil, nil, fmt.Errorf("podcast audio file is missing or invalid")
 		}
 		if _, _, _, _, err := wyoming.ParseWAV(data); err != nil {
-			return nil, fmt.Errorf("podcast audio is not a valid WAV: %w", err)
+			return nil, nil, fmt.Errorf("podcast audio is not a valid WAV: %w", err)
 		}
 		expectedFiles[assetName] = oldEpisodeID
 		assets[oldEpisodeID] = data
 	}
+	for _, narration := range narrations {
+		assetName, _ := narration["audio_asset"].(string)
+		narrationID, _ := narration["id"].(string)
+		if assetName == "" {
+			continue
+		}
+		expected := "media/narrations/" + narrationID + ".wav"
+		if narrationID == "" || assetName != expected || expectedFiles[assetName] != "" {
+			return nil, nil, fmt.Errorf("lesson narration path does not match its record")
+		}
+		data, exists := files[assetName]
+		if !exists || len(data) < 44 || len(data) > maxLearningArchiveAssets {
+			return nil, nil, fmt.Errorf("lesson narration file is missing or invalid")
+		}
+		if _, _, _, _, err := wyoming.ParseWAV(data); err != nil {
+			return nil, nil, fmt.Errorf("lesson narration is not a valid WAV: %w", err)
+		}
+		expectedFiles[assetName] = narrationID
+		narrationAssets[narrationID] = data
+	}
 	if len(expectedFiles) != len(files) {
-		return nil, fmt.Errorf("archive has unreferenced podcast media")
+		return nil, nil, fmt.Errorf("archive has unreferenced media")
 	}
 	for name := range files {
 		if _, exists := expectedFiles[name]; !exists {
-			return nil, fmt.Errorf("archive has unreferenced podcast media")
+			return nil, nil, fmt.Errorf("archive has unreferenced media")
 		}
 	}
-	return assets, nil
+	return assets, narrationAssets, nil
 }
 
 func decodePodcastArchiveObject[T any](value any) (T, error) {
