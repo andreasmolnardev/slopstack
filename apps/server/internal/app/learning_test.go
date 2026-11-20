@@ -695,7 +695,7 @@ func TestImportSourceCreatesProvenanceAndDeleteCleansDependents(t *testing.T) {
 		t.Fatalf("missing provenance: %#v", meta)
 	}
 	createTestRecord(t, app, "knowledge_mastery", map[string]any{"owner": user.Id, "unit": units[0].Id, "mastery": 0.5})
-	job := createTestRecord(t, app, "learning_jobs", map[string]any{"owner": user.Id, "kind": "course_generation", "status": "completed", "payload": map[string]any{"generation_context": map[string]any{"sources": []any{map[string]any{"id": sources[0].Id, "content": "Cells store information."}}, "concepts": []any{map[string]any{"id": units[0].Id, "description": "Cells store information."}}}}})
+	job := createTestRecord(t, app, "learning_jobs", map[string]any{"owner": user.Id, "kind": "course_generation", "status": "completed", "payload": map[string]any{"generation_context": map[string]any{"sources": []any{map[string]any{"id": sources[0].Id, "content": "Cells store information."}}, "concepts": []any{map[string]any{"id": units[0].Id, "description": "Cells store information."}}, "weak_concepts": []any{map[string]any{"id": units[0].Id, "title": "Cell theory"}}}}})
 	episode := createTestRecord(t, app, "podcast_episodes", map[string]any{"owner": user.Id, "title": "Cell notes", "topic": "Cell information", "status": "ready", "source_ids": []string{sources[0].Id}, "concept_ids": []string{units[0].Id}, "outline": map[string]any{"title": "Cell notes"}, "transcript": map[string]any{"turns": []any{}}})
 	request = httptest.NewRequest("DELETE", "/api/learning/sources/"+sources[0].Id, nil)
 	request.SetPathValue("id", sources[0].Id)
@@ -718,7 +718,7 @@ func TestImportSourceCreatesProvenanceAndDeleteCleansDependents(t *testing.T) {
 		t.Fatal(err)
 	}
 	jobContext := jobPayload["generation_context"].(map[string]any)
-	if len(contextRows(jobContext["sources"])) != 0 || len(contextRows(jobContext["concepts"])) != 0 {
+	if len(contextRows(jobContext["sources"])) != 0 || len(contextRows(jobContext["concepts"])) != 0 || len(contextRows(jobContext["weak_concepts"])) != 0 {
 		t.Fatalf("deleted source content remained in a generation job: %#v", jobContext)
 	}
 	if _, err := app.FindRecordById("podcast_episodes", episode.Id); err == nil {
@@ -1594,7 +1594,7 @@ func TestCourseGenerationBuildsValidatedMultiModuleCurriculumFromGoal(t *testing
 	t.Setenv("STARBURST_LLM_API_KEY", "test-key")
 	t.Setenv("STARBURST_LLM_MODEL", "test-model")
 	var generationProgress []int
-	generationContext := map[string]any{"sources": []map[string]any{{"id": "source-1", "title": "Class notes", "content": "Use shaded strips to compare unlike fractions."}}, "concepts": []map[string]any{{"id": "concept-1", "title": "Equivalent fractions", "description": "Different numerators and denominators can represent the same quantity."}}, "preferences": map[string]any{"difficulty": "advanced", "target_minutes": 30, "learner_context": map[string]any{"interests": []string{"astronomy"}, "goals": []string{"explain clearly"}, "prior_knowledge": []string{"basic algebra"}, "preferred_language": "fr-CA"}}}
+	generationContext := map[string]any{"sources": []map[string]any{{"id": "source-1", "title": "Class notes", "content": "Use shaded strips to compare unlike fractions."}}, "concepts": []map[string]any{{"id": "concept-1", "title": "Equivalent fractions", "description": "Different numerators and denominators can represent the same quantity."}}, "weak_concepts": []map[string]any{{"id": "weak-1", "title": "Common denominator", "description": "A shared denominator helps compare fractions.", "mastery": 0.3}}, "preferences": map[string]any{"difficulty": "advanced", "target_minutes": 30, "learner_context": map[string]any{"interests": []string{"astronomy"}, "goals": []string{"explain clearly"}, "prior_knowledge": []string{"basic algebra"}, "preferred_language": "fr-CA"}}}
 	content, err := generateCourseContent(t.Context(), "Fractions", "Compare fractions using visual models", func(value int) { generationProgress = append(generationProgress, value) }, generationContext)
 	if err != nil {
 		t.Fatal(err)
@@ -1617,6 +1617,9 @@ func TestCourseGenerationBuildsValidatedMultiModuleCurriculumFromGoal(t *testing
 		}
 		if !strings.Contains(prompt, "astronomy") || !strings.Contains(prompt, "fr-CA") {
 			t.Fatalf("learner profile context was omitted from prompt %q", prompt)
+		}
+		if !strings.Contains(prompt, "weak_concepts") || !strings.Contains(prompt, "Common denominator") {
+			t.Fatalf("weak concept context was omitted from prompt %q", prompt)
 		}
 	}
 	if len(content["modules"].([]any)) != 2 || content["generator"] != "openai-compatible" {
@@ -1722,6 +1725,10 @@ func TestGenerateRoutePersistsLearnerGoalInRecoverableJob(t *testing.T) {
 	course := createTestRecord(t, app, "courses", map[string]any{"owner": user.Id, "title": "Fractions", "description": "Compare fractions using visual models", "status": "draft"})
 	source := createTestRecord(t, app, "learning_sources", map[string]any{"owner": user.Id, "title": "Fraction notes", "source_type": "text/plain", "content": "Use strip diagrams to compare fractions."})
 	concept := createTestRecord(t, app, "knowledge_units", map[string]any{"owner": user.Id, "title": "Equivalent fractions", "description": "Different forms can show the same quantity.", "unit_type": "concept"})
+	weakUnit := createTestRecord(t, app, "knowledge_units", map[string]any{"owner": user.Id, "title": "Common denominator", "description": "A shared denominator helps compare fractions.", "unit_type": "concept"})
+	strongUnit := createTestRecord(t, app, "knowledge_units", map[string]any{"owner": user.Id, "title": "Fraction parts", "description": "A fraction names equal parts of a whole.", "unit_type": "concept"})
+	createTestRecord(t, app, "knowledge_mastery", map[string]any{"owner": user.Id, "unit": weakUnit.Id, "mastery": 0.3, "confidence": 0.5, "review_interval_days": 1, "ease_factor": 2.3, "repetitions": 1})
+	createTestRecord(t, app, "knowledge_mastery", map[string]any{"owner": user.Id, "unit": strongUnit.Id, "mastery": 0.9, "confidence": 0.8, "review_interval_days": 12, "ease_factor": 2.5, "repetitions": 4})
 	request := httptest.NewRequest("POST", "/api/learning/courses/"+course.Id+"/generate", strings.NewReader(`{"source_ids":["`+source.Id+`"],"concept_ids":["`+concept.Id+`"]}`))
 	request.SetPathValue("id", course.Id)
 	event := &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
@@ -1753,6 +1760,10 @@ func TestGenerateRoutePersistsLearnerGoalInRecoverableJob(t *testing.T) {
 	}
 	if got := learnerContext["interests"].([]any); len(got) != 1 || got[0] != "astronomy" {
 		t.Fatalf("learner interests missing from generation context: %#v", learnerContext["interests"])
+	}
+	weakConcepts, ok := generationContext["weak_concepts"].([]any)
+	if !ok || len(weakConcepts) != 1 || weakConcepts[0].(map[string]any)["id"] != weakUnit.Id {
+		t.Fatalf("weak concepts missing from generation context: %#v", generationContext["weak_concepts"])
 	}
 	request = httptest.NewRequest("POST", "/api/learning/jobs/"+jobs[0].Id+"/cancel", strings.NewReader(`{}`))
 	request.SetPathValue("id", jobs[0].Id)
