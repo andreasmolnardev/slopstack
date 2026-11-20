@@ -111,6 +111,10 @@ func TestLessonNarrationCacheReusesOwnedSceneAudioAndInvalidatesOnChanges(t *tes
 	if calls := atomic.LoadInt32(synthesizeCalls); calls != 3 {
 		t.Fatalf("version change should synthesize once, got %d calls", calls)
 	}
+	staleRecords, err := app.FindRecordsByFilter("lesson_narrations", "owner = {:owner} && course = {:course} && version < 2", "", 10, 0, dbx.Params{"owner": owner.Id, "course": course.Id})
+	if err != nil || len(staleRecords) != 0 {
+		t.Fatalf("older version narration cache should be evicted: %v (%d)", err, len(staleRecords))
+	}
 
 	body["voice"] = "voice-b"
 	body["speaker"] = "speaker-b"

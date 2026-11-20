@@ -837,7 +837,21 @@ func lessonNarrationRoute(config Config) func(*core.RequestEvent) error {
 			"channels": channels, "duration_seconds": float64(len(pcm)) / float64(rate*width*channels),
 			"bytes": len(audio), "generated_at": time.Now().UTC().Format(time.RFC3339),
 		})
-		if err := event.App.Save(record); err != nil {
+		if err := event.App.RunInTransaction(func(tx core.App) error {
+			if err := tx.Save(record); err != nil {
+				return err
+			}
+			stale, err := tx.FindRecordsByFilter("lesson_narrations", "owner = {:owner} && course = {:course} && version < {:version}", "", 0, 0, dbx.Params{"owner": user.Id, "course": course.Id, "version": version})
+			if err != nil {
+				return err
+			}
+			for _, old := range stale {
+				if err := tx.Delete(old); err != nil {
+					return err
+				}
+			}
+			return nil
+		}); err != nil {
 			// A concurrent request may have stored the same cache key first.
 			existing, findErr := findLessonNarration(event.App, user.Id, course.Id, version, sceneID, textHash, voice, speaker)
 			if findErr == nil && existing != nil {
