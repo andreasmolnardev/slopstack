@@ -11,6 +11,7 @@ import {
   type PendingCourseProgress,
   type PendingOfflineAssessment,
 } from './api/offline-learning';
+import { exportOfflineLibrary, importOfflineLibrary } from './api/offline-archive';
 
 let store: OfflineLearningStore;
 let databaseNumber = 0;
@@ -38,6 +39,28 @@ const assessment = (ownerId: string, requestId: string, courseId = 'course-1'): 
 });
 
 describe('offline learning storage', () => {
+  it('exports and imports downloaded lesson content, progress, and narration for the signed-in owner', async () => {
+    await store.saveCourse('learner-a', { ...course('course-archive'), version: 2 }, { sceneIndex: 2, positionSeconds: 15, completed: false });
+    const narration = new Blob(['WAV sample'], { type: 'audio/wav' });
+    await store.saveNarrationAssets('learner-a', 'course-archive', 2, [narration]);
+    const archive = await exportOfflineLibrary('learner-a', store);
+    const imported = createIndexedDbOfflineLearningStore(indexedDB, `starburst-offline-import-${databaseNumber++}`);
+
+    await expect(importOfflineLibrary('learner-b', new File([archive], 'offline.json'), imported)).resolves.toBe(1);
+    expect(await imported.getCourse('learner-b', 'course-archive')).toMatchObject({ course: { id: 'course-archive', version: 2 }, progress: { sceneIndex: 2, positionSeconds: 15 } });
+    expect(await (await imported.getNarrationAssets('learner-b', 'course-archive', 2))?.[0].text()).toBe('WAV sample');
+    expect(await imported.listCourses('learner-a')).toEqual([]);
+  });
+
+  it('rejects malformed device archives before writing any lesson records', async () => {
+    const malformed = new File([JSON.stringify({
+      format: 'starburst-offline-library', version: 1,
+      courses: [{ course: course('bad-course'), progress: { sceneIndex: -1, positionSeconds: 0, completed: false } }],
+    })], 'offline.json');
+    await expect(importOfflineLibrary('learner-a', malformed, store)).rejects.toThrow('invalid resume progress');
+    expect(await store.listCourses('learner-a')).toEqual([]);
+  });
+
   it('keeps downloads separated by owner and removes only the selected owner data', async () => {
     await store.saveCourse('learner-a', course('course-1'));
     await store.saveCourse('learner-b', course('course-1'));

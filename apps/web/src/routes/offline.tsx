@@ -4,6 +4,7 @@ import { createFileRoute, Link, redirect, useNavigate } from '@tanstack/react-ro
 import { getCourseProgress } from '../api/generated/sdk.gen';
 import { client as generatedClient } from '../api/generated/client.gen';
 import { learningQueryOptions } from '../api/learning-queries';
+import { exportOfflineLibrary, importOfflineLibrary } from '../api/offline-archive';
 import {
   offlineLearningStore,
   syncQueuedAssessments,
@@ -138,6 +139,32 @@ function OfflineLibrary() {
       : 'Download removed.');
   }
 
+  async function exportOffline() {
+    try {
+      const blob = await exportOfflineLibrary(ownerId, offlineLearningStore);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'starburst-offline-library.json';
+      link.click();
+      URL.revokeObjectURL(url);
+      setMessage('Offline lessons and narration exported from this device.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not export offline lessons');
+    }
+  }
+
+  async function importOffline(file?: File) {
+    if (!file) return;
+    try {
+      const count = await importOfflineLibrary(ownerId, file, offlineLearningStore);
+      await queryClient.invalidateQueries({ queryKey: ['offline-library', ownerId] });
+      setMessage(`${count} offline lesson${count === 1 ? '' : 's'} imported to this device.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not import offline lessons');
+    }
+  }
+
   if (selectedAssessment) {
     return <OfflineAssessment
       download={selectedAssessment}
@@ -164,6 +191,10 @@ function OfflineLibrary() {
             <p className="text-sm uppercase tracking-[.2em] text-[#e57fab]">Offline learning</p>
             <h1 className="mt-2 text-3xl font-semibold">Your downloaded lessons</h1>
             <p className="mt-2 max-w-xl text-sm text-[#b7adcc]">Downloaded lesson text and activities stay on this device. Resume progress syncs when you reconnect.</p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button type="button" onClick={() => void exportOffline()} disabled={!downloads.length} className="rounded-lg border border-white/15 px-3 py-2 text-sm disabled:opacity-50">Export device library</button>
+              <label className="rounded-lg border border-white/15 px-3 py-2 text-sm">Import device library<input className="sr-only" type="file" accept="application/json,.json" onChange={event => { void importOffline(event.target.files?.[0]); event.target.value = ''; }}/></label>
+            </div>
             {(queuedAssessmentsQuery.data?.length ?? 0) > 0 && <p role="status" className="mt-2 text-sm text-[#efc778]">{queuedAssessmentsQuery.data?.length} assessment{queuedAssessmentsQuery.data?.length === 1 ? '' : 's'} waiting for an online, authenticated grading sync.</p>}
           </div>
           <p role="status" className={`rounded-full border px-3 py-1.5 text-sm ${online ? 'border-emerald-300/30 text-emerald-200' : 'border-amber-300/30 text-amber-200'}`}>
