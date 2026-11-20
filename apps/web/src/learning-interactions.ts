@@ -13,6 +13,8 @@ export type WidgetInteractionState = {
   sideA?: number;
   sideB?: number;
   angle?: number;
+  reflection?: string;
+  plotShift?: number;
 };
 
 function storageKey(ownerId: string, courseId: string, version: number, sceneId: string): string {
@@ -38,6 +40,8 @@ export function readWidgetInteraction(ownerId: string, courseId: string, version
       ...(typeof state.sideA === 'number' && Number.isFinite(state.sideA) ? { sideA: state.sideA } : {}),
       ...(typeof state.sideB === 'number' && Number.isFinite(state.sideB) ? { sideB: state.sideB } : {}),
       ...(typeof state.angle === 'number' && Number.isFinite(state.angle) ? { angle: state.angle } : {}),
+      ...(typeof state.reflection === 'string' ? { reflection: state.reflection.slice(0, 5000) } : {}),
+      ...(typeof state.plotShift === 'number' && Number.isFinite(state.plotShift) ? { plotShift: state.plotShift } : {}),
       ...(state.classifications && typeof state.classifications === 'object' && !Array.isArray(state.classifications)
         ? { classifications: Object.fromEntries(Object.entries(state.classifications).filter(([, value]) => typeof value === 'string').slice(0, 30).map(([key, value]) => [key.slice(0, 200), (value as string).slice(0, 80)])) }
         : {}),

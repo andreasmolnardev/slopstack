@@ -29,11 +29,11 @@ describe('lesson widget interaction storage', () => {
   it('round-trips specialized widget state and bounds saved classification data', () => {
     writeWidgetInteraction('owner', 'course', 1, 'scene', {
       vectorX: 3, vectorY: -4, inputA: true, inputB: false, searchStep: 2,
-      sampleSize: 50, machineState: 'running', classifications: { 'Item 1': 'Mammal' },
+      sampleSize: 50, machineState: 'running', classifications: { 'Item 1': 'Mammal' }, sideA: 6, sideB: 8, angle: 90, plotShift: -2, reflection: 'Explain the idea.',
     });
     expect(readWidgetInteraction('owner', 'course', 1, 'scene')).toEqual({
       vectorX: 3, vectorY: -4, inputA: true, inputB: false, searchStep: 2,
-      sampleSize: 50, machineState: 'running', classifications: { 'Item 1': 'Mammal' },
+      sampleSize: 50, machineState: 'running', classifications: { 'Item 1': 'Mammal' }, sideA: 6, sideB: 8, angle: 90, plotShift: -2, reflection: 'Explain the idea.',
     });
   });
 
