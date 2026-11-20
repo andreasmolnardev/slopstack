@@ -466,7 +466,7 @@ function WidgetStage({type,config,initialState,onStateChange}:{type:string;confi
  if(type==='binary_explorer'){const number=Math.max(0,Math.min(255,Math.round(value)));return <div className="mt-8"><p>{config.prompt??'Explore how a byte stores a number.'}</p><input aria-label="Byte value" type="range" min="0" max="255" value={number} onChange={e=>setValue(Number(e.target.value))} className="mt-5 w-full accent-[#e57fab]"/><div className="mt-4 flex items-center justify-between rounded-xl bg-[#0e0621] p-5 font-mono"><span>{number.toString(2).padStart(8,'0')}</span><span>= {number}</span></div></div>}
  if(type==='matching'){const options:Array<string>=Array.isArray(config.options)?config.options:[];return <div className="mt-8"><p>{config.prompt??'Choose the best match.'}</p><div className="mt-4 grid gap-2">{options.map(option=><button key={option} aria-pressed={choice===option} onClick={()=>{setChoice(option);setChecked(false)}} className={`rounded-lg border p-3 text-left ${choice===option?'border-[#e57fab] bg-[#0e0621]':'border-white/10'}`}>{option}</button>)}</div><button disabled={!choice} onClick={()=>setChecked(true)} className="mt-4 rounded bg-[#6350c8] px-3 py-2">Check answer</button>{checked&&<p role="status" className="mt-3">{choice===config.answer?'That matches.':'Try again and compare the choices.'}</p>}</div>}
  if(type==='timeline'){const events:Array<{label:string;detail?:string}>=Array.isArray(config.events)?config.events:[];return <ol className="mt-8 space-y-3">{events.map((event,i)=><li key={`${i}-${event.label}`} className="flex gap-4 rounded-lg bg-[#0e0621] p-4"><span className="font-mono text-[#f3a178]">{String(i+1).padStart(2,'0')}</span><div><p>{event.label}</p>{event.detail&&<p className="mt-1 text-sm text-[#b7adcc]">{event.detail}</p>}</div></li>)}</ol>}
- if(type==='geometry_explorer')return <GeometryExplorer config={config}/>;
+ if(type==='geometry_explorer')return <GeometryExplorer config={config} state={initialState} onStateChange={state=>onStateChange({...initialState,...state})}/>;
  if(type==='vector_visualizer')return <VectorExplorer config={config} state={initialState} onStateChange={state=>onStateChange({...initialState,...state})}/>;
  if(type==='logic_gates')return <LogicGateExplorer config={config} state={initialState} onStateChange={state=>onStateChange({...initialState,...state})}/>;
  if(type==='algorithm_step_visualizer')return <BinarySearchVisualizer config={config} state={initialState} onStateChange={state=>onStateChange({...initialState,...state})}/>;
@@ -477,9 +477,9 @@ function WidgetStage({type,config,initialState,onStateChange}:{type:string;confi
  return <div className="mt-8">{config.prompt&&<p className="text-xl text-[#efc778]">{config.prompt}</p>}{config.body&&<p className="mt-4 max-w-2xl leading-7 text-[#d4cde2]">{config.body}</p>}{config.steps&&<ol className="mt-8 grid gap-3">{config.steps.map((step:string,i:number)=><li key={step} className="rounded-lg bg-[#0e0621] p-4"><span className="mr-3 text-[#f3a178]">0{i+1}</span>{step}</li>)}</ol>}{config.question&&<textarea className="mt-6 min-h-32 w-full rounded-lg border border-white/10 bg-[#0e0621] p-4" placeholder="Write your explanation" aria-label="Your explanation"/>}</div>
 }
 
-function GeometryExplorer({config}:{config:WidgetConfig}) {
+function GeometryExplorer({config,state,onStateChange}:{config:WidgetConfig;state:WidgetInteractionState;onStateChange:(state:WidgetInteractionState)=>void}) {
  const defaultSideA=Number(config.side_a??6);const defaultSideB=Number(config.side_b??8);const defaultAngle=Number(config.angle_degrees??60);
- const [sideA,setSideA]=useState(defaultSideA);const [sideB,setSideB]=useState(defaultSideB);const [angle,setAngle]=useState(defaultAngle);
+ const [sideA,setSideA]=useState(state.sideA??defaultSideA);const [sideB,setSideB]=useState(state.sideB??defaultSideB);const [angle,setAngle]=useState(state.angle??defaultAngle);
  const {sideC,area}=triangleMetrics(sideA,sideB,angle);const scale=160/Math.max(sideA,sideB,sideC);const angleRadians=angle*Math.PI/180;
  const rawC={x:sideB*Math.cos(angleRadians)*scale,y:-sideB*Math.sin(angleRadians)*scale};const rawB={x:sideA*scale,y:0};
  const minX=Math.min(0,rawB.x,rawC.x);const maxX=Math.max(0,rawB.x,rawC.x);const offsetX=(280-(maxX-minX))/2-minX;const offsetY=18+Math.max(0,-rawC.y);
@@ -501,12 +501,12 @@ function GeometryExplorer({config}:{config:WidgetConfig}) {
      <text x={pointA.x+12} y={pointA.y-11} fill="#efc778" fontSize="11">{angle}°</text>
    </svg>
    <div className="mt-4 grid gap-4 sm:grid-cols-2">
-     <label htmlFor="geometry-side-a" className="grid gap-1 text-sm">Side a · {sideA.toFixed(1)}<input id="geometry-side-a" type="range" min="0.5" max="20" step="0.5" value={sideA} onChange={event=>setSideA(Number(event.target.value))} className="accent-[#e57fab]"/></label>
-     <label htmlFor="geometry-side-b" className="grid gap-1 text-sm">Side b · {sideB.toFixed(1)}<input id="geometry-side-b" type="range" min="0.5" max="20" step="0.5" value={sideB} onChange={event=>setSideB(Number(event.target.value))} className="accent-[#e57fab]"/></label>
-     <label htmlFor="geometry-included-angle" className="grid gap-1 text-sm sm:col-span-2">Included angle · {angle}°<input id="geometry-included-angle" type="range" min="15" max="165" step="1" value={angle} onChange={event=>setAngle(Number(event.target.value))} className="accent-[#e57fab]"/></label>
+     <label htmlFor="geometry-side-a" className="grid gap-1 text-sm">Side a · {sideA.toFixed(1)}<input id="geometry-side-a" type="range" min="0.5" max="20" step="0.5" value={sideA} onChange={event=>{const next=Number(event.target.value);setSideA(next);onStateChange({...state,sideA:next});}} className="accent-[#e57fab]"/></label>
+     <label htmlFor="geometry-side-b" className="grid gap-1 text-sm">Side b · {sideB.toFixed(1)}<input id="geometry-side-b" type="range" min="0.5" max="20" step="0.5" value={sideB} onChange={event=>{const next=Number(event.target.value);setSideB(next);onStateChange({...state,sideB:next});}} className="accent-[#e57fab]"/></label>
+     <label htmlFor="geometry-included-angle" className="grid gap-1 text-sm sm:col-span-2">Included angle · {angle}°<input id="geometry-included-angle" type="range" min="15" max="165" step="1" value={angle} onChange={event=>{const next=Number(event.target.value);setAngle(next);onStateChange({...state,angle:next});}} className="accent-[#e57fab]"/></label>
    </div>
    <p role="status" aria-live="polite" className="mt-4 rounded-lg bg-[#0e0621] p-3 text-sm">Side c: {sideC.toFixed(2)} units · Area: {area.toFixed(2)} square units</p>
-   <button type="button" onClick={reset} className="mt-3 rounded-lg border border-white/15 px-3 py-2 text-sm">Reset triangle</button>
+   <button type="button" onClick={()=>{reset();onStateChange({sideA:defaultSideA,sideB:defaultSideB,angle:defaultAngle});}} className="mt-3 rounded-lg border border-white/15 px-3 py-2 text-sm">Reset triangle</button>
  </section>;
 }
 

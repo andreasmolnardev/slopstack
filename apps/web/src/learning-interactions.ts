@@ -10,6 +10,9 @@ export type WidgetInteractionState = {
   sampleSize?: number;
   machineState?: string;
   classifications?: Record<string, string>;
+  sideA?: number;
+  sideB?: number;
+  angle?: number;
 };
 
 function storageKey(ownerId: string, courseId: string, version: number, sceneId: string): string {
@@ -32,6 +35,9 @@ export function readWidgetInteraction(ownerId: string, courseId: string, version
       ...(typeof state.searchStep === 'number' && Number.isInteger(state.searchStep) ? { searchStep: state.searchStep } : {}),
       ...(typeof state.sampleSize === 'number' && Number.isInteger(state.sampleSize) ? { sampleSize: state.sampleSize } : {}),
       ...(typeof state.machineState === 'string' ? { machineState: state.machineState.slice(0, 80) } : {}),
+      ...(typeof state.sideA === 'number' && Number.isFinite(state.sideA) ? { sideA: state.sideA } : {}),
+      ...(typeof state.sideB === 'number' && Number.isFinite(state.sideB) ? { sideB: state.sideB } : {}),
+      ...(typeof state.angle === 'number' && Number.isFinite(state.angle) ? { angle: state.angle } : {}),
       ...(state.classifications && typeof state.classifications === 'object' && !Array.isArray(state.classifications)
         ? { classifications: Object.fromEntries(Object.entries(state.classifications).filter(([, value]) => typeof value === 'string').slice(0, 30).map(([key, value]) => [key.slice(0, 200), (value as string).slice(0, 80)])) }
         : {}),
