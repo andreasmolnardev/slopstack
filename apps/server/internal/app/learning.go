@@ -3524,14 +3524,34 @@ func validateGeneratedCourse(content map[string]any) error {
 		if !ok {
 			return fmt.Errorf("invalid module")
 		}
+		if title, exists := module["title"]; exists {
+			value, valid := title.(string)
+			if !valid || strings.TrimSpace(value) == "" || len([]rune(value)) > 160 {
+				return fmt.Errorf("module title must be non-empty text up to 160 characters")
+			}
+		}
 		scenes, ok := module["scenes"].([]any)
 		if !ok || len(scenes) == 0 || len(scenes) > 20 {
 			return fmt.Errorf("module must contain between 1 and 20 scenes")
 		}
+		sceneIDs := map[string]bool{}
 		for _, rawScene := range scenes {
 			scene, ok := rawScene.(map[string]any)
 			if !ok {
 				return fmt.Errorf("invalid scene")
+			}
+			id, idOK := scene["id"].(string)
+			title, titleOK := scene["title"].(string)
+			duration, durationOK := finiteNumber(scene["duration_seconds"])
+			if !idOK || strings.TrimSpace(id) == "" || len([]rune(id)) > 120 || sceneIDs[id] {
+				return fmt.Errorf("scene id must be unique non-empty text up to 120 characters")
+			}
+			sceneIDs[id] = true
+			if !titleOK || strings.TrimSpace(title) == "" || len([]rune(title)) > 160 {
+				return fmt.Errorf("scene title must be non-empty text up to 160 characters")
+			}
+			if !durationOK || duration < 1 || duration > 3600 {
+				return fmt.Errorf("scene duration must be between 1 and 3600 seconds")
 			}
 			widget, ok := scene["widget"].(map[string]any)
 			if !ok {

@@ -474,7 +474,7 @@ func TestGeneratedCourseAcceptsRegisteredWidgetTypes(t *testing.T) {
 			widget["version"] = float64(1)
 			widget["config"] = map[string]any{"categories": []any{map[string]any{"name": "Mammal"}, map[string]any{"name": "Bird"}}, "classify_items": []any{map[string]any{"label": "Whale", "category": "Mammal"}, map[string]any{"label": "Robin", "category": "Bird"}, map[string]any{"label": "Bat", "category": "Mammal"}}}
 		}
-		content := map[string]any{"modules": []any{map[string]any{"scenes": []any{map[string]any{"widget": widget}}}}}
+		content := map[string]any{"modules": []any{map[string]any{"scenes": []any{map[string]any{"id": "scene-1", "title": "Scene", "duration_seconds": float64(30), "widget": widget}}}}}
 		if err := validateGeneratedCourse(content); err != nil {
 			t.Errorf("registered widget %q rejected: %v", kind, err)
 		}
@@ -890,7 +890,7 @@ func TestImportCourseValidatesAndCreatesOwnedCourse(t *testing.T) {
 		t.Fatal(err)
 	}
 	user := createTestRecord(t, app, "users", map[string]any{"email": "import-course@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
-	payload := `{"format":"starburst-course","format_version":1,"course":{"title":"Imported","description":"Test","content":{"modules":[{"scenes":[{"widget":{"type":"explanation"}}]}]}}}`
+	payload := `{"format":"starburst-course","format_version":1,"course":{"title":"Imported","description":"Test","content":{"modules":[{"scenes":[{"id":"scene-1","title":"Scene","duration_seconds":30,"widget":{"type":"explanation"}}]}]}}}`
 	request := httptest.NewRequest("POST", "/api/learning/courses/import", strings.NewReader(payload))
 	event := &core.RequestEvent{App: app, Auth: user, Event: router.Event{Request: request, Response: httptest.NewRecorder()}}
 	if err := importCourseRoute(event); err != nil {
@@ -1354,7 +1354,7 @@ func TestGeometryExplorerConfigIsTypedAndBounded(t *testing.T) {
 	validWidget := map[string]any{"type": "geometry_explorer", "version": float64(1), "config": map[string]any{
 		"side_a": float64(6), "side_b": float64(8), "angle_degrees": float64(90), "prompt": "Explore the triangle.",
 	}}
-	content := map[string]any{"modules": []any{map[string]any{"scenes": []any{map[string]any{"widget": validWidget}}}}}
+	content := map[string]any{"modules": []any{map[string]any{"scenes": []any{map[string]any{"id": "scene-1", "title": "Geometry", "duration_seconds": float64(30), "widget": validWidget}}}}}
 	if err := validateGeneratedCourse(content); err != nil {
 		t.Fatalf("valid geometry explorer widget rejected: %v", err)
 	}
@@ -1377,6 +1377,29 @@ func TestGeometryExplorerConfigIsTypedAndBounded(t *testing.T) {
 func TestValidateGeneratedCourseRejectsEmptyModules(t *testing.T) {
 	if err := validateGeneratedCourse(map[string]any{"modules": []any{}}); err == nil {
 		t.Fatal("expected empty course to fail validation")
+	}
+}
+
+func TestValidateGeneratedCourseRequiresBoundedUniqueSceneFields(t *testing.T) {
+	baseScene := map[string]any{"id": "scene-1", "title": "A scene", "duration_seconds": float64(30), "widget": map[string]any{"type": "explanation"}}
+	valid := map[string]any{"modules": []any{map[string]any{"title": "Module", "scenes": []any{baseScene}}}}
+	if err := validateGeneratedCourse(valid); err != nil {
+		t.Fatalf("valid scene rejected: %v", err)
+	}
+	invalidScenes := []map[string]any{
+		{"title": "Missing ID", "duration_seconds": float64(30), "widget": map[string]any{"type": "explanation"}},
+		{"id": "scene-1", "title": " ", "duration_seconds": float64(30), "widget": map[string]any{"type": "explanation"}},
+		{"id": "scene-1", "title": "Too long", "duration_seconds": float64(3601), "widget": map[string]any{"type": "explanation"}},
+	}
+	for _, scene := range invalidScenes {
+		content := map[string]any{"modules": []any{map[string]any{"scenes": []any{scene}}}}
+		if err := validateGeneratedCourse(content); err == nil {
+			t.Errorf("invalid scene was accepted: %#v", scene)
+		}
+	}
+	duplicate := map[string]any{"modules": []any{map[string]any{"scenes": []any{baseScene, map[string]any{"id": "scene-1", "title": "Duplicate", "duration_seconds": float64(10), "widget": map[string]any{"type": "explanation"}}}}}}
+	if err := validateGeneratedCourse(duplicate); err == nil {
+		t.Fatal("duplicate scene IDs were accepted")
 	}
 }
 
