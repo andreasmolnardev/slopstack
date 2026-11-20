@@ -919,8 +919,13 @@ func TestCourseExportRoundTripsResumeProgress(t *testing.T) {
 		t.Fatal(err)
 	}
 	owner := createTestRecord(t, app, "users", map[string]any{"email": "course-progress-export@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
-	course := createTestRecord(t, app, "courses", map[string]any{"owner": owner.Id, "title": "Progress course", "description": "resume me", "status": "published", "version": 1, "content": fixtureCourseContent("Progress course")})
+	unit := createTestRecord(t, app, "knowledge_units", map[string]any{"owner": owner.Id, "title": "Equivalent fractions", "description": "Equal values can have different forms.", "unit_type": "concept", "metadata": map[string]any{"generated": true}})
+	unit2 := createTestRecord(t, app, "knowledge_units", map[string]any{"owner": owner.Id, "title": "Common denominator", "description": "A shared denominator helps compare fractions.", "unit_type": "concept"})
+	content := map[string]any{"version": 1, "modules": []any{map[string]any{"id": "module-1", "title": "Fractions", "objectives": []string{"Compare values"}, "knowledge_unit_ids": []string{unit.Id, unit2.Id}, "scenes": []any{map[string]any{"id": "scene-1", "title": "Compare", "duration_seconds": 30, "widget": map[string]any{"type": "explanation", "version": 1, "config": map[string]any{"body": "Compare equal values."}}}}}}}
+	course := createTestRecord(t, app, "courses", map[string]any{"owner": owner.Id, "title": "Progress course", "description": "resume me", "status": "published", "version": 1, "content": content})
 	createTestRecord(t, app, "course_progress", map[string]any{"owner": owner.Id, "course": course.Id, "scene_index": 2, "position_seconds": 18.5, "completed": false})
+	createTestRecord(t, app, "knowledge_mastery", map[string]any{"owner": owner.Id, "unit": unit.Id, "mastery": 0.7, "confidence": 0.6, "review_interval_days": 3, "ease_factor": 2.4, "repetitions": 2})
+	createTestRecord(t, app, "knowledge_edges", map[string]any{"owner": owner.Id, "from_unit": unit.Id, "to_unit": unit2.Id, "relationship": "builds_on"})
 	exportRequest := httptest.NewRequest("GET", "/api/learning/courses/"+course.Id+"/export", nil)
 	exportRequest.SetPathValue("id", course.Id)
 	exportResponse := httptest.NewRecorder()
@@ -931,7 +936,7 @@ func TestCourseExportRoundTripsResumeProgress(t *testing.T) {
 	if err := json.Unmarshal(exportResponse.Body.Bytes(), &export); err != nil {
 		t.Fatal(err)
 	}
-	if export["format_version"] != float64(2) || export["progress"].(map[string]any)["scene_index"] != float64(2) {
+	if export["format_version"] != float64(2) || export["progress"].(map[string]any)["scene_index"] != float64(2) || len(export["knowledge_units"].([]any)) != 2 || len(export["knowledge_edges"].([]any)) != 1 {
 		t.Fatalf("course export omitted progress: %#v", export)
 	}
 	importRequest := httptest.NewRequest("POST", "/api/learning/courses/import", bytes.NewReader(exportResponse.Body.Bytes()))
@@ -947,6 +952,31 @@ func TestCourseExportRoundTripsResumeProgress(t *testing.T) {
 	progress, err := app.FindRecordsByFilter("course_progress", "owner = {:owner} && course = {:course}", "", 1, 0, dbx.Params{"owner": owner.Id, "course": importedCourse})
 	if err != nil || len(progress) != 1 || progress[0].GetInt("scene_index") != 2 || progress[0].GetFloat("position_seconds") != 18.5 {
 		t.Fatalf("progress did not round trip: %v (%v)", err, progress)
+	}
+	importedRecord, err := app.FindRecordById("courses", importedCourse)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var importedContent map[string]any
+	if err := importedRecord.UnmarshalJSONField("content", &importedContent); err != nil {
+		t.Fatal(err)
+	}
+	importedModule := importedContent["modules"].([]any)[0].(map[string]any)
+	importedUnitID := assessmentStrings(importedModule["knowledge_unit_ids"])[0]
+	if importedUnitID == unit.Id {
+		t.Fatal("course import reused the source knowledge ID")
+	}
+	importedUnits, err := app.FindRecordsByFilter("knowledge_units", "owner = {:owner} && id = {:id}", "", 1, 0, dbx.Params{"owner": owner.Id, "id": importedUnitID})
+	if err != nil || len(importedUnits) != 1 || importedUnits[0].GetString("title") != "Equivalent fractions" {
+		t.Fatalf("linked knowledge did not import: %v (%d)", err, len(importedUnits))
+	}
+	importedMastery, err := app.FindRecordsByFilter("knowledge_mastery", "owner = {:owner} && unit = {:unit}", "", 1, 0, dbx.Params{"owner": owner.Id, "unit": importedUnitID})
+	if err != nil || len(importedMastery) != 1 || importedMastery[0].GetFloat("mastery") != 0.7 {
+		t.Fatalf("linked mastery did not import: %v (%d)", err, len(importedMastery))
+	}
+	importedEdges, err := app.FindRecordsByFilter("knowledge_edges", "owner = {:owner} && from_unit = {:from} && to_unit = {:to}", "", 1, 0, dbx.Params{"owner": owner.Id, "from": importedUnitID, "to": assessmentStrings(importedModule["knowledge_unit_ids"])[1]})
+	if err != nil || len(importedEdges) != 1 || importedEdges[0].GetString("relationship") != "builds_on" {
+		t.Fatalf("linked relationship did not import: %v (%d)", err, len(importedEdges))
 	}
 }
 
