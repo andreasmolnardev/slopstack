@@ -26,6 +26,17 @@ describe('lesson widget interaction storage', () => {
     expect(readWidgetInteraction('owner-1', 'course-1', 1, 'scene-2')).toEqual({});
   });
 
+  it('round-trips specialized widget state and bounds saved classification data', () => {
+    writeWidgetInteraction('owner', 'course', 1, 'scene', {
+      vectorX: 3, vectorY: -4, inputA: true, inputB: false, searchStep: 2,
+      sampleSize: 50, machineState: 'running', classifications: { 'Item 1': 'Mammal' },
+    });
+    expect(readWidgetInteraction('owner', 'course', 1, 'scene')).toEqual({
+      vectorX: 3, vectorY: -4, inputA: true, inputB: false, searchStep: 2,
+      sampleSize: 50, machineState: 'running', classifications: { 'Item 1': 'Mammal' },
+    });
+  });
+
   it('ignores corrupt and unsupported stored values', () => {
     values.set('starburst.widget.owner.course.1.scene', '{broken');
     expect(readWidgetInteraction('owner', 'course', 1, 'scene')).toEqual({});

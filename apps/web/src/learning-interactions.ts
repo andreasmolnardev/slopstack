@@ -2,6 +2,14 @@ export type WidgetInteractionState = {
   value?: number;
   choice?: string;
   checked?: boolean;
+  vectorX?: number;
+  vectorY?: number;
+  inputA?: boolean;
+  inputB?: boolean;
+  searchStep?: number;
+  sampleSize?: number;
+  machineState?: string;
+  classifications?: Record<string, string>;
 };
 
 function storageKey(ownerId: string, courseId: string, version: number, sceneId: string): string {
@@ -17,6 +25,16 @@ export function readWidgetInteraction(ownerId: string, courseId: string, version
       ...(typeof state.value === 'number' && Number.isFinite(state.value) ? { value: state.value } : {}),
       ...(typeof state.choice === 'string' ? { choice: state.choice.slice(0, 240) } : {}),
       ...(typeof state.checked === 'boolean' ? { checked: state.checked } : {}),
+      ...(typeof state.vectorX === 'number' && Number.isFinite(state.vectorX) ? { vectorX: state.vectorX } : {}),
+      ...(typeof state.vectorY === 'number' && Number.isFinite(state.vectorY) ? { vectorY: state.vectorY } : {}),
+      ...(typeof state.inputA === 'boolean' ? { inputA: state.inputA } : {}),
+      ...(typeof state.inputB === 'boolean' ? { inputB: state.inputB } : {}),
+      ...(typeof state.searchStep === 'number' && Number.isInteger(state.searchStep) ? { searchStep: state.searchStep } : {}),
+      ...(typeof state.sampleSize === 'number' && Number.isInteger(state.sampleSize) ? { sampleSize: state.sampleSize } : {}),
+      ...(typeof state.machineState === 'string' ? { machineState: state.machineState.slice(0, 80) } : {}),
+      ...(state.classifications && typeof state.classifications === 'object' && !Array.isArray(state.classifications)
+        ? { classifications: Object.fromEntries(Object.entries(state.classifications).filter(([, value]) => typeof value === 'string').slice(0, 30).map(([key, value]) => [key.slice(0, 200), (value as string).slice(0, 80)])) }
+        : {}),
     };
   } catch {
     return {};
