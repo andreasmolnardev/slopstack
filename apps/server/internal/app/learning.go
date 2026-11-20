@@ -211,8 +211,8 @@ func registerLearningAPI(api huma.API) {
 	huma.Register(api, huma.Operation{OperationID: "getKnowledgeEvidence", Method: http.MethodGet, Path: "/api/learning/knowledge-units/{id}/evidence", Tags: []string{"Learning"}, Summary: "List evidence for an owned knowledge unit", Security: security, Errors: errorSet}, func(context.Context, *learningIDInput) (*learningOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "updateKnowledgeUnit", Method: http.MethodPatch, Path: "/api/learning/knowledge-units/{id}", Tags: []string{"Learning"}, Summary: "Update an owned knowledge unit", Security: security, Errors: errorSet}, func(context.Context, *learningIDBodyInput) (*learningRecordOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "deleteKnowledgeUnit", Method: http.MethodDelete, Path: "/api/learning/knowledge-units/{id}", Tags: []string{"Learning"}, Summary: "Delete an owned knowledge unit", Security: security, Errors: []int{http.StatusUnauthorized, http.StatusNotFound}, DefaultStatus: http.StatusNoContent}, func(context.Context, *learningIDInput) (*learningDeletedOutput, error) { return nil, nil })
-	huma.Register(api, huma.Operation{OperationID: "exportCourse", Method: http.MethodGet, Path: "/api/learning/courses/{id}/export", Tags: []string{"Learning"}, Summary: "Export an owned course with its private assessment keys", Security: security, Errors: errorSet}, func(context.Context, *learningIDInput) (*learningRecordOutput, error) { return nil, nil })
-	huma.Register(api, huma.Operation{OperationID: "importCourse", Method: http.MethodPost, Path: "/api/learning/courses/import", Tags: []string{"Learning"}, Summary: "Import a course export", Security: security, Errors: errorSet, DefaultStatus: http.StatusCreated}, func(context.Context, *learningBodyInput) (*learningRecordOutput, error) { return nil, nil })
+	huma.Register(api, huma.Operation{OperationID: "exportCourse", Method: http.MethodGet, Path: "/api/learning/courses/{id}/export", Tags: []string{"Learning"}, Summary: "Export an owned course with assessment keys and resume progress", Security: security, Errors: errorSet}, func(context.Context, *learningIDInput) (*learningRecordOutput, error) { return nil, nil })
+	huma.Register(api, huma.Operation{OperationID: "importCourse", Method: http.MethodPost, Path: "/api/learning/courses/import", Tags: []string{"Learning"}, Summary: "Import a course export and resume progress", Security: security, Errors: errorSet, DefaultStatus: http.StatusCreated}, func(context.Context, *learningBodyInput) (*learningRecordOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "exportLearningArchive", Method: http.MethodGet, Path: "/api/account/learning-export", Tags: []string{"Learning"}, Summary: "Export the current user's learning archive", Security: security, Errors: errorSet}, func(context.Context, *learningListInput) (*learningRecordOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "exportLearningArchiveZip", Method: http.MethodGet, Path: "/api/account/learning-export/archive", Tags: []string{"Learning"}, Summary: "Export a learning archive with generated audio", Security: security, Errors: errorSet, Responses: map[string]*huma.Response{"200": {Description: "ZIP archive with manifest, podcast WAV files, and lesson narration WAV files", Content: map[string]*huma.MediaType{"application/zip": {Schema: &huma.Schema{Type: "string", Format: "binary"}}}}}}, func(context.Context, *learningListInput) (*huma.StreamResponse, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "importLearningArchive", Method: http.MethodPost, Path: "/api/account/learning-import", Tags: []string{"Learning"}, Summary: "Import a learning archive into the current account", Security: security, Errors: errorSet}, func(context.Context, *learningBodyInput) (*learningRecordOutput, error) { return nil, nil })
@@ -2033,7 +2033,15 @@ func exportCourseRoute(event *core.RequestEvent) error {
 	for _, key := range keys {
 		assessmentKeys = append(assessmentKeys, key.PublicExport())
 	}
-	return event.JSON(http.StatusOK, map[string]any{"format": "starburst-course", "format_version": 1, "course": map[string]any{"title": course.GetString("title"), "description": course.GetString("description"), "content": content}, "assessment_keys": assessmentKeys})
+	progress, err := event.App.FindRecordsByFilter("course_progress", "owner = {:owner} && course = {:course}", "", 1, 0, dbx.Params{"owner": user.Id, "course": course.Id})
+	if err != nil {
+		return event.InternalServerError("could not export course progress", err)
+	}
+	var exportedProgress map[string]any
+	if len(progress) > 0 {
+		exportedProgress = map[string]any{"scene_index": progress[0].GetInt("scene_index"), "position_seconds": progress[0].GetFloat("position_seconds"), "completed": progress[0].GetBool("completed")}
+	}
+	return event.JSON(http.StatusOK, map[string]any{"format": "starburst-course", "format_version": 2, "course": map[string]any{"title": course.GetString("title"), "description": course.GetString("description"), "content": content}, "assessment_keys": assessmentKeys, "progress": exportedProgress})
 }
 
 func importCourseRoute(event *core.RequestEvent) error {
@@ -2044,7 +2052,12 @@ func importCourseRoute(event *core.RequestEvent) error {
 	var input struct {
 		Format        string `json:"format"`
 		FormatVersion int    `json:"format_version"`
-		Course        struct {
+		Progress      *struct {
+			SceneIndex      int     `json:"scene_index"`
+			PositionSeconds float64 `json:"position_seconds"`
+			Completed       bool    `json:"completed"`
+		} `json:"progress,omitempty"`
+		Course struct {
 			Title       string         `json:"title"`
 			Description string         `json:"description"`
 			Content     map[string]any `json:"content"`
@@ -2057,8 +2070,14 @@ func importCourseRoute(event *core.RequestEvent) error {
 		return event.BadRequestError("invalid course export", err)
 	}
 	title := strings.TrimSpace(input.Course.Title)
-	if input.Format != "starburst-course" || input.FormatVersion != 1 {
+	if input.Format != "starburst-course" || (input.FormatVersion != 1 && input.FormatVersion != 2) {
 		return event.BadRequestError("unsupported course export format", nil)
+	}
+	if input.FormatVersion == 1 && input.Progress != nil {
+		return event.BadRequestError("version 1 course exports cannot include progress", nil)
+	}
+	if input.Progress != nil && (input.Progress.SceneIndex < 0 || input.Progress.PositionSeconds < 0 || math.IsNaN(input.Progress.PositionSeconds) || math.IsInf(input.Progress.PositionSeconds, 0)) {
+		return event.BadRequestError("course progress is invalid", nil)
 	}
 	if title == "" || len([]rune(title)) > 200 {
 		return event.BadRequestError("course title is required and must be at most 200 characters", nil)
@@ -2103,6 +2122,21 @@ func importCourseRoute(event *core.RequestEvent) error {
 		course.Set("version", 1)
 		if saveErr := tx.Save(course); saveErr != nil {
 			return saveErr
+		}
+		if input.Progress != nil {
+			progress, progressErr := tx.FindCollectionByNameOrId("course_progress")
+			if progressErr != nil {
+				return progressErr
+			}
+			row := core.NewRecord(progress)
+			row.Set("owner", user.Id)
+			row.Set("course", course.Id)
+			row.Set("scene_index", input.Progress.SceneIndex)
+			row.Set("position_seconds", input.Progress.PositionSeconds)
+			row.Set("completed", input.Progress.Completed)
+			if progressErr := tx.Save(row); progressErr != nil {
+				return progressErr
+			}
 		}
 		if len(groups) > 0 {
 			return saveCourseAssessmentKeys(tx, user.Id, course.Id, 1, groups)

@@ -39,6 +39,8 @@ Unauthenticated requests return `401`. The Huma operations define the OpenAPI co
 
 The learning route contract covers courses and versions, assessments and progress, knowledge units and edges, sources, vocabulary and grammar, adaptive practice, speech, generation jobs, review, and account learning archives. Go tests verify that every registered PocketBase learning endpoint has an authenticated OpenAPI operation. Speech synthesis is documented with an `audio/wav` response, and transcription accepts raw `audio/wav` request bytes.
 
+`GET /api/learning/courses/{id}/export` returns a version 2 course JSON file with validated scene/widget content, private assessment keys, and the current resume position/completion state. `POST /api/learning/courses/import` accepts version 1 files for compatibility and version 2 files with optional progress, then stores the imported course, keys, and progress for the current learner.
+
 ## Course generation
 
 Queue generation for an owned course with optional owner-owned sources and concepts:

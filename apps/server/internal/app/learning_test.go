@@ -909,6 +909,47 @@ func TestImportCourseValidatesAndCreatesOwnedCourse(t *testing.T) {
 	}
 }
 
+func TestCourseExportRoundTripsResumeProgress(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	owner := createTestRecord(t, app, "users", map[string]any{"email": "course-progress-export@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	course := createTestRecord(t, app, "courses", map[string]any{"owner": owner.Id, "title": "Progress course", "description": "resume me", "status": "published", "version": 1, "content": fixtureCourseContent("Progress course")})
+	createTestRecord(t, app, "course_progress", map[string]any{"owner": owner.Id, "course": course.Id, "scene_index": 2, "position_seconds": 18.5, "completed": false})
+	exportRequest := httptest.NewRequest("GET", "/api/learning/courses/"+course.Id+"/export", nil)
+	exportRequest.SetPathValue("id", course.Id)
+	exportResponse := httptest.NewRecorder()
+	if err := exportCourseRoute(&core.RequestEvent{App: app, Auth: owner, Event: router.Event{Request: exportRequest, Response: exportResponse}}); err != nil {
+		t.Fatal(err)
+	}
+	var export map[string]any
+	if err := json.Unmarshal(exportResponse.Body.Bytes(), &export); err != nil {
+		t.Fatal(err)
+	}
+	if export["format_version"] != float64(2) || export["progress"].(map[string]any)["scene_index"] != float64(2) {
+		t.Fatalf("course export omitted progress: %#v", export)
+	}
+	importRequest := httptest.NewRequest("POST", "/api/learning/courses/import", bytes.NewReader(exportResponse.Body.Bytes()))
+	importResponse := httptest.NewRecorder()
+	if err := importCourseRoute(&core.RequestEvent{App: app, Auth: owner, Event: router.Event{Request: importRequest, Response: importResponse}}); err != nil {
+		t.Fatal(err)
+	}
+	var imported map[string]any
+	if err := json.Unmarshal(importResponse.Body.Bytes(), &imported); err != nil {
+		t.Fatal(err)
+	}
+	importedCourse := imported["id"].(string)
+	progress, err := app.FindRecordsByFilter("course_progress", "owner = {:owner} && course = {:course}", "", 1, 0, dbx.Params{"owner": owner.Id, "course": importedCourse})
+	if err != nil || len(progress) != 1 || progress[0].GetInt("scene_index") != 2 || progress[0].GetFloat("position_seconds") != 18.5 {
+		t.Fatalf("progress did not round trip: %v (%v)", err, progress)
+	}
+}
+
 func TestLearningArchiveExportIsOwnerScoped(t *testing.T) {
 	app, err := tests.NewTestApp()
 	if err != nil {
