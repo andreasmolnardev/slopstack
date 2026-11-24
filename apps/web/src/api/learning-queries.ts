@@ -1,6 +1,6 @@
 import { queryOptions } from '@tanstack/react-query';
 import { pb } from './pocketbase';
-import { listCourses, listKnowledgeUnits, getCourse, getKnowledgeUnit, getKnowledgeEvidence, listKnowledgeEdges, listDueReviews, listCourseVersions, listLearningSources, getLearningSource, listVocabulary, listGrammar, piperHealth } from './generated/sdk.gen';
+import { listCourses, listKnowledgeUnits, getCourse, getKnowledgeUnit, getKnowledgeEvidence, listKnowledgeEdges, listDueReviews, listMasteryOverview, listCourseVersions, listLearningSources, getLearningSource, listVocabulary, listGrammar, piperHealth } from './generated/sdk.gen';
 import { client as generatedClient } from './generated/client.gen';
 
 export type LearningRecord = {
@@ -76,6 +76,14 @@ export const learningQueryOptions = {
       return (result.data ?? []) as DueReview[];
     },
   }),
+  masteryOverview: () => queryOptions({
+    queryKey: ['learning', 'reviews', 'mastery', pb.authStore.model?.id] as const,
+    queryFn: async () => {
+      const result = await listMasteryOverview({ client: generatedClient });
+      if (result.error) throw new Error('Could not load mastery overview');
+      return (result.data ?? []) as MasteryOverviewItem[];
+    },
+  }),
   courseVersions: (id: string) => queryOptions({
     queryKey: ['learning', 'courses', pb.authStore.model?.id, id, 'versions'] as const,
     queryFn: async () => {
@@ -128,6 +136,7 @@ export const learningQueryOptions = {
 };
 
 export type DueReview = { unit: LearningRecord; mastery: number };
+export type MasteryOverviewItem = { unit: LearningRecord; mastery: number; confidence?: number; repetitions?: number; next_review?: string };
 export type LearningEvidence = { id: string; evidence_type: string; score: number; details?: Record<string, unknown> };
 export type CourseVersionSummary = { version: number; current: boolean };
 export type LearningSource = { id: string; title: string; source_type: string; content?: string };

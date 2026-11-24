@@ -46,7 +46,7 @@ func TestLearningOpenAPIContractsCoverPocketBaseRoutes(t *testing.T) {
 		{"POST", "/api/learning/courses/{id}/evidence"}, {"POST", "/api/learning/courses/{id}/assess"},
 		{"GET", "/api/learning/courses/{id}/progress"}, {"PUT", "/api/learning/courses/{id}/progress"},
 		{"GET", "/api/learning/edges"}, {"POST", "/api/learning/edges"},
-		{"GET", "/api/learning/reviews/due"}, {"POST", "/api/learning/reviews/{unitId}"},
+		{"GET", "/api/learning/reviews/due"}, {"GET", "/api/learning/reviews/mastery"}, {"POST", "/api/learning/reviews/{unitId}"},
 		{"GET", "/api/learning/knowledge-units/{id}/evidence"},
 		{"POST", "/api/learning/courses/{id}/assistant"},
 		{"POST", "/api/learning/sources/web"},
@@ -844,6 +844,43 @@ func TestNextReviewScheduleUsesRecallQuality(t *testing.T) {
 	interval, ease, reps, mastery = nextReviewSchedule(interval, ease, reps, mastery, 2)
 	if interval != 1 || reps != 0 || ease >= 2.5 || mastery >= 0.5 {
 		t.Fatalf("failed recall should reset interval and lower mastery: %v %v %d %v", interval, ease, reps, mastery)
+	}
+}
+
+func TestMasteryOverviewListsWeakestOwnedConcepts(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Cleanup()
+	if err := EnsureCollections(app); err != nil {
+		t.Fatal(err)
+	}
+	owner := createTestRecord(t, app, "users", map[string]any{"email": "mastery-overview@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	other := createTestRecord(t, app, "users", map[string]any{"email": "mastery-overview-other@example.com", "password": "secret123456", "passwordConfirm": "secret123456"})
+	strong := createTestRecord(t, app, "knowledge_units", map[string]any{"owner": owner.Id, "title": "Strong concept", "description": "Known well.", "unit_type": "concept"})
+	weak := createTestRecord(t, app, "knowledge_units", map[string]any{"owner": owner.Id, "title": "Weak concept", "description": "Needs work.", "unit_type": "concept"})
+	otherUnit := createTestRecord(t, app, "knowledge_units", map[string]any{"owner": other.Id, "title": "Other concept", "description": "Not mine.", "unit_type": "concept"})
+	createTestRecord(t, app, "knowledge_mastery", map[string]any{"owner": owner.Id, "unit": strong.Id, "mastery": 0.85, "confidence": 0.8, "repetitions": 4})
+	createTestRecord(t, app, "knowledge_mastery", map[string]any{"owner": owner.Id, "unit": weak.Id, "mastery": 0.25, "confidence": 0.4, "repetitions": 1})
+	createTestRecord(t, app, "knowledge_mastery", map[string]any{"owner": other.Id, "unit": otherUnit.Id, "mastery": 0.1, "confidence": 0.3, "repetitions": 1})
+	request := httptest.NewRequest("GET", "/api/learning/reviews/mastery", nil)
+	recorder := httptest.NewRecorder()
+	event := &core.RequestEvent{App: app, Auth: owner, Event: router.Event{Request: request, Response: recorder}}
+	if err := masteryOverviewRoute(event); err != nil {
+		t.Fatal(err)
+	}
+	var result []struct {
+		Mastery float64 `json:"mastery"`
+		Unit    struct {
+			ID string `json:"id"`
+		} `json:"unit"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result) != 2 || result[0].Unit.ID != weak.Id || result[1].Unit.ID != strong.Id || result[0].Mastery != 0.25 {
+		t.Fatalf("mastery overview was not owner-scoped and weakest first: %#v", result)
 	}
 }
 

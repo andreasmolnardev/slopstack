@@ -239,6 +239,7 @@ func registerLearningAPI(api huma.API) {
 	huma.Register(api, huma.Operation{OperationID: "listKnowledgeEdges", Method: http.MethodGet, Path: "/api/learning/edges", Tags: []string{"Learning"}, Summary: "List knowledge relationships", Security: security, Errors: errorSet}, func(context.Context, *learningListInput) (*learningOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "createKnowledgeEdge", Method: http.MethodPost, Path: "/api/learning/edges", Tags: []string{"Learning"}, Summary: "Create a knowledge relationship", Security: security, Errors: errorSet, DefaultStatus: http.StatusCreated}, func(context.Context, *learningBodyInput) (*learningRecordOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "listDueReviews", Method: http.MethodGet, Path: "/api/learning/reviews/due", Tags: []string{"Learning"}, Summary: "List concepts due for spaced review", Security: security, Errors: errorSet}, func(context.Context, *learningListInput) (*learningOutput, error) { return nil, nil })
+	huma.Register(api, huma.Operation{OperationID: "listMasteryOverview", Method: http.MethodGet, Path: "/api/learning/reviews/mastery", Tags: []string{"Learning"}, Summary: "List practiced concepts from weakest to strongest mastery", Security: security, Errors: errorSet}, func(context.Context, *learningListInput) (*learningOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "answerReview", Method: http.MethodPost, Path: "/api/learning/reviews/{unitId}", Tags: []string{"Learning"}, Summary: "Submit a recall rating for a knowledge unit", Security: security, Errors: errorSet}, func(context.Context, *learningUnitBodyInput) (*learningRecordOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "getCourseProgress", Method: http.MethodGet, Path: "/api/learning/courses/{id}/progress", Tags: []string{"Learning"}, Summary: "Get the current user's resume position for a course", Security: security, Errors: []int{http.StatusUnauthorized, http.StatusNotFound}}, func(context.Context, *courseProgressPath) (*courseProgressOutput, error) { return nil, nil })
 	huma.Register(api, huma.Operation{OperationID: "saveCourseProgress", Method: http.MethodPut, Path: "/api/learning/courses/{id}/progress", Tags: []string{"Learning"}, Summary: "Save the current user's resume position for a course", Security: security, Errors: errorSet}, func(context.Context, *courseProgressWriteInput) (*courseProgressOutput, error) { return nil, nil })
@@ -286,6 +287,7 @@ func registerLearningRoutes(e *core.ServeEvent, config Config) {
 	e.Router.GET("/api/learning/edges", listKnowledgeEdgesRoute)
 	e.Router.POST("/api/learning/edges", createKnowledgeEdgeRoute)
 	e.Router.GET("/api/learning/reviews/due", dueReviewsRoute)
+	e.Router.GET("/api/learning/reviews/mastery", masteryOverviewRoute)
 	e.Router.POST("/api/learning/reviews/{unitId}", answerReviewRoute)
 }
 
@@ -1434,6 +1436,25 @@ func dueReviewsRoute(event *core.RequestEvent) error {
 		unit, findErr := event.App.FindRecordById("knowledge_units", record.GetString("unit"))
 		if findErr == nil && unit.GetString("owner") == user.Id {
 			result = append(result, map[string]any{"mastery": record.GetFloat("mastery"), "next_review": record.GetString("next_review"), "unit": unit.PublicExport()})
+		}
+	}
+	return event.JSON(http.StatusOK, result)
+}
+
+func masteryOverviewRoute(event *core.RequestEvent) error {
+	user, err := CurrentUser(event)
+	if err != nil {
+		return err
+	}
+	records, err := event.App.FindRecordsByFilter("knowledge_mastery", "owner = {:owner}", "mastery", 20, 0, dbx.Params{"owner": user.Id})
+	if err != nil {
+		return event.InternalServerError("could not load mastery overview", err)
+	}
+	result := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		unit, findErr := event.App.FindRecordById("knowledge_units", record.GetString("unit"))
+		if findErr == nil && unit.GetString("owner") == user.Id {
+			result = append(result, map[string]any{"mastery": record.GetFloat("mastery"), "confidence": record.GetFloat("confidence"), "repetitions": record.GetInt("repetitions"), "next_review": record.GetString("next_review"), "unit": unit.PublicExport()})
 		}
 	}
 	return event.JSON(http.StatusOK, result)

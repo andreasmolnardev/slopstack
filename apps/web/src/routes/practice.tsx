@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { createFileRoute, Link, redirect, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { learningQueryOptions, type DueReview, type LearningRecord } from '../api/learning-queries';
+import { learningQueryOptions, type DueReview, type LearningRecord, type MasteryOverviewItem } from '../api/learning-queries';
 import { pb } from '../api/pocketbase';
 
 export const Route = createFileRoute('/practice')({
@@ -11,6 +11,7 @@ export const Route = createFileRoute('/practice')({
   loader: ({ context }) => Promise.all([
     context.queryClient.ensureQueryData(learningQueryOptions.knowledgeUnits()),
     context.queryClient.ensureQueryData(learningQueryOptions.dueReviews()),
+    context.queryClient.ensureQueryData(learningQueryOptions.masteryOverview()),
     context.queryClient.ensureQueryData(learningQueryOptions.courses()),
   ]),
   component: AdaptivePractice,
@@ -27,6 +28,7 @@ function AdaptivePractice() {
   const [ownerId, setOwnerId] = useState(pb.authStore.model?.id ?? '');
   const unitsQuery = useQuery({ ...learningQueryOptions.knowledgeUnits(), enabled: Boolean(ownerId) });
   const dueQuery = useQuery({ ...learningQueryOptions.dueReviews(), enabled: Boolean(ownerId) });
+  const masteryQuery = useQuery({ ...learningQueryOptions.masteryOverview(), enabled: Boolean(ownerId) });
   const coursesQuery = useQuery({ ...learningQueryOptions.courses(), enabled: Boolean(ownerId) });
   const [mode, setMode] = useState<PracticeMode>('selected');
   const [selectedIDs, setSelectedIDs] = useState<string[]>([]);
@@ -41,6 +43,7 @@ function AdaptivePractice() {
   const [message, setMessage] = useState('');
   const units = (unitsQuery.data ?? []) as LearningRecord[];
   const dueReviews = (dueQuery.data ?? []) as DueReview[];
+  const masteryItems = (masteryQuery.data ?? []) as MasteryOverviewItem[];
 
   useEffect(() => pb.authStore.onChange((token, model) => {
     const nextOwnerID = model?.id ?? '';
@@ -59,7 +62,11 @@ function AdaptivePractice() {
   }), [navigate, ownerId, queryClient]);
 
   const dueIDs = new Set(dueReviews.map((review) => review.unit.id));
-  const weakIDs = new Set(dueReviews.filter((review) => review.mastery <= 0.6).map((review) => review.unit.id));
+  const weakItems = masteryItems.filter((item) => item.mastery <= 0.6);
+  const weakIDs = new Set([
+    ...dueReviews.filter((review) => review.mastery <= 0.6).map((review) => review.unit.id),
+    ...weakItems.map((item) => item.unit.id),
+  ]);
   const selectionRequired = mode === 'selected';
   const selectionAllowed = mode === 'selected' || mode === 'mixed' || mode === 'gap';
   const courseRequired = mode === 'course' || mode === 'module';
@@ -105,6 +112,7 @@ function AdaptivePractice() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['learning', 'knowledge-evidence', ownerId] }),
         queryClient.invalidateQueries({ queryKey: ['learning', 'reviews', 'due', ownerId] }),
+        queryClient.invalidateQueries({ queryKey: ['learning', 'reviews', 'mastery', ownerId] }),
       ]);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not submit this practice round.');
@@ -125,6 +133,22 @@ function AdaptivePractice() {
         <h1 className="mt-2 text-4xl font-semibold">Practice what needs attention</h1>
         <p className="mt-3 max-w-2xl text-[#b7adcc]">Build a recall quiz from selected concepts, due reviews, knowledge gaps, or a course module. Hints reveal one step at a time; missed ideas include a saved explanation to revisit.</p>
       </header>
+
+      {!quiz && weakItems.length > 0 && <section aria-label="Weakness overview" className="mt-8 rounded-2xl border border-white/10 bg-[#211638] p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-[.2em] text-[#efc778]">Weakness overview</p>
+            <h2 className="mt-1 text-lg font-semibold">Concepts needing reinforcement</h2>
+          </div>
+          <button type="button" onClick={() => setMode('weak')} className="rounded-lg border border-white/15 px-3 py-1.5 text-xs text-[#f8f5fc] hover:bg-white/5">Focus lower mastery</button>
+        </div>
+        <ul className="mt-4 grid gap-2 sm:grid-cols-2">
+          {weakItems.slice(0, 6).map((item) => <li key={item.unit.id} className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-[#0e0621] px-3 py-2 text-sm">
+            <span className="truncate">{item.unit.title}</span>
+            <span className="shrink-0 text-xs text-[#efc778]">{Math.round(item.mastery * 100)}% mastery</span>
+          </li>)}
+        </ul>
+      </section>}
 
       {!quiz && <form onSubmit={startPractice} className="mt-8 grid gap-5 rounded-2xl border border-white/10 bg-[#211638] p-6">
         <label className="grid gap-2 text-sm">Practice set<select value={mode} onChange={(event) => { setMode(event.target.value as PracticeMode); setModuleID(''); }} className="rounded-lg bg-[#0e0621] p-3"><option value="selected">Selected concepts</option><option value="due">Reviews due today</option><option value="weak">Lower mastery</option><option value="gap">New and weak concepts</option><option value="mixed">Mix due reviews with selected concepts</option><option value="course">Entire course</option><option value="module">Course module</option></select></label>
